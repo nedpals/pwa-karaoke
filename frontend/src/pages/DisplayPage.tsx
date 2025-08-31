@@ -8,6 +8,8 @@ export default function DisplayPage() {
   const [, setIsVideoReady] = useState(false);
   const animationFrameRef = useRef<number | null>(null);
   const [isTabVisible, setIsTabVisible] = useState(true);
+  const hasRequestedInitialQueue = useRef(false);
+  const [isMuted, setIsMuted] = useState(true); // Start muted, then auto-unmute
 
   const videoUrl = useMemo(() => {
     try {
@@ -19,8 +21,12 @@ export default function DisplayPage() {
   }, [playerState]);
 
   useEffect(() => {
-    if (connected) {
+    if (connected && !hasRequestedInitialQueue.current) {
+      hasRequestedInitialQueue.current = true;
       wsActions.requestQueueUpdate();
+    } else if (!connected) {
+      // Reset flag when disconnected so we'll request again on reconnect
+      hasRequestedInitialQueue.current = false;
     }
   }, [connected, wsActions]);
 
@@ -41,6 +47,29 @@ export default function DisplayPage() {
       video.pause();
     }
   }, [playerState]);
+
+  // Auto-unmute after video starts playing
+  useEffect(() => {
+    if (playerState?.play_state === "playing" && videoRef.current && isMuted) {
+      const timer = setTimeout(() => {
+        if (videoRef.current && !videoRef.current.paused) {
+          setIsMuted(false);
+          videoRef.current.muted = false;
+        }
+      }, 1000); // Unmute after 1 second of successful playback
+
+      return () => clearTimeout(timer);
+    }
+  }, [playerState?.play_state, isMuted]);
+
+  // Reset muted state when new song starts
+  useEffect(() => {
+    if (playerState?.entry) {
+      setIsMuted(true); // Start each new song muted for autoplay
+    }
+  }, [playerState?.entry]);
+
+
 
   const lastUpdateTimeRef = useRef<number>(0);
   const lastVideoTimeRef = useRef<number>(0);
@@ -196,28 +225,31 @@ export default function DisplayPage() {
         {playerState?.entry ? (
           <div className="relative w-full h-full">
             {videoUrl ? (
-              <video
-                ref={videoRef}
-                className="w-full h-full object-cover"
-                autoPlay
-                onLoadedData={() => setIsVideoReady(true)}
-                onEnded={() => {
-                  if (!playerState.entry) return;
-                  const newState = {
-                    entry: playerState.entry,
-                    play_state: "finished" as const,
-                    current_time: videoRef.current?.currentTime || 0,
-                    duration: videoRef.current?.duration || 0,
-                  };
-                  wsActions.updatePlayerState(newState);
-                }}
-              >
-                <track kind="captions" />
-                <source src={videoUrl} type="video/mp4" />
-                <p className="text-white text-center">
-                  Your browser does not support the video tag.
-                </p>
-              </video>
+              <div className="relative w-full h-full">
+                <video
+                  ref={videoRef}
+                  className="w-full h-full object-cover"
+                  autoPlay
+                  muted={isMuted}
+                  onLoadedData={() => setIsVideoReady(true)}
+                  onEnded={() => {
+                    if (!playerState.entry) return;
+                    const newState = {
+                      entry: playerState.entry,
+                      play_state: "finished" as const,
+                      current_time: videoRef.current?.currentTime || 0,
+                      duration: videoRef.current?.duration || 0,
+                    };
+                    wsActions.updatePlayerState(newState);
+                  }}
+                >
+                  <track kind="captions" />
+                  <source src={videoUrl} type="video/mp4" />
+                  <p className="text-white text-center">
+                    Your browser does not support the video tag.
+                  </p>
+                </video>
+              </div>
             ) : !videoUrl ? (
               <div className="flex flex-col items-center justify-center h-full text-white">
                 <div className="text-6xl mb-8">⚠️</div>

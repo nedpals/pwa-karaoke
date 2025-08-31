@@ -213,40 +213,7 @@ export default function DisplayPage() {
       </div>
 
       <div className="pb-6 px-6 absolute bottom-0 inset-x-0 z-50">
-        <footer>
-          {playerState?.entry && (
-            <div className="bg-black/60 backdrop-blur-sm rounded-lg p-4 text-white">
-              <div className="flex flex-row items-center justify-between mb-2">
-                <span className="text-sm opacity-70">
-                  {Math.floor((playerState.current_time || 0) / 60)}:
-                  {Math.floor((playerState.current_time || 0) % 60)
-                    .toString()
-                    .padStart(2, "0")}
-                </span>
-                <span className="text-sm opacity-70">
-                  {(playerState.duration || 0) > 0
-                    ? `${Math.floor((playerState.duration || 0) / 60)}:${Math.floor(
-                        (playerState.duration || 0) % 60,
-                      )
-                        .toString()
-                        .padStart(2, "0")}`
-                    : "--:--"}
-                </span>
-              </div>
-              <div className="w-full bg-white/20 rounded-full h-2">
-                <div
-                  className="bg-white rounded-full h-2 transition-all duration-1000"
-                  style={{
-                    width:
-                      (playerState.duration || 0) > 0
-                        ? `${Math.min(((playerState.current_time || 0) / (playerState.duration || 1)) * 100, 100)}%`
-                        : "0%",
-                  }}
-                />
-              </div>
-            </div>
-          )}
-        </footer>
+        {/* TODO: */}
       </div>
 
       <div className="relative h-full w-full flex items-center justify-center">

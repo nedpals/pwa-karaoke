@@ -1,5 +1,6 @@
 from typing import Literal
 from fastapi import WebSocket, WebSocketDisconnect
+from fastapi.websockets import WebSocketState
 
 class ConnectionClient:
     websocket: WebSocket
@@ -12,11 +13,24 @@ class ConnectionClient:
             # Connection is closed, ignore the error
             pass
 
-    async def receive(self) -> tuple[str, any]:
-        data = await self.websocket.receive_json()
-        if not isinstance(data, list):
-            raise Exception("Invalid message format")
-        return data[0], data[1]
+    async def receive(self, attempt = 0) -> tuple[str, any]:
+        if attempt > 3:
+            raise Exception("Failed to receive message after multiple attempts")
+
+        try:
+            data = await self.websocket.receive_json()
+            if not isinstance(data, list):
+                raise Exception("Invalid message format")
+            return data[0], data[1]
+        except RuntimeError:
+            # Handle 'WebSocket is not connected. Need to call "accept" first.' error
+            if not self.websocket.client_state == WebSocketState.CONNECTED:
+                # Reconnect the websocket
+                await self.websocket.accept()
+                return await self.receive(attempt + 1)
+            else:
+                raise
+
 
 class ClientManager:
     def __init__(self):

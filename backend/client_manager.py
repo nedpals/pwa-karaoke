@@ -6,7 +6,11 @@ class ConnectionClient:
     client_type: Literal["controller", "display"]
 
     async def send_command(self, command: str, data):
-        await self.websocket.send_json([command, data])
+        try:
+            await self.websocket.send_json([command, data])
+        except Exception:
+            # Connection is closed, ignore the error
+            pass
 
     async def receive(self) -> tuple[str, any]:
         data = await self.websocket.receive_json()
@@ -27,13 +31,21 @@ class ClientManager:
             await self.broadcast_client_count()
             return client
         except WebSocketDisconnect:
-            # TODO: better error message
-            await websocket.send_json(["error", "Invalid handshake"])
-            await websocket.close()
+            # Client disconnected during handshake
+            return None
+        except Exception:
+            # Other handshake errors
+            try:
+                await websocket.send_json(["error", "Invalid handshake"])
+                await websocket.close()
+            except Exception:
+                # Connection already closed
+                pass
+            return None
 
     async def handshake(self, websocket: WebSocket) -> ConnectionClient:
         data = await websocket.receive_json()
-        if not isinstance(data, list) and data[0] != "handshake":
+        if not isinstance(data, list) or data[0] != "handshake":
             raise WebSocketDisconnect()
 
         client_type = data[1]
@@ -62,8 +74,17 @@ class ClientManager:
         await self.broadcast_client_count()
 
     async def broadcast_command(self, command: str, data):
-        for connection in self.active_connections:
-            await connection.send_command(command, data)
+        # Create a copy of the list to avoid modification during iteration
+        connections = list(self.active_connections)
+        for connection in connections:
+            try:
+                await connection.send_command(command, data)
+            except Exception:
+                # Remove failed connections
+                if connection in self.active_connections:
+                    self.active_connections.remove(connection)
+                    if connection.client_type == "display":
+                        self.has_display_client = False
 
     async def broadcast_client_count(self):
         return await self.broadcast_command("client_count", len(self.active_connections))

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, useMemo } from "react";
 import { useWebSocket } from "../hooks/useWebSocket";
 
 export default function DisplayPage() {
-  const [wsState, wsActions] = useWebSocket('display');
+  const [wsState, wsActions] = useWebSocket("display");
   const { connected, queue, playerState } = wsState;
   const videoRef = useRef<HTMLVideoElement>(null);
   const [, setIsVideoReady] = useState(false);
@@ -13,59 +13,51 @@ export default function DisplayPage() {
     try {
       return playerState?.entry?.video_url || null;
     } catch (error) {
-      console.error('Error processing video URL:', error, playerState?.entry);
+      console.error("Error processing video URL:", error, playerState?.entry);
       return null;
     }
-  }, [playerState?.entry]);
-  
-  
+  }, [playerState]);
 
-  // Request initial data when connected
   useEffect(() => {
     if (connected) {
-      // Request initial queue data only on connection (backend now broadcasts changes)
       wsActions.requestQueueUpdate();
-      // Request current song if we don't already have player state (backend handles queue checking)
       if (!playerState?.entry) {
         wsActions.requestCurrentSong();
       }
     }
-  }, [connected, wsActions, playerState?.entry]);
+  }, [connected, wsActions, playerState]);
 
-  // Handle video playback state changes (optimized)
   useEffect(() => {
     if (!videoRef.current || !playerState) return;
 
     const video = videoRef.current;
-    const shouldPlay = playerState.play_state === 'playing';
-    const shouldPause = playerState.play_state === 'paused';
+    const shouldPlay = playerState.play_state === "playing";
+    const shouldPause = playerState.play_state === "paused";
 
     if (shouldPlay && video.paused) {
       video.play().catch((error) => {
-        if (error.name !== 'AbortError') {
-          console.error('Video play failed:', error);
+        if (error.name !== "AbortError") {
+          console.error("Video play failed:", error);
         }
       });
     } else if (shouldPause && !video.paused) {
       video.pause();
     }
-  }, [playerState]); // Depend on full playerState but optimize inside
+  }, [playerState]);
 
-
-  // Update player state using requestAnimationFrame (much more battery efficient)
   const lastUpdateTimeRef = useRef<number>(0);
   const lastVideoTimeRef = useRef<number>(0);
-  
-  // Track tab visibility for additional battery optimization
+
   useEffect(() => {
     const handleVisibilityChange = () => {
       setIsTabVisible(!document.hidden);
     };
-    
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () =>
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
   }, []);
-  
+
   useEffect(() => {
     if (!videoRef.current || !playerState?.entry) {
       // Cancel any existing animation frame
@@ -77,8 +69,8 @@ export default function DisplayPage() {
     }
 
     const video = videoRef.current;
-    const isPlaying = playerState.play_state === 'playing';
-    
+    const isPlaying = playerState.play_state === "playing";
+
     // Only run animation frame when video is actually playing and tab is visible
     if (!isPlaying || !isTabVisible) {
       if (animationFrameRef.current) {
@@ -87,35 +79,43 @@ export default function DisplayPage() {
       }
       return;
     }
-    
+
     const updatePlayerState = () => {
       // Double-check that we're still playing, video exists, and tab is visible
-      if (!video || !playerState?.entry || video.paused || video.ended || !isTabVisible) {
+      if (
+        !video ||
+        !playerState?.entry ||
+        video.paused ||
+        video.ended ||
+        !isTabVisible
+      ) {
         animationFrameRef.current = null;
         return;
       }
-      
+
       const currentTime = video.currentTime;
       const duration = video.duration || 0;
       const now = performance.now();
-      
+
       // Only update WebSocket every 2 seconds to reduce network traffic
       const timeSinceLastUpdate = now - lastUpdateTimeRef.current;
       const videoTimeDelta = Math.abs(currentTime - lastVideoTimeRef.current);
-      
+
       if (timeSinceLastUpdate >= 2000 && videoTimeDelta >= 0.5) {
         lastUpdateTimeRef.current = now;
         lastVideoTimeRef.current = currentTime;
-        
+
         const newState = {
           entry: playerState.entry,
-          play_state: video.ended ? 'finished' as const : 'playing' as const,
+          play_state: video.ended
+            ? ("finished" as const)
+            : ("playing" as const),
           current_time: currentTime,
-          duration: duration
+          duration: duration,
         };
         wsActions.updatePlayerState(newState);
       }
-      
+
       // Continue the animation loop only if tab is still visible
       if (isTabVisible) {
         animationFrameRef.current = requestAnimationFrame(updatePlayerState);
@@ -142,12 +142,17 @@ export default function DisplayPage() {
           </div>
 
           <div className="flex flex-row text-2xl py-3 px-6 flex-1">
-            <p>{playerState?.entry ? `${playerState.entry.artist} - ${playerState.entry.title}` : 'No song playing'}</p>
+            <p>
+              {playerState?.entry
+                ? `${playerState.entry.artist} - ${playerState.entry.title}`
+                : "No song playing"}
+            </p>
           </div>
 
           <div className="rounded-r-[inherit] bg-black/20 text-2xl px-6 py-3">
             <p>
-              <span className="font-bold">On Queue:</span> {queue?.items.length || 0}
+              <span className="font-bold">On Queue:</span>{" "}
+              {queue?.items.length || 0}
             </p>
           </div>
         </header>
@@ -159,22 +164,29 @@ export default function DisplayPage() {
             <div className="bg-black/60 backdrop-blur-sm rounded-lg p-4 text-white">
               <div className="flex flex-row items-center justify-between mb-2">
                 <span className="text-sm opacity-70">
-                  {Math.floor((playerState.current_time || 0) / 60)}:{Math.floor((playerState.current_time || 0) % 60).toString().padStart(2, '0')}
+                  {Math.floor((playerState.current_time || 0) / 60)}:
+                  {Math.floor((playerState.current_time || 0) % 60)
+                    .toString()
+                    .padStart(2, "0")}
                 </span>
                 <span className="text-sm opacity-70">
-                  {(playerState.duration || 0) > 0 ?
-                    `${Math.floor((playerState.duration || 0) / 60)}:${Math.floor((playerState.duration || 0) % 60).toString().padStart(2, '0')}`
-                    : '--:--'
-                  }
+                  {(playerState.duration || 0) > 0
+                    ? `${Math.floor((playerState.duration || 0) / 60)}:${Math.floor(
+                        (playerState.duration || 0) % 60,
+                      )
+                        .toString()
+                        .padStart(2, "0")}`
+                    : "--:--"}
                 </span>
               </div>
               <div className="w-full bg-white/20 rounded-full h-2">
                 <div
                   className="bg-white rounded-full h-2 transition-all duration-1000"
                   style={{
-                    width: (playerState.duration || 0) > 0 ?
-                      `${Math.min(((playerState.current_time || 0) / (playerState.duration || 1)) * 100, 100)}%` :
-                      '0%'
+                    width:
+                      (playerState.duration || 0) > 0
+                        ? `${Math.min(((playerState.current_time || 0) / (playerState.duration || 1)) * 100, 100)}%`
+                        : "0%",
                   }}
                 />
               </div>
@@ -196,22 +208,28 @@ export default function DisplayPage() {
                   if (!playerState.entry) return;
                   const newState = {
                     entry: playerState.entry,
-                    play_state: 'finished' as const,
+                    play_state: "finished" as const,
                     current_time: videoRef.current?.currentTime || 0,
-                    duration: videoRef.current?.duration || 0
+                    duration: videoRef.current?.duration || 0,
                   };
                   wsActions.updatePlayerState(newState);
                 }}
               >
                 <track kind="captions" />
                 <source src={videoUrl} type="video/mp4" />
-                <p className="text-white text-center">Your browser does not support the video tag.</p>
+                <p className="text-white text-center">
+                  Your browser does not support the video tag.
+                </p>
               </video>
             ) : !videoUrl ? (
               <div className="flex flex-col items-center justify-center h-full text-white">
                 <div className="text-6xl mb-8">⚠️</div>
-                <h2 className="text-4xl font-bold mb-4">Video Failed to Load</h2>
-                <p className="text-2xl mb-8">{playerState.entry.title} - {playerState.entry.artist}</p>
+                <h2 className="text-4xl font-bold mb-4">
+                  Video Failed to Load
+                </h2>
+                <p className="text-2xl mb-8">
+                  {playerState.entry.title} - {playerState.entry.artist}
+                </p>
                 <div className="text-lg opacity-70 text-center">
                   <p>Unable to load video stream</p>
                   <p className="mt-2">Source: {playerState.entry.source}</p>
@@ -220,11 +238,15 @@ export default function DisplayPage() {
             ) : (
               <div className="flex flex-col items-center justify-center h-full text-white">
                 <div className="text-6xl mb-8">🎤</div>
-                <h2 className="text-4xl font-bold mb-4">{playerState.entry.title}</h2>
+                <h2 className="text-4xl font-bold mb-4">
+                  {playerState.entry.title}
+                </h2>
                 <p className="text-2xl mb-8">{playerState.entry.artist}</p>
                 <div className="text-lg opacity-70">
                   <p>Audio-only karaoke mode</p>
-                  <p className="mt-2">Video source: {playerState.entry.source}</p>
+                  <p className="mt-2">
+                    Video source: {playerState.entry.source}
+                  </p>
                 </div>
               </div>
             )}
@@ -233,7 +255,9 @@ export default function DisplayPage() {
           <div className="flex flex-col items-center justify-center h-full text-white">
             <div className="text-8xl mb-8">🎵</div>
             <h2 className="text-4xl font-bold mb-4">No Song Playing</h2>
-            <p className="text-xl opacity-70">Waiting for controllers to queue a song...</p>
+            <p className="text-xl opacity-70">
+              Waiting for controllers to queue a song...
+            </p>
             {!connected && (
               <p className="text-lg opacity-50 mt-4">Connecting to server...</p>
             )}

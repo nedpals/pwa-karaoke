@@ -1,14 +1,13 @@
 import { useState, useEffect } from "react";
-import type {
-  KaraokeEntry,
-  KaraokeSearchResult,
-} from "../types";
+import type { KaraokeEntry, KaraokeSearchResult } from "../types";
 import { useWebSocket } from "../hooks/useWebSocket";
 import { MaterialSymbolsFastForwardRounded } from "../components/icons/MaterialSymbolsFastForwardRounded";
 import { MaterialSymbolsKeyboardArrowUpRounded } from "../components/icons/MaterialSymbolsArrowUpRounded";
 import { MaterialSymbolsDeleteOutline } from "../components/icons/MaterialSymbolsDeleteOutline";
 import { MaterialSymbolsKeyboardAltOutlineRounded } from "../components/icons/MaterialSymbolsKeyboardAltOutlineRounded";
 import { MaterialSymbolsPlaylistAddRounded } from "../components/icons/MaterialSymbolsPlaylistAddRounded";
+import { MaterialSymbolsPauseRounded } from "../components/icons/MaterialSymbolsPauseRounded";
+import { MaterialSymbolsPlayArrowRounded } from "../components/icons/MaterialSymbolsPlayRounded";
 
 const CONTROLLER_TABS = [
   {
@@ -42,7 +41,7 @@ export default function ControllerPage() {
     useState<KaraokeSearchResult | null>(null);
   const [showVirtualKeyboard, setShowVirtualKeyboard] = useState(false);
 
-  const [wsState, wsActions] = useWebSocket('controller');
+  const [wsState, wsActions] = useWebSocket("controller");
   const { queue, playerState, searchResults: wsSearchResults } = wsState;
 
   // Update local search results when WebSocket results come in
@@ -107,7 +106,7 @@ export default function ControllerPage() {
                       value={search}
                       onChange={(e) => setSearch(e.target.value)}
                       onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
+                        if (e.key === "Enter") {
                           handleSearch();
                         }
                       }}
@@ -120,34 +119,38 @@ export default function ControllerPage() {
                       disabled={!search.trim()}
                       className="absolute right-2 top-1/2 -translate-y-1/2 px-3 py-2 bg-white/20 hover:bg-white/30 disabled:bg-white/10 disabled:opacity-50 rounded text-white"
                     >
-                      🔍
+                      Search
                     </button>
                   </div>
                 </div>
 
                 <div className="pt-12">
-                  {searchResults && searchResults.entries.length > 0 ? (
-                    searchResults.entries.map((entry, i) => (
-                      <div
-                        key={`search_result_${entry.id}_${i}`}
-                        className="mb-4 flex flex-row items-stretch space-x-1 text-white"
-                      >
-                        <KaraokeEntryCard entry={entry} />
-                        <button
-                          type="button"
-                          onClick={() => handleAddQueueItem(entry)}
-                          className="px-3 py-2 flex items-center bg-black/40 rounded-lg border border-white/20 hover:bg-white/20"
+                  {searchResults && searchResults.entries.length > 0
+                    ? searchResults.entries.map((entry, i) => (
+                        <div
+                          key={`search_result_${entry.id}_${i}`}
+                          className="mb-4 flex flex-row items-stretch space-x-1 text-white"
                         >
-                          <MaterialSymbolsPlaylistAddRounded className="text-2xl" />
-                        </button>
-                      </div>
-                    ))
-                  ) : search && (
-                    <div className="text-center py-12">
-                      <p className="text-white/70 text-xl">No results found for "{search}"</p>
-                      <p className="text-white/50 mt-2">Try searching for a different song or artist</p>
-                    </div>
-                  )}
+                          <KaraokeEntryCard entry={entry} />
+                          <button
+                            type="button"
+                            onClick={() => handleAddQueueItem(entry)}
+                            className="px-3 py-2 flex items-center bg-black/40 rounded-lg border border-white/20 hover:bg-white/20"
+                          >
+                            <MaterialSymbolsPlaylistAddRounded className="text-2xl" />
+                          </button>
+                        </div>
+                      ))
+                    : search && (
+                        <div className="text-center py-12">
+                          <p className="text-white/70 text-xl">
+                            No results found for "{search}"
+                          </p>
+                          <p className="text-white/50 mt-2">
+                            Try searching for a different song or artist
+                          </p>
+                        </div>
+                      )}
                 </div>
               </div>
 
@@ -182,26 +185,40 @@ export default function ControllerPage() {
                   </p>
                   {playerState?.entry?.uploader && (
                     <div className="flex flex-row space-x-2">
-                      <p>From: Youtube</p>
-                      <p>By: Channel Name</p>
+                      <p>From: {playerState.entry.source}</p>
+                      <p>By: {playerState.entry.uploader}</p>
                     </div>
                   )}
                 </div>
 
                 {/* Progress bar */}
                 <div className="flex flex-row items-center gap-2">
-                  <p>{Math.floor((playerState?.current_time || 0) / 60)}:{Math.floor((playerState?.current_time || 0) % 60).toString().padStart(2, '0')}</p>
+                  <p>
+                    {Math.floor((playerState?.current_time || 0) / 60)}:
+                    {Math.floor((playerState?.current_time || 0) % 60)
+                      .toString()
+                      .padStart(2, "0")}
+                  </p>
                   <div className="relative bg-black/20 rounded-full h-4 flex-1">
-                    <div 
-                      className="relative left-0 rounded-[inherit] h-full bg-white/75 transition-all duration-300" 
-                      style={{ 
-                        width: playerState?.duration && playerState.duration > 0 ? 
-                          `${(playerState.current_time / playerState.duration) * 100}%` : 
-                          '0%'
-                      }} 
+                    <div
+                      className="relative left-0 rounded-[inherit] h-full bg-white/75 transition-all duration-300"
+                      style={{
+                        width:
+                          playerState?.duration && playerState.duration > 0
+                            ? `${(playerState.current_time / playerState.duration) * 100}%`
+                            : "0%",
+                      }}
                     />
                   </div>
-                  <p>{playerState?.duration && playerState.duration > 0 ? `${Math.floor(playerState.duration / 60)}:${Math.floor(playerState.duration % 60).toString().padStart(2, '0')}` : '--:--'}</p>
+                  <p>
+                    {playerState?.duration && playerState.duration > 0
+                      ? `${Math.floor(playerState.duration / 60)}:${Math.floor(
+                          playerState.duration % 60,
+                        )
+                          .toString()
+                          .padStart(2, "0")}`
+                      : "--:--"}
+                  </p>
                 </div>
 
                 <div className="flex flex-row px-8 justify-center space-x-4 pt-8">
@@ -211,7 +228,11 @@ export default function ControllerPage() {
                     disabled={!playerState || !playerState.entry}
                     className="text-4xl rounded-full border border-white bg-black/40 px-12 py-4 hover:not-disabled:bg-white/20 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    {playerState?.play_state === 'playing' ? '⏸️' : '▶️'}
+                    {playerState?.play_state === "playing" ? (
+                      <MaterialSymbolsPauseRounded />
+                    ) : (
+                      <MaterialSymbolsPlayArrowRounded />
+                    )}
                   </button>
                 </div>
                 <button
@@ -239,7 +260,7 @@ export default function ControllerPage() {
                   {queue?.items.length || 0} Songs in Queue
                 </h2>
                 {queue && queue.items.length > 0 && (
-                  <button 
+                  <button
                     type="button"
                     onClick={() => {
                       for (const item of queue.items) {
@@ -258,7 +279,7 @@ export default function ControllerPage() {
                   <p>Now Playing</p>
                   <div className="flex flex-row items-stretch space-x-1">
                     <KaraokeEntryCard entry={playerState.entry} />
-                    <button 
+                    <button
                       type="button"
                       onClick={handlePlayNext}
                       className="px-3 py-2 flex items-center bg-black/40 rounded-lg border border-white/20 hover:bg-white/20"
@@ -278,14 +299,14 @@ export default function ControllerPage() {
                       className="flex flex-row items-stretch space-x-1"
                     >
                       <KaraokeEntryCard entry={item.entry} />
-                      <button 
+                      <button
                         type="button"
                         onClick={() => wsActions.queueNextSong(item.id)}
                         className="px-3 py-2 flex items-center bg-black/40 rounded-lg border border-white/20 hover:bg-white/20"
                       >
                         <MaterialSymbolsKeyboardArrowUpRounded className="text-2xl" />
                       </button>
-                      <button 
+                      <button
                         type="button"
                         onClick={() => wsActions.removeSong(item.id)}
                         className="px-3 py-2 flex items-center bg-black/40 rounded-lg border border-white/20 hover:bg-white/20"

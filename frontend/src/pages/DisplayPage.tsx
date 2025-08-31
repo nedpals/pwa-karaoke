@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useMemo, useCallback } from "react";
+import { useEffect, useRef, useState, useMemo } from "react";
 import { useWebSocket } from "../hooks/useWebSocket";
 
 export default function DisplayPage() {
@@ -7,33 +7,18 @@ export default function DisplayPage() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [, setIsVideoReady] = useState(false);
   const animationFrameRef = useRef<number | null>(null);
-  const [embedError, setEmbedError] = useState(false);
   const [isTabVisible, setIsTabVisible] = useState(true);
 
-  const getVideoUrl = useCallback((url: string) => {
+  const videoUrl = useMemo(() => {
     try {
-      if (url.includes('youtube.com') || url.includes('youtu.be')) {
-        return null;
-      }
-      // For other video URLs, return as-is
-      return url;
+      return playerState?.entry?.video_url || null;
     } catch (error) {
-      console.error('Error processing video URL:', error, url);
+      console.error('Error processing video URL:', error, playerState?.entry);
       return null;
     }
-  }, []);
-
-  const videoUrl = useMemo(() => {
-    const url = playerState?.entry?.video_url;
-    return url ? getVideoUrl(url) : null;
-  }, [playerState?.entry, getVideoUrl]);
+  }, [playerState?.entry]);
   
-  const youtubeEmbedUrl = playerState?.entry?.embed_url || null;
   
-  // Reset embed error when new video loads
-  useEffect(() => {
-    setEmbedError(false);
-  }, [playerState?.entry?.video_url]);
 
   // Request initial data when connected
   useEffect(() => {
@@ -201,34 +186,7 @@ export default function DisplayPage() {
       <div className="relative h-full w-full flex items-center justify-center">
         {playerState?.entry ? (
           <div className="relative w-full h-full">
-            {youtubeEmbedUrl && !embedError ? (
-              <iframe
-                src={youtubeEmbedUrl}
-                className="w-full h-full"
-                style={{ border: 0 }}
-                allow="autoplay; encrypted-media"
-                allowFullScreen
-                title={`${playerState.entry.artist} - ${playerState.entry.title}`}
-                onError={() => setEmbedError(true)}
-              />
-            ) : (playerState?.entry?.video_url?.includes('youtube') && embedError) ? (
-              <div className="flex flex-col items-center justify-center h-full text-white">
-                <div className="text-6xl mb-8">⚠️</div>
-                <h2 className="text-4xl font-bold mb-4">YouTube Video Failed to Load</h2>
-                <p className="text-2xl mb-8">{playerState.entry.title} - {playerState.entry.artist}</p>
-                <div className="text-lg opacity-70 text-center">
-                  <p>Unable to load YouTube video</p>
-                  <p className="mt-2">URL: {playerState.entry.video_url}</p>
-                  <button 
-                    type="button"
-                    onClick={() => setEmbedError(false)}
-                    className="mt-4 px-6 py-2 bg-white/20 rounded-lg hover:bg-white/30 transition-colors"
-                  >
-                    Try Again
-                  </button>
-                </div>
-              </div>
-            ) : videoUrl ? (
+            {videoUrl ? (
               <video
                 ref={videoRef}
                 className="w-full h-full object-cover"
@@ -249,6 +207,16 @@ export default function DisplayPage() {
                 <source src={videoUrl} type="video/mp4" />
                 <p className="text-white text-center">Your browser does not support the video tag.</p>
               </video>
+            ) : !videoUrl ? (
+              <div className="flex flex-col items-center justify-center h-full text-white">
+                <div className="text-6xl mb-8">⚠️</div>
+                <h2 className="text-4xl font-bold mb-4">Video Failed to Load</h2>
+                <p className="text-2xl mb-8">{playerState.entry.title} - {playerState.entry.artist}</p>
+                <div className="text-lg opacity-70 text-center">
+                  <p>Unable to load video stream</p>
+                  <p className="mt-2">Source: {playerState.entry.source}</p>
+                </div>
+              </div>
             ) : (
               <div className="flex flex-col items-center justify-center h-full text-white">
                 <div className="text-6xl mb-8">🎤</div>

@@ -1,6 +1,8 @@
 import re
-from urllib.parse import quote, urlparse, parse_qs
+import asyncio
+from urllib.parse import quote
 from playwright.async_api import async_playwright, Browser
+from pytube import YouTube
 from core.search import KaraokeSearchProvider, KaraokeSearchResult, KaraokeEntry
 
 class YTKaraokeSearchProvider(KaraokeSearchProvider):
@@ -30,8 +32,8 @@ class YTKaraokeSearchProvider(KaraokeSearchProvider):
 
             video_elements = await page_obj.query_selector_all('ytd-video-renderer')
 
-            entries = []
-
+            # First pass: collect all video metadata
+            video_data = []
             for i, element in enumerate(video_elements):
                 try:
                     title_element = await element.query_selector('#video-title')
@@ -47,26 +49,48 @@ class YTKaraokeSearchProvider(KaraokeSearchProvider):
                     href = await link_element.get_attribute('href') if link_element else ""
                     video_url = f"https://www.youtube.com{href}" if href else ""
 
+                    if not video_url:
+                        continue
+
                     duration_element = await element.query_selector('ytd-thumbnail-overlay-time-status-renderer span')
                     duration_text = await duration_element.inner_text() if duration_element else ""
                     duration = self._parse_duration(duration_text) if duration_text else None
 
                     video_id = self._extract_video_id(href) if href else str(i)
-                    embed_url = self._get_youtube_embed_url(video_url) if video_url else None
 
+                    video_data.append({
+                        'id': video_id,
+                        'title': title.strip(),
+                        'artist': artist.strip(),
+                        'video_url': video_url,
+                        'duration': duration
+                    })
+                except Exception:
+                    continue
+
+            if not video_data:
+                return KaraokeSearchResult(entries=[])
+
+            # Extract raw URLs in parallel
+            video_urls = [data['video_url'] for data in video_data]
+            raw_urls = await asyncio.gather(*[self._get_raw_video_url(url) for url in video_urls], return_exceptions=True)
+
+            # Create entries only for successful extractions
+            entries = []
+            for data, raw_url in zip(video_data, raw_urls):
+                # Skip if extraction failed or returned an exception
+                if raw_url and not isinstance(raw_url, Exception):
                     karaoke_entry = KaraokeEntry(
-                        id=hash(video_id) % (10**9),
-                        title=title.strip(),
-                        artist=artist.strip(),
-                        video_url=video_url,
+                        id=hash(data['id']) % (10**9),
+                        title=data['title'],
+                        artist=data['artist'],
+                        video_url=raw_url,
                         source="YouTube",
-                        uploader=artist.strip(),
-                        duration=duration,
-                        embed_url=embed_url
+                        uploader=data['artist'],
+                        duration=data['duration'],
+                        embed_url=None
                     )
                     entries.append(karaoke_entry)
-                except Exception as e:
-                    continue
 
             return KaraokeSearchResult(entries=entries)
 
@@ -103,42 +127,27 @@ class YTKaraokeSearchProvider(KaraokeSearchProvider):
             return True
         return any(allowed.lower() in channel_name.lower() for allowed in self.allowed_channels)
 
-    def _get_youtube_embed_url(self, url: str) -> str | None:
+    async def _get_raw_video_url(self, youtube_url: str) -> str | None:
         """
-        Convert YouTube URL to embed URL for iframe usage.
-        Supports various YouTube URL formats and returns optimized embed URL.
+        Extract raw video URL using pytube2.
+        Returns the highest quality video stream URL.
         """
         try:
-            video_id = ''
+            yt = YouTube(youtube_url)
+            # Get the highest quality progressive stream (video + audio)
+            stream = yt.streams.filter(progressive=True, file_extension='mp4').order_by('resolution').desc().first()
             
-            parsed_url = urlparse(url)
+            # If no progressive stream, get highest quality adaptive video stream
+            if not stream:
+                stream = yt.streams.filter(adaptive=True, file_extension='mp4', only_video=False).order_by('resolution').desc().first()
             
-            # Handle different YouTube URL formats
-            if parsed_url.hostname == 'youtu.be':
-                # Short URL format: https://youtu.be/VIDEO_ID
-                video_id = parsed_url.path.lstrip('/')
-            elif parsed_url.hostname and 'youtube.com' in parsed_url.hostname:
-                # Handle various youtube.com formats
-                if parsed_url.path == '/watch':
-                    # Standard format: https://www.youtube.com/watch?v=VIDEO_ID
-                    video_id = parse_qs(parsed_url.query).get('v', [''])[0]
-                elif parsed_url.path.startswith('/embed/'):
-                    # Embed format: https://www.youtube.com/embed/VIDEO_ID
-                    video_id = parsed_url.path.replace('/embed/', '')
-                elif parsed_url.path.startswith('/v/'):
-                    # Alternative format: https://www.youtube.com/v/VIDEO_ID
-                    video_id = parsed_url.path.replace('/v/', '')
-            
-            # Clean video ID (remove any extra parameters)
-            video_id = video_id.split('&')[0].split('?')[0]
-            
-            if video_id:
-                # Return optimized embed URL with performance settings
-                return f"https://www.youtube.com/embed/{video_id}?autoplay=1&controls=0&modestbranding=1&rel=0&showinfo=0"
-            
-            return None
-            
+            # If still no stream, get any available stream
+            if not stream:
+                stream = yt.streams.first()
+                
+            return stream.url if stream else None
         except Exception:
+            # Return None if extraction fails, fallback to original URL
             return None
 
     async def close(self):

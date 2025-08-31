@@ -6,7 +6,6 @@ export interface KaraokeEntry {
   source: string;
   uploader: string;
   duration: number | null;
-  embed_url?: string | null; // Pre-processed YouTube embed URL
 }
 
 export interface KaraokeSearchResult {

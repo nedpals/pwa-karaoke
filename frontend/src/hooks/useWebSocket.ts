@@ -10,14 +10,12 @@ export interface WebSocketState {
   clientCount: number;
   queue: KaraokeQueue | null;
   playerState: DisplayPlayerState | null;
-  searchResults: KaraokeEntry[] | null;
 }
 
 export interface WebSocketActions {
-  sendCommand: (command: string, payload?: any) => void;
+  sendCommand: (command: string, payload?: unknown) => void;
   
   // Controller commands
-  search: (query: string) => void;
   queueSong: (entry: KaraokeEntry) => void;
   removeSong: (id: string) => void;
   playSong: () => void;
@@ -37,13 +35,12 @@ export function useWebSocket(clientType: ClientType): [WebSocketState, WebSocket
     clientCount: 0,
     queue: null,
     playerState: null,
-    searchResults: null,
   });
 
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  const sendCommand = useCallback((command: string, payload: any = null) => {
+  const sendCommand = useCallback((command: string, payload: unknown = null) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify([command, payload]));
     }
@@ -99,9 +96,6 @@ export function useWebSocket(clientType: ClientType): [WebSocketState, WebSocket
               playerState: prev.playerState ? { ...prev.playerState, play_state: 'paused' } : null
             }));
             break;
-          case 'search_results':
-            setState(prev => ({ ...prev, searchResults: data.entries }));
-            break;
           case 'error':
             console.error('WebSocket error:', data);
             break;
@@ -153,7 +147,6 @@ export function useWebSocket(clientType: ClientType): [WebSocketState, WebSocket
     sendCommand,
     
     // Controller commands
-    search: (query) => sendCommand('search', query),
     queueSong: (entry) => sendCommand('queue_song', entry),
     removeSong: (id) => sendCommand('remove_song', id),
     playSong: () => sendCommand('play_song'),

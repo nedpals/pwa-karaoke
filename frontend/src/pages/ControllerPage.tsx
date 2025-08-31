@@ -1,7 +1,7 @@
 import { useState, createContext, useContext } from "react";
 import type { ReactNode } from "react";
 import type { KaraokeEntry, KaraokeSearchResult, KaraokeQueueItem } from "../types";
-import { useWebSocket } from "../hooks/useWebSocket";
+import { useWebSocket, type WebSocketReturn } from "../hooks/useWebSocket";
 import { MaterialSymbolsFastForwardRounded } from "../components/icons/MaterialSymbolsFastForwardRounded";
 import { MaterialSymbolsKeyboardArrowUpRounded } from "../components/icons/MaterialSymbolsArrowUpRounded";
 import { MaterialSymbolsDeleteOutline } from "../components/icons/MaterialSymbolsDeleteOutline";
@@ -26,8 +26,7 @@ const CONTROLLER_TABS = [
 ] as const;
 
 interface ControllerContextType {
-  wsState: ReturnType<typeof useWebSocket>[0];
-  wsActions: ReturnType<typeof useWebSocket>[1];
+  ws: WebSocketReturn;
 }
 
 const ControllerContext = createContext<ControllerContextType | undefined>(undefined);
@@ -45,11 +44,10 @@ interface ControllerProviderProps {
 }
 
 function ControllerProvider({ children }: ControllerProviderProps) {
-  const [wsState, wsActions] = useWebSocket("controller");
+  const ws = useWebSocket("controller");
 
   const value: ControllerContextType = {
-    wsState,
-    wsActions,
+    ws,
   };
 
   return (
@@ -69,7 +67,7 @@ function KaraokeEntryCard({ entry }: { entry: KaraokeEntry }) {
 }
 
 function SongSelectTab() {
-  const { wsActions } = useController();
+  const { ws } = useController();
   const [search, setSearch] = useState("");
   const [searchResults, setSearchResults] = useState<KaraokeSearchResult | null>(null);
   const [showVirtualKeyboard, setShowVirtualKeyboard] = useState(false);
@@ -101,7 +99,7 @@ function SongSelectTab() {
   };
 
   const handleAddQueueItem = (entry: KaraokeEntry) => {
-    wsActions.queueSong(entry);
+    ws.queueSong(entry);
   };
 
   return (
@@ -186,19 +184,18 @@ function SongSelectTab() {
 }
 
 function PlayerTab() {
-  const { wsState, wsActions } = useController();
-  const { playerState, queue } = wsState;
+  const { playerState, queue, playSong, pauseSong, playNext } = useController().ws;
 
   const handlePlayerPlayback = () => {
     if (playerState?.play_state === "playing") {
-      wsActions.pauseSong();
+      pauseSong();
     } else {
-      wsActions.playSong();
+      playSong();
     }
   };
 
   const handlePlayNext = () => {
-    wsActions.playNext(); // Backend handles validation
+    playNext(); // Backend handles validation
   };
 
   return (
@@ -284,11 +281,10 @@ function PlayerTab() {
 }
 
 function QueueTab() {
-  const { wsState, wsActions } = useController();
-  const { queue, upNextQueue, playerState } = wsState;
+  const { queue, upNextQueue, playerState, playNext, clearQueue, queueNextSong, removeSong } = useController().ws;
 
   const handlePlayNext = () => {
-    wsActions.playNext(); // Backend handles validation
+    playNext(); // Backend handles validation
   };
 
   return (
@@ -300,7 +296,7 @@ function QueueTab() {
         {queue && (queue.items.length > (playerState?.entry ? 1 : 0)) && (
           <button
             type="button"
-            onClick={() => wsActions.clearQueue()}
+            onClick={() => clearQueue()}
             className="px-4 py-2 bg-red-600/80 hover:bg-red-600 rounded-lg text-white text-sm"
           >
             Clear All
@@ -335,14 +331,14 @@ function QueueTab() {
               <KaraokeEntryCard entry={item.entry} />
               <button
                 type="button"
-                onClick={() => wsActions.queueNextSong(item.id)}
+                onClick={() => queueNextSong(item.id)}
                 className="px-3 py-2 flex items-center bg-black/40 rounded-lg border border-white/20 hover:bg-white/20"
               >
                 <MaterialSymbolsKeyboardArrowUpRounded className="text-2xl" />
               </button>
               <button
                 type="button"
-                onClick={() => wsActions.removeSong(item.id)}
+                onClick={() => removeSong(item.id)}
                 className="px-3 py-2 flex items-center bg-black/40 rounded-lg border border-white/20 hover:bg-white/20"
               >
                 <MaterialSymbolsDeleteOutline className="text-2xl" />

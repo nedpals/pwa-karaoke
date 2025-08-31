@@ -3,7 +3,7 @@ import type { KaraokeQueue, DisplayPlayerState, KaraokeEntry } from '../types';
 
 type ClientType = 'controller' | 'display';
 
-type WebSocketMessage = [string, any];
+type WebSocketMessage = [string, unknown];
 
 export interface WebSocketState {
   connected: boolean;
@@ -30,14 +30,13 @@ export interface WebSocketActions {
   requestQueueUpdate: () => void;
 }
 
-export function useWebSocket(clientType: ClientType): [WebSocketState, WebSocketActions] {
-  const [state, setState] = useState<WebSocketState>({
-    connected: false,
-    clientCount: 0,
-    queue: null,
-    upNextQueue: null,
-    playerState: null,
-  });
+export type WebSocketReturn = WebSocketState & WebSocketActions;
+
+export function useWebSocket(clientType: ClientType): WebSocketReturn {
+  const [connected, setConnected] = useState(false);
+  const [clientCount, setClientCount] = useState(0);
+  const [queue, setQueue] = useState<KaraokeQueue | null>(null);
+  const [playerState, setPlayerState] = useState<DisplayPlayerState | null>(null);
 
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -66,25 +65,19 @@ export function useWebSocket(clientType: ClientType): [WebSocketState, WebSocket
         
         switch (command) {
           case 'client_count':
-            setState(prev => ({ ...prev, clientCount: data }));
+            setClientCount(data as number);
             break;
           case 'queue_update':
-            setState(prev => ({ ...prev, queue: data }));
+            setQueue(data as KaraokeQueue);
             break;
           case 'player_state':
-            setState(prev => ({ ...prev, playerState: data }));
+            setPlayerState(data as DisplayPlayerState);
             break;
           case 'play_song':
-            setState(prev => ({
-              ...prev,
-              playerState: prev.playerState ? { ...prev.playerState, play_state: 'playing' } : null
-            }));
+            setPlayerState(prev => prev ? { ...prev, play_state: 'playing' } : null);
             break;
           case 'pause_song':
-            setState(prev => ({
-              ...prev,
-              playerState: prev.playerState ? { ...prev.playerState, play_state: 'paused' } : null
-            }));
+            setPlayerState(prev => prev ? { ...prev, play_state: 'paused' } : null);
             break;
           case 'error':
             console.error('WebSocket error:', data);
@@ -96,7 +89,7 @@ export function useWebSocket(clientType: ClientType): [WebSocketState, WebSocket
     };
 
     wsRef.current.onclose = () => {
-      setState(prev => ({ ...prev, connected: false }));
+      setConnected(false);
       
       // Attempt to reconnect after 3 seconds
       reconnectTimeoutRef.current = setTimeout(() => {
@@ -113,10 +106,10 @@ export function useWebSocket(clientType: ClientType): [WebSocketState, WebSocket
       try {
         const [command]: WebSocketMessage = JSON.parse(event.data);
         if (command === 'client_count') {
-          setState(prev => ({ ...prev, connected: true }));
+          setConnected(true);
           wsRef.current?.removeEventListener('message', onHandshakeComplete);
         }
-      } catch (error) {
+      } catch {
         // Ignore parsing errors during handshake
       }
     });
@@ -133,39 +126,36 @@ export function useWebSocket(clientType: ClientType): [WebSocketState, WebSocket
     };
   }, [connect]);
 
-  const actions: WebSocketActions = {
-    sendCommand,
-    
-    // Controller commands
-    queueSong: (entry) => sendCommand('queue_song', entry),
-    removeSong: (id) => sendCommand('remove_song', id),
-    playSong: () => sendCommand('play_song'),
-    pauseSong: () => sendCommand('pause_song'),
-    playNext: () => sendCommand('play_next'),
-    queueNextSong: (entryId) => sendCommand('queue_next_song', entryId),
-    clearQueue: () => sendCommand('clear_queue'),
-    
-    // Display commands
-    updatePlayerState: (state) => sendCommand('update_player_state', state),
-    requestQueueUpdate: () => sendCommand('request_queue_update'),
-  };
-
   const upNextQueue = useMemo(() => {
-    if (!state.queue || !state.queue.items.length) {
+    if (!queue || !queue.items.length) {
       return { items: [] };
     }
     
     return {
-      items: state.queue.items.filter(item => 
-        !state.playerState?.entry || item.entry.id !== state.playerState.entry.id
+      items: queue.items.filter(item => 
+        !playerState?.entry || item.entry.id !== playerState.entry.id
       )
     };
-  }, [state.queue, state.playerState?.entry]);
+  }, [queue, playerState?.entry]);
 
-  const stateWithUpNext = useMemo(() => ({
-    ...state,
-    upNextQueue
-  }), [state, upNextQueue]);
-
-  return [stateWithUpNext, actions];
+  return {
+    // State
+    connected,
+    clientCount,
+    queue,
+    upNextQueue,
+    playerState,
+    
+    // Actions
+    sendCommand,
+    queueSong: (entry: KaraokeEntry) => sendCommand('queue_song', entry),
+    removeSong: (id: string) => sendCommand('remove_song', id),
+    playSong: () => sendCommand('play_song'),
+    pauseSong: () => sendCommand('pause_song'),
+    playNext: () => sendCommand('play_next'),
+    queueNextSong: (entryId: string) => sendCommand('queue_next_song', entryId),
+    clearQueue: () => sendCommand('clear_queue'),
+    updatePlayerState: (state: DisplayPlayerState) => sendCommand('update_player_state', state),
+    requestQueueUpdate: () => sendCommand('request_queue_update'),
+  };
 }

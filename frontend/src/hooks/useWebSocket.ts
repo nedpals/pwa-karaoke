@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import type { KaraokeQueue, DisplayPlayerState, KaraokeEntry } from '../types';
 
 type ClientType = 'controller' | 'display';
@@ -9,6 +9,7 @@ export interface WebSocketState {
   connected: boolean;
   clientCount: number;
   queue: KaraokeQueue | null;
+  upNextQueue: KaraokeQueue | null;
   playerState: DisplayPlayerState | null;
 }
 
@@ -34,6 +35,7 @@ export function useWebSocket(clientType: ClientType): [WebSocketState, WebSocket
     connected: false,
     clientCount: 0,
     queue: null,
+    upNextQueue: null,
     playerState: null,
   });
 
@@ -148,5 +150,22 @@ export function useWebSocket(clientType: ClientType): [WebSocketState, WebSocket
     requestQueueUpdate: () => sendCommand('request_queue_update'),
   };
 
-  return [state, actions];
+  const upNextQueue = useMemo(() => {
+    if (!state.queue || !state.queue.items.length) {
+      return { items: [] };
+    }
+    
+    return {
+      items: state.queue.items.filter(item => 
+        !state.playerState?.entry || item.entry.id !== state.playerState.entry.id
+      )
+    };
+  }, [state.queue, state.playerState?.entry]);
+
+  const stateWithUpNext = useMemo(() => ({
+    ...state,
+    upNextQueue
+  }), [state, upNextQueue]);
+
+  return [stateWithUpNext, actions];
 }

@@ -3,7 +3,7 @@ import { useWebSocket } from "../hooks/useWebSocket";
 
 export default function DisplayPage() {
   const [wsState, wsActions] = useWebSocket("display");
-  const { connected, queue, playerState } = wsState;
+  const { connected, upNextQueue, playerState } = wsState;
   const videoRef = useRef<HTMLVideoElement>(null);
   const [, setIsVideoReady] = useState(false);
   const animationFrameRef = useRef<number | null>(null);
@@ -178,7 +178,7 @@ export default function DisplayPage() {
           <div className="rounded-r-[inherit] bg-black/20 text-2xl px-6 py-3">
             <p>
               <span className="font-bold">On Queue:</span>{" "}
-              {queue?.items.length || 0}
+              {upNextQueue?.items.length || 0}
             </p>
           </div>
         </header>

@@ -1,6 +1,6 @@
 import { useState, createContext, useContext } from "react";
 import type { ReactNode } from "react";
-import type { KaraokeEntry, KaraokeSearchResult } from "../types";
+import type { KaraokeEntry, KaraokeSearchResult, KaraokeQueueItem } from "../types";
 import { useWebSocket } from "../hooks/useWebSocket";
 import { MaterialSymbolsFastForwardRounded } from "../components/icons/MaterialSymbolsFastForwardRounded";
 import { MaterialSymbolsKeyboardArrowUpRounded } from "../components/icons/MaterialSymbolsArrowUpRounded";
@@ -285,7 +285,7 @@ function PlayerTab() {
 
 function QueueTab() {
   const { wsState, wsActions } = useController();
-  const { queue, playerState } = wsState;
+  const { queue, upNextQueue, playerState } = wsState;
 
   const handlePlayNext = () => {
     wsActions.playNext(); // Backend handles validation
@@ -295,9 +295,9 @@ function QueueTab() {
     <div className="max-w-3xl mx-auto px-4 py-12 text-white">
       <div className="flex items-center justify-between mb-8">
         <h2 className="text-4xl font-bold text-white">
-          {queue?.items.length || 0} Songs in Queue
+          {upNextQueue?.items.length || 0} Songs in Queue
         </h2>
-        {queue && queue.items.length > 0 && (
+        {queue && (queue.items.length > (playerState?.entry ? 1 : 0)) && (
           <button
             type="button"
             onClick={() => wsActions.clearQueue()}
@@ -327,7 +327,7 @@ function QueueTab() {
       <div className="mt-8 space-y-4">
         <p>Up Next</p>
         <div className="space-y-2 flex flex-col">
-          {queue?.items.map((item) => (
+          {upNextQueue?.items.map((item: KaraokeQueueItem) => (
             <div
               key={`queue_item_${item.id}`}
               className="flex flex-row items-stretch space-x-1"

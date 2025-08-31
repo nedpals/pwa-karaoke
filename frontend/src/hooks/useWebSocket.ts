@@ -138,6 +138,19 @@ export function useWebSocket(clientType: ClientType): WebSocketReturn {
     };
   }, [queue, playerState?.entry]);
 
+  // Create stable action functions (temporarily removing useCallback to debug hook issues)
+  const actions = useMemo(() => ({
+    queueSong: (entry: KaraokeEntry) => sendCommand('queue_song', entry),
+    removeSong: (id: string) => sendCommand('remove_song', id),
+    playSong: () => sendCommand('play_song'),
+    pauseSong: () => sendCommand('pause_song'),
+    playNext: () => sendCommand('play_next'),
+    queueNextSong: (entryId: string) => sendCommand('queue_next_song', entryId),
+    clearQueue: () => sendCommand('clear_queue'),
+    updatePlayerState: (state: DisplayPlayerState) => sendCommand('update_player_state', state),
+    requestQueueUpdate: () => sendCommand('request_queue_update'),
+  }), [sendCommand]);
+
   return {
     // State
     connected,
@@ -148,14 +161,6 @@ export function useWebSocket(clientType: ClientType): WebSocketReturn {
     
     // Actions
     sendCommand,
-    queueSong: (entry: KaraokeEntry) => sendCommand('queue_song', entry),
-    removeSong: (id: string) => sendCommand('remove_song', id),
-    playSong: () => sendCommand('play_song'),
-    pauseSong: () => sendCommand('pause_song'),
-    playNext: () => sendCommand('play_next'),
-    queueNextSong: (entryId: string) => sendCommand('queue_next_song', entryId),
-    clearQueue: () => sendCommand('clear_queue'),
-    updatePlayerState: (state: DisplayPlayerState) => sendCommand('update_player_state', state),
-    requestQueueUpdate: () => sendCommand('request_queue_update'),
+    ...actions,
   };
 }

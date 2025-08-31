@@ -2,13 +2,19 @@ import { useEffect, useRef, useState, useMemo } from "react";
 import { useWebSocket } from "../hooks/useWebSocket";
 
 export default function DisplayPage() {
-  const { connected, upNextQueue, playerState, requestQueueUpdate, updatePlayerState } = useWebSocket("display");
   const videoRef = useRef<HTMLVideoElement>(null);
   const [, setIsVideoReady] = useState(false);
-  const animationFrameRef = useRef<number | null>(null);
-  const [isTabVisible, setIsTabVisible] = useState(true);
   const hasRequestedInitialQueue = useRef(false);
   const [isMuted, setIsMuted] = useState(true); // Start muted, then auto-unmute
+
+  // Ensure websocket hook is always called at the same position
+  const {
+    connected,
+    upNextQueue,
+    playerState,
+    requestQueueUpdate,
+    updatePlayerState,
+  } = useWebSocket("display");
 
   const videoUrl = useMemo(() => {
     try {
@@ -30,6 +36,7 @@ export default function DisplayPage() {
   }, [connected, requestQueueUpdate]);
 
   useEffect(() => {
+    console.log(playerState);
     if (!videoRef.current || !playerState) return;
 
     const video = videoRef.current;
@@ -68,94 +75,67 @@ export default function DisplayPage() {
     }
   }, [playerState?.entry]);
 
-
-
-  const lastUpdateTimeRef = useRef<number>(0);
-  const lastVideoTimeRef = useRef<number>(0);
-
+  // Send periodic updates while playing
   useEffect(() => {
-    const handleVisibilityChange = () => {
-      setIsTabVisible(!document.hidden);
-    };
-
-    document.addEventListener("visibilitychange", handleVisibilityChange);
-    return () =>
-      document.removeEventListener("visibilitychange", handleVisibilityChange);
-  }, []);
-
-  useEffect(() => {
-    if (!videoRef.current || !playerState?.entry) {
-      // Cancel any existing animation frame
-      if (animationFrameRef.current) {
-        cancelAnimationFrame(animationFrameRef.current);
-        animationFrameRef.current = null;
-      }
+    if (
+      !videoRef.current ||
+      !playerState?.entry ||
+      playerState.play_state !== "playing"
+    ) {
       return;
     }
 
     const video = videoRef.current;
-    const isPlaying = playerState.play_state === "playing";
 
-    // Only run animation frame when video is actually playing and tab is visible
-    if (!isPlaying || !isTabVisible) {
-      if (animationFrameRef.current) {
-        cancelAnimationFrame(animationFrameRef.current);
-        animationFrameRef.current = null;
-      }
-      return;
-    }
-
-    const updateAnimationFrame = () => {
-      // Double-check that we're still playing, video exists, and tab is visible
-      if (
-        !video ||
-        !playerState?.entry ||
-        video.paused ||
-        video.ended ||
-        !isTabVisible
-      ) {
-        animationFrameRef.current = null;
+    const interval = setInterval(() => {
+      if (!video || video.paused || video.ended || !playerState?.entry) {
         return;
       }
 
-      const currentTime = video.currentTime;
-      const duration = video.duration || 0;
-      const now = performance.now();
+      updatePlayerState({
+        entry: playerState.entry,
+        play_state: "playing",
+        current_time: video.currentTime,
+        duration: video.duration || 0,
+      });
+    }, 2000);
 
-      // Only update WebSocket every 2 seconds to reduce network traffic
-      const timeSinceLastUpdate = now - lastUpdateTimeRef.current;
-      const videoTimeDelta = Math.abs(currentTime - lastVideoTimeRef.current);
+    return () => clearInterval(interval);
+  }, [playerState?.entry, playerState?.play_state, updatePlayerState]);
 
-      if (timeSinceLastUpdate >= 2000 && videoTimeDelta >= 0.5) {
-        lastUpdateTimeRef.current = now;
-        lastVideoTimeRef.current = currentTime;
+  // Handle video state changes immediately for responsive controls
+  useEffect(() => {
+    if (!videoRef.current || !playerState?.entry) return;
 
-        updatePlayerState({
-          entry: playerState.entry,
-          play_state: video.ended
-            ? "finished"
-            : "playing",
-          current_time: currentTime,
-          duration: duration,
-        });
-      }
+    const video = videoRef.current;
+    const currentEntry = playerState.entry;
 
-      // Continue the animation loop only if tab is still visible
-      if (isTabVisible) {
-        animationFrameRef.current = requestAnimationFrame(updateAnimationFrame);
-      }
+    const handlePlay = () => {
+      updatePlayerState({
+        entry: currentEntry,
+        play_state: "playing",
+        current_time: video.currentTime,
+        duration: video.duration || 0,
+      });
     };
 
-    // Start the animation frame loop
-    animationFrameRef.current = requestAnimationFrame(updateAnimationFrame);
+    const handlePause = () => {
+      updatePlayerState({
+        entry: currentEntry,
+        play_state: "paused",
+        current_time: video.currentTime,
+        duration: video.duration || 0,
+      });
+    };
+
+    video.addEventListener("play", handlePlay);
+    video.addEventListener("pause", handlePause);
 
     return () => {
-      if (animationFrameRef.current) {
-        cancelAnimationFrame(animationFrameRef.current);
-        animationFrameRef.current = null;
-      }
+      video.removeEventListener("play", handlePlay);
+      video.removeEventListener("pause", handlePause);
     };
-  }, [playerState?.entry, playerState?.play_state, isTabVisible, updatePlayerState]);
+  }, [playerState?.entry, updatePlayerState]);
 
   return (
     <div className="bg-black h-screen w-screen relative">

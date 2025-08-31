@@ -87,8 +87,7 @@ class YTKaraokeSearchProvider(KaraokeSearchProvider):
                         video_url=raw_url,
                         source="YouTube",
                         uploader=data['artist'],
-                        duration=data['duration'],
-                        embed_url=None
+                        duration=data['duration']
                     )
                     entries.append(karaoke_entry)
 

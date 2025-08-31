@@ -48,6 +48,11 @@ export function useWebSocket(clientType: ClientType): WebSocketReturn {
   }, []);
 
   const connect = useCallback(() => {
+    // Close existing connection if any
+    if (wsRef.current && wsRef.current.readyState !== WebSocket.CLOSED) {
+      wsRef.current.close();
+    }
+
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const host = window.location.host.includes('localhost') ? 'localhost:8000' : window.location.host;
     const wsUrl = `${protocol}//${host}/ws`;
@@ -55,8 +60,10 @@ export function useWebSocket(clientType: ClientType): WebSocketReturn {
     wsRef.current = new WebSocket(wsUrl);
 
     wsRef.current.onopen = () => {
-      // Send handshake
-      sendCommand('handshake', clientType);
+      // Send handshake directly here to avoid dependency issues
+      if (wsRef.current?.readyState === WebSocket.OPEN) {
+        wsRef.current.send(JSON.stringify(['handshake', clientType]));
+      }
     };
 
     wsRef.current.onmessage = (event) => {
@@ -66,6 +73,7 @@ export function useWebSocket(clientType: ClientType): WebSocketReturn {
         switch (command) {
           case 'client_count':
             setClientCount(data as number);
+            setConnected(true); // Set connected when we receive client count
             break;
           case 'queue_update':
             setQueue(data as KaraokeQueue);
@@ -91,6 +99,11 @@ export function useWebSocket(clientType: ClientType): WebSocketReturn {
     wsRef.current.onclose = () => {
       setConnected(false);
       
+      // Clear reconnect timeout to prevent multiple reconnection attempts
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+      }
+      
       // Attempt to reconnect after 3 seconds
       reconnectTimeoutRef.current = setTimeout(() => {
         connect();
@@ -100,20 +113,7 @@ export function useWebSocket(clientType: ClientType): WebSocketReturn {
     wsRef.current.onerror = (error) => {
       console.error('WebSocket error:', error);
     };
-
-    // Set connected state once handshake is complete
-    wsRef.current.addEventListener('message', function onHandshakeComplete(event) {
-      try {
-        const [command]: WebSocketMessage = JSON.parse(event.data);
-        if (command === 'client_count') {
-          setConnected(true);
-          wsRef.current?.removeEventListener('message', onHandshakeComplete);
-        }
-      } catch {
-        // Ignore parsing errors during handshake
-      }
-    });
-  }, [clientType, sendCommand]);
+  }, [clientType]);
 
   useEffect(() => {
     connect();

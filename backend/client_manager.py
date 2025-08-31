@@ -7,11 +7,13 @@ class ConnectionClient:
     client_type: Literal["controller", "display"]
 
     async def send_command(self, command: str, data):
+        if self.websocket.client_state != WebSocketState.CONNECTED:
+            raise Exception("WebSocket is not connected")
         try:
             await self.websocket.send_json([command, data])
         except Exception:
-            # Connection is closed, ignore the error
-            pass
+            # Connection is closed, re-raise to trigger cleanup
+            raise
 
     async def receive(self, attempt = 0) -> tuple[str, any]:
         if attempt > 3:
@@ -90,15 +92,19 @@ class ClientManager:
     async def broadcast_command(self, command: str, data):
         # Create a copy of the list to avoid modification during iteration
         connections = list(self.active_connections)
+        disconnected_clients = []
+        
         for connection in connections:
             try:
                 await connection.send_command(command, data)
             except Exception:
-                # Remove failed connections
-                if connection in self.active_connections:
-                    self.active_connections.remove(connection)
-                    if connection.client_type == "display":
-                        self.has_display_client = False
+                # Mark for removal
+                disconnected_clients.append(connection)
+        
+        # Remove failed connections and update client count if needed
+        if disconnected_clients:
+            for client in disconnected_clients:
+                await self.disconnect(client)
 
     async def broadcast_client_count(self):
         return await self.broadcast_command("client_count", len(self.active_connections))

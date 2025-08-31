@@ -47,7 +47,8 @@ async def websocket_endpoint(websocket: WebSocket, service: Annotated[KaraokeSer
 
             # See commands.py for command implementations
             await getattr(commands, command)(payload)
-    except WebSocketDisconnect:
+    except (WebSocketDisconnect, Exception):
+        # Handle all disconnection scenarios
         await manager.disconnect(client)
 
 if __name__ == "__main__":

@@ -49,10 +49,16 @@ class ClientManager:
         client.websocket = websocket
         client.client_type = client_type
 
+        if client_type == "display":
+            self.has_display_client = True
+
         return client
 
     async def disconnect(self, client: ConnectionClient):
-        self.active_connections.remove(client)
+        if client in self.active_connections:
+            self.active_connections.remove(client)
+        if client.client_type == "display":
+            self.has_display_client = False
         await self.broadcast_client_count()
 
     async def broadcast_command(self, command: str, data):

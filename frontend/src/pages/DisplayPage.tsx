@@ -1,4 +1,18 @@
+import { useEffect } from "react";
+import { useWebSocket } from "../hooks/useWebSocket";
+
 export default function DisplayPage() {
+  const [wsState, wsActions] = useWebSocket('display');
+  const { connected, queue, playerState } = wsState;
+
+  // Request initial data when connected
+  useEffect(() => {
+    if (connected) {
+      wsActions.requestQueueUpdate();
+      wsActions.requestCurrentSong();
+    }
+  }, [connected]);
+
   return (
     <div className="bg-black h-screen w-screen relative">
       <div className="pt-6 px-6 absolute top-0 inset-x-0 z-50">
@@ -8,12 +22,12 @@ export default function DisplayPage() {
           </div>
 
           <div className="flex flex-row text-2xl py-3 px-6 flex-1">
-            <p>Artist Name - Test track with long long name</p>
+            <p>{playerState?.entry ? `${playerState.entry.artist} - ${playerState.entry.title}` : 'No song playing'}</p>
           </div>
 
           <div className="rounded-r-[inherit] bg-black/20 text-2xl px-6 py-3">
             <p>
-              <span className="font-bold">On Queue:</span> 4
+              <span className="font-bold">On Queue:</span> {queue?.items.length || 0}
             </p>
           </div>
         </header>

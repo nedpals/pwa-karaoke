@@ -2,6 +2,7 @@ from typing_extensions import Annotated
 
 from fastapi import FastAPI, WebSocket, Depends
 from fastapi.websockets import WebSocketDisconnect
+from fastapi.middleware.cors import CORSMiddleware
 
 from core.queue import KaraokeQueue
 from services.karaoke_service import KaraokeService, KaraokeSearchResult
@@ -9,6 +10,16 @@ from client_manager import ClientManager
 from commands import ControllerCommands, DisplayCommands
 
 app = FastAPI()
+
+# Add CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173"],  # Vite dev server
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 manager = ClientManager()
 queue = KaraokeQueue(items=[])
 

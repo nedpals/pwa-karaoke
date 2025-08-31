@@ -1,4 +1,4 @@
-from search import KaraokeEntry
+from core.search import KaraokeEntry
 from pydantic import BaseModel, Field
 
 from nanoid import generate as generate_nanoid

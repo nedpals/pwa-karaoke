@@ -1,10 +1,11 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import type {
   KaraokeQueue,
   DisplayPlayerState,
   KaraokeEntry,
   KaraokeSearchResult,
 } from "../types";
+import { useWebSocket } from "../hooks/useWebSocket";
 import { MaterialSymbolsPlayArrowRounded } from "../components/icons/MaterialSymbolsPlayRounded";
 import { MaterialSymbolsFastForwardRounded } from "../components/icons/MaterialSymbolsFastForwardRounded";
 import { MaterialSymbolsKeyboardArrowUpRounded } from "../components/icons/MaterialSymbolsArrowUpRounded";
@@ -40,31 +41,42 @@ export default function ControllerPage() {
   const [tab, setTab] =
     useState<(typeof CONTROLLER_TABS)[number]["id"]>("song-select");
   const [search, setSearch] = useState("");
-  const [playerState, setPlayerState] = useState<DisplayPlayerState | null>(
-    null,
-  );
   const [searchResults, setSearchResults] =
     useState<KaraokeSearchResult | null>(null);
-  const [queue, setQueue] = useState<KaraokeQueue | null>(null);
   const [showVirtualKeyboard, setShowVirtualKeyboard] = useState(false);
+
+  const [wsState, wsActions] = useWebSocket('controller');
+  const { connected, clientCount, queue, playerState, searchResults: wsSearchResults } = wsState;
+
+  // Update local search results when WebSocket results come in
+  useEffect(() => {
+    if (wsSearchResults) {
+      setSearchResults({ entries: wsSearchResults });
+    }
+  }, [wsSearchResults]);
+
+  const handleSearch = () => {
+    if (!search.trim()) return;
+    wsActions.search(search);
+  };
 
   const handlePlayerPlayback = () => {
     if (!playerState) return;
 
     if (playerState.play_state === "playing") {
-      // TODO: send a websocket command
+      wsActions.pauseSong();
     } else {
-      // TODO: send a websocket command
+      wsActions.playSong();
     }
   };
 
   const handleAddQueueItem = (entry: KaraokeEntry) => {
-    // TODO: send a websocket command
+    wsActions.queueSong(entry);
   };
 
   const handlePlayNext = () => {
     if (!queue || queue.items.length === 0) return;
-    // TODO: send a websocket command
+    wsActions.playNext();
   };
 
   return (
@@ -93,6 +105,13 @@ export default function ControllerPage() {
 
                   <input
                     type="text"
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        handleSearch();
+                      }
+                    }}
                     className="w-full p-4 text-2xl rounded-lg bg-black/40 text-white placeholder-white/70 border border-white/20 focus:border-white focus:outline-none"
                     placeholder="Search for a song..."
                   />
@@ -163,6 +182,7 @@ export default function ControllerPage() {
 
                 <div className="flex flex-row px-8 justify-center space-x-4 pt-8">
                   <button
+                    onClick={handlePlayerPlayback}
                     disabled={!playerState || !playerState.entry}
                     className="text-4xl rounded-full border border-white bg-black/40 px-12 py-4 hover:not-disabled:bg-white/20 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
@@ -170,13 +190,14 @@ export default function ControllerPage() {
                   </button>
                 </div>
                 <button
+                  onClick={handlePlayNext}
                   disabled={
                     !playerState ||
                     !playerState.entry ||
                     !queue ||
                     queue.items.length === 0
                   }
-                  className="self-center flex flex-row items-center justify-center space-x-2 text-xl rounded-full border border-white bg-black/40px-12 px-8 py-2 mt-20 hover:not-disabled:bg-white/20 disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="self-center flex flex-row items-center justify-center space-x-2 text-xl rounded-full border border-white bg-black/40 px-12 px-8 py-2 mt-20 hover:not-disabled:bg-white/20 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <MaterialSymbolsFastForwardRounded />
                   <span>Play next song</span>
@@ -188,7 +209,7 @@ export default function ControllerPage() {
           {tab === "queue" && (
             <div className="max-w-3xl mx-auto px-4 py-12 text-white">
               <h2 className="text-4xl font-bold text-white">
-                12 Songs in Queue
+                {queue?.items.length || 0} Songs in Queue
               </h2>
 
               {playerState?.entry && (
@@ -196,7 +217,10 @@ export default function ControllerPage() {
                   <p>Now Playing</p>
                   <div className="flex flex-row items-stretch space-x-1">
                     <KaraokeEntryCard entry={playerState.entry} />
-                    <button className="px-3 py-2 flex items-center bg-black/40 rounded-lg border border-white/20 hover:bg-white/20">
+                    <button 
+                      onClick={handlePlayNext}
+                      className="px-3 py-2 flex items-center bg-black/40 rounded-lg border border-white/20 hover:bg-white/20"
+                    >
                       <MaterialSymbolsFastForwardRounded className="text-2xl" />
                     </button>
                   </div>
@@ -212,10 +236,16 @@ export default function ControllerPage() {
                       className="flex flex-row items-stretch space-x-1"
                     >
                       <KaraokeEntryCard entry={item.entry} />
-                      <button className="px-3 py-2 flex items-center bg-black/40 rounded-lg border border-white/20 hover:bg-white/20">
+                      <button 
+                        onClick={() => wsActions.queueNextSong(item.id)}
+                        className="px-3 py-2 flex items-center bg-black/40 rounded-lg border border-white/20 hover:bg-white/20"
+                      >
                         <MaterialSymbolsKeyboardArrowUpRounded className="text-2xl" />
                       </button>
-                      <button className="px-3 py-2 flex items-center bg-black/40 rounded-lg border border-white/20 hover:bg-white/20">
+                      <button 
+                        onClick={() => wsActions.removeSong(item.id)}
+                        className="px-3 py-2 flex items-center bg-black/40 rounded-lg border border-white/20 hover:bg-white/20"
+                      >
                         <MaterialSymbolsDeleteOutline className="text-2xl" />
                       </button>
                     </div>

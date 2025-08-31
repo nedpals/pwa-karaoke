@@ -9,6 +9,7 @@ class KaraokeEntry(BaseModel):
     source: str
     uploader: str
     duration: Optional[int]
+    embed_url: Optional[str] = None
 
 class KaraokeSearchResult(BaseModel):
     entries: list[KaraokeEntry]

@@ -10,12 +10,9 @@ export default function DisplayPage() {
   const [embedError, setEmbedError] = useState(false);
   const [isTabVisible, setIsTabVisible] = useState(true);
 
-  // Convert YouTube URL to direct video URL (memoized for performance)
   const getVideoUrl = useCallback((url: string) => {
     try {
-      // Check if it's a YouTube URL
       if (url.includes('youtube.com') || url.includes('youtu.be')) {
-        // YouTube videos will be handled by the embed iframe
         return null;
       }
       // For other video URLs, return as-is
@@ -26,47 +23,12 @@ export default function DisplayPage() {
     }
   }, []);
 
-  const getYouTubeEmbedUrl = useCallback((url: string) => {
-    try {
-      let videoId = '';
-      
-      const ytUrl = new URL(url);
-      
-      // Handle different YouTube URL formats using URL constructor
-      if (ytUrl.hostname === 'youtu.be') {
-        // Short URL format: https://youtu.be/VIDEO_ID
-        videoId = ytUrl.pathname.slice(1); // Remove leading slash
-      } else if (ytUrl.hostname.includes('youtube.com')) {
-        // Handle various youtube.com formats
-        if (ytUrl.pathname === '/watch') {
-          // Standard format: https://www.youtube.com/watch?v=VIDEO_ID
-          videoId = ytUrl.searchParams.get('v') || '';
-        } else if (ytUrl.pathname.startsWith('/embed/')) {
-          // Embed format: https://www.youtube.com/embed/VIDEO_ID
-          videoId = ytUrl.pathname.replace('/embed/', '');
-        }
-      }
-      
-      // Clean video ID (remove any extra parameters)
-      videoId = videoId.split('&')[0].split('?')[0];
-      
-      return videoId ? `https://www.youtube.com/embed/${videoId}?autoplay=1&controls=0&modestbranding=1&rel=0&showinfo=0` : null;
-    } catch (error) {
-      console.error('Error parsing YouTube URL:', error, url);
-      return null;
-    }
-  }, []);
-
-  // Memoize video URLs to prevent unnecessary recalculations
   const videoUrl = useMemo(() => {
     const url = playerState?.entry?.video_url;
     return url ? getVideoUrl(url) : null;
-  }, [playerState?.entry?.video_url, getVideoUrl]);
+  }, [playerState?.entry, getVideoUrl]);
   
-  const youtubeEmbedUrl = useMemo(() => {
-    const url = playerState?.entry?.video_url;
-    return url ? getYouTubeEmbedUrl(url) : null;
-  }, [playerState?.entry?.video_url, getYouTubeEmbedUrl]);
+  const youtubeEmbedUrl = playerState?.entry?.embed_url || null;
   
   // Reset embed error when new video loads
   useEffect(() => {
@@ -245,7 +207,7 @@ export default function DisplayPage() {
                 title={`${playerState.entry.artist} - ${playerState.entry.title}`}
                 onError={() => setEmbedError(true)}
               />
-            ) : (youtubeEmbedUrl && embedError) ? (
+            ) : (playerState?.entry?.video_url?.includes('youtube') && embedError) ? (
               <div className="flex flex-col items-center justify-center h-full text-white">
                 <div className="text-6xl mb-8">⚠️</div>
                 <h2 className="text-4xl font-bold mb-4">YouTube Video Failed to Load</h2>

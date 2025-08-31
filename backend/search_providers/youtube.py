@@ -1,5 +1,5 @@
 import re
-from urllib.parse import quote
+from urllib.parse import quote, urlparse, parse_qs
 from playwright.async_api import async_playwright, Browser
 from core.search import KaraokeSearchProvider, KaraokeSearchResult, KaraokeEntry
 
@@ -52,6 +52,7 @@ class YTKaraokeSearchProvider(KaraokeSearchProvider):
                     duration = self._parse_duration(duration_text) if duration_text else None
 
                     video_id = self._extract_video_id(href) if href else str(i)
+                    embed_url = self._get_youtube_embed_url(video_url) if video_url else None
 
                     karaoke_entry = KaraokeEntry(
                         id=hash(video_id) % (10**9),
@@ -60,7 +61,8 @@ class YTKaraokeSearchProvider(KaraokeSearchProvider):
                         video_url=video_url,
                         source="YouTube",
                         uploader=artist.strip(),
-                        duration=duration
+                        duration=duration,
+                        embed_url=embed_url
                     )
                     entries.append(karaoke_entry)
                 except Exception as e:
@@ -100,6 +102,44 @@ class YTKaraokeSearchProvider(KaraokeSearchProvider):
         if not self.allowed_channels:
             return True
         return any(allowed.lower() in channel_name.lower() for allowed in self.allowed_channels)
+
+    def _get_youtube_embed_url(self, url: str) -> str | None:
+        """
+        Convert YouTube URL to embed URL for iframe usage.
+        Supports various YouTube URL formats and returns optimized embed URL.
+        """
+        try:
+            video_id = ''
+            
+            parsed_url = urlparse(url)
+            
+            # Handle different YouTube URL formats
+            if parsed_url.hostname == 'youtu.be':
+                # Short URL format: https://youtu.be/VIDEO_ID
+                video_id = parsed_url.path.lstrip('/')
+            elif parsed_url.hostname and 'youtube.com' in parsed_url.hostname:
+                # Handle various youtube.com formats
+                if parsed_url.path == '/watch':
+                    # Standard format: https://www.youtube.com/watch?v=VIDEO_ID
+                    video_id = parse_qs(parsed_url.query).get('v', [''])[0]
+                elif parsed_url.path.startswith('/embed/'):
+                    # Embed format: https://www.youtube.com/embed/VIDEO_ID
+                    video_id = parsed_url.path.replace('/embed/', '')
+                elif parsed_url.path.startswith('/v/'):
+                    # Alternative format: https://www.youtube.com/v/VIDEO_ID
+                    video_id = parsed_url.path.replace('/v/', '')
+            
+            # Clean video ID (remove any extra parameters)
+            video_id = video_id.split('&')[0].split('?')[0]
+            
+            if video_id:
+                # Return optimized embed URL with performance settings
+                return f"https://www.youtube.com/embed/{video_id}?autoplay=1&controls=0&modestbranding=1&rel=0&showinfo=0"
+            
+            return None
+            
+        except Exception:
+            return None
 
     async def close(self):
         if self.browser:

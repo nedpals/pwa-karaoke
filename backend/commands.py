@@ -30,10 +30,6 @@ class ClientCommands:
         await self.conn_manager.broadcast_command(command, {})
 
 class ControllerCommands(ClientCommands):
-    async def search(self, query: str):
-        result = await self.service.search(query)
-        await self.client.send_command("search_results", result.model_dump())
-
     async def remove_song(self, id_to_delete: str):
         self.queue.dequeue(id_to_delete)
         await self._queue_update()

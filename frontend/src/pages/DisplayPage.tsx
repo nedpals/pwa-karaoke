@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useMemo, useCallback } from "react";
 import { useWebSocket } from "../hooks/useWebSocket";
 
 export default function DisplayPage() {
@@ -6,11 +6,12 @@ export default function DisplayPage() {
   const { connected, queue, playerState } = wsState;
   const videoRef = useRef<HTMLVideoElement>(null);
   const [, setIsVideoReady] = useState(false);
+  const animationFrameRef = useRef<number | null>(null);
   const [embedError, setEmbedError] = useState(false);
+  const [isTabVisible, setIsTabVisible] = useState(true);
 
-  // Convert YouTube URL to direct video URL (this is a simplified approach)
-  const getVideoUrl = (url: string) => {
-    console.log('Getting video URL for:', url);
+  // Convert YouTube URL to direct video URL (memoized for performance)
+  const getVideoUrl = useCallback((url: string) => {
     try {
       // Check if it's a YouTube URL
       if (url.includes('youtube.com') || url.includes('youtu.be')) {
@@ -23,12 +24,11 @@ export default function DisplayPage() {
       console.error('Error processing video URL:', error, url);
       return null;
     }
-  };
+  }, []);
 
-  const getYouTubeEmbedUrl = (url: string) => {
+  const getYouTubeEmbedUrl = useCallback((url: string) => {
     try {
       let videoId = '';
-      console.log('Parsing YouTube URL:', url);
       
       const ytUrl = new URL(url);
       
@@ -50,17 +50,23 @@ export default function DisplayPage() {
       // Clean video ID (remove any extra parameters)
       videoId = videoId.split('&')[0].split('?')[0];
       
-      console.log('Extracted video ID:', videoId);
       return videoId ? `https://www.youtube.com/embed/${videoId}?autoplay=1&controls=0&modestbranding=1&rel=0&showinfo=0` : null;
     } catch (error) {
       console.error('Error parsing YouTube URL:', error, url);
       return null;
     }
-  };
+  }, []);
 
-  // Get video URLs for current entry
-  const videoUrl = playerState?.entry?.video_url ? getVideoUrl(playerState.entry.video_url) : null;
-  const youtubeEmbedUrl = playerState?.entry?.video_url ? getYouTubeEmbedUrl(playerState.entry.video_url) : null;
+  // Memoize video URLs to prevent unnecessary recalculations
+  const videoUrl = useMemo(() => {
+    const url = playerState?.entry?.video_url;
+    return url ? getVideoUrl(url) : null;
+  }, [playerState?.entry?.video_url, getVideoUrl]);
+  
+  const youtubeEmbedUrl = useMemo(() => {
+    const url = playerState?.entry?.video_url;
+    return url ? getYouTubeEmbedUrl(url) : null;
+  }, [playerState?.entry?.video_url, getYouTubeEmbedUrl]);
   
   // Reset embed error when new video loads
   useEffect(() => {
@@ -75,43 +81,106 @@ export default function DisplayPage() {
     }
   }, [connected, wsActions]);
 
-  // Handle video playback state changes
+  // Handle video playback state changes (optimized)
   useEffect(() => {
     if (!videoRef.current || !playerState) return;
 
     const video = videoRef.current;
+    const shouldPlay = playerState.play_state === 'playing';
+    const shouldPause = playerState.play_state === 'paused';
 
-    if (playerState.play_state === 'playing' && video.paused) {
-      video.play().catch(console.error);
-    } else if (playerState.play_state === 'paused' && !video.paused) {
+    if (shouldPlay && video.paused) {
+      video.play().catch((error) => {
+        if (error.name !== 'AbortError') {
+          console.error('Video play failed:', error);
+        }
+      });
+    } else if (shouldPause && !video.paused) {
       video.pause();
     }
-  }, [playerState]);
+  }, [playerState]); // Depend on full playerState but optimize inside
 
-  useEffect(() => {
-    console.log({ videoUrl, youtubeEmbedUrl });
-  }, [videoUrl, youtubeEmbedUrl]);
 
-  // Update player state periodically
+  // Update player state using requestAnimationFrame (much more battery efficient)
+  const lastUpdateTimeRef = useRef<number>(0);
+  const lastVideoTimeRef = useRef<number>(0);
+  
+  // Track tab visibility for additional battery optimization
   useEffect(() => {
-    if (!videoRef.current || !playerState?.entry) return;
+    const handleVisibilityChange = () => {
+      setIsTabVisible(!document.hidden);
+    };
+    
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, []);
+  
+  useEffect(() => {
+    if (!videoRef.current || !playerState?.entry) {
+      // Cancel any existing animation frame
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current);
+        animationFrameRef.current = null;
+      }
+      return;
+    }
 
     const video = videoRef.current;
-    const interval = setInterval(() => {
-      if (!video.paused) {
-        if (!playerState.entry) return;
+    const isPlaying = playerState.play_state === 'playing';
+    
+    // Only run animation frame when video is actually playing and tab is visible
+    if (!isPlaying || !isTabVisible) {
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current);
+        animationFrameRef.current = null;
+      }
+      return;
+    }
+    
+    const updatePlayerState = () => {
+      // Double-check that we're still playing, video exists, and tab is visible
+      if (!video || !playerState?.entry || video.paused || video.ended || !isTabVisible) {
+        animationFrameRef.current = null;
+        return;
+      }
+      
+      const currentTime = video.currentTime;
+      const duration = video.duration || 0;
+      const now = performance.now();
+      
+      // Only update WebSocket every 2 seconds to reduce network traffic
+      const timeSinceLastUpdate = now - lastUpdateTimeRef.current;
+      const videoTimeDelta = Math.abs(currentTime - lastVideoTimeRef.current);
+      
+      if (timeSinceLastUpdate >= 2000 && videoTimeDelta >= 0.5) {
+        lastUpdateTimeRef.current = now;
+        lastVideoTimeRef.current = currentTime;
+        
         const newState = {
           entry: playerState.entry,
           play_state: video.ended ? 'finished' as const : 'playing' as const,
-          current_time: video.currentTime,
-          duration: video.duration || 0
+          current_time: currentTime,
+          duration: duration
         };
         wsActions.updatePlayerState(newState);
       }
-    }, 1000);
+      
+      // Continue the animation loop only if tab is still visible
+      if (isTabVisible) {
+        animationFrameRef.current = requestAnimationFrame(updatePlayerState);
+      }
+    };
 
-    return () => clearInterval(interval);
-  }, [playerState?.entry, wsActions]);
+    // Start the animation frame loop
+    animationFrameRef.current = requestAnimationFrame(updatePlayerState);
+
+    return () => {
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current);
+        animationFrameRef.current = null;
+      }
+    };
+  }, [playerState?.entry, playerState?.play_state, wsActions, isTabVisible]);
 
   return (
     <div className="bg-black h-screen w-screen relative">
@@ -139,21 +208,21 @@ export default function DisplayPage() {
             <div className="bg-black/60 backdrop-blur-sm rounded-lg p-4 text-white">
               <div className="flex flex-row items-center justify-between mb-2">
                 <span className="text-sm opacity-70">
-                  {Math.floor(playerState.current_time / 60)}:{Math.floor(playerState.current_time % 60).toString().padStart(2, '0')}
+                  {Math.floor((playerState.current_time || 0) / 60)}:{Math.floor((playerState.current_time || 0) % 60).toString().padStart(2, '0')}
                 </span>
                 <span className="text-sm opacity-70">
-                  {playerState.duration > 0 ?
-                    `${Math.floor(playerState.duration / 60)}:${Math.floor(playerState.duration % 60).toString().padStart(2, '0')}`
+                  {(playerState.duration || 0) > 0 ?
+                    `${Math.floor((playerState.duration || 0) / 60)}:${Math.floor((playerState.duration || 0) % 60).toString().padStart(2, '0')}`
                     : '--:--'
                   }
                 </span>
               </div>
               <div className="w-full bg-white/20 rounded-full h-2">
                 <div
-                  className="bg-white rounded-full h-2 transition-all duration-300"
+                  className="bg-white rounded-full h-2 transition-all duration-1000"
                   style={{
-                    width: playerState.duration > 0 ?
-                      `${(playerState.current_time / playerState.duration) * 100}%` :
+                    width: (playerState.duration || 0) > 0 ?
+                      `${Math.min(((playerState.current_time || 0) / (playerState.duration || 1)) * 100, 100)}%` :
                       '0%'
                   }}
                 />
@@ -174,20 +243,7 @@ export default function DisplayPage() {
                 allow="autoplay; encrypted-media"
                 allowFullScreen
                 title={`${playerState.entry.artist} - ${playerState.entry.title}`}
-                onError={() => {
-                  console.error('YouTube embed failed to load');
-                  setEmbedError(true);
-                }}
-                onLoad={(e) => {
-                  const iframe = e.target as HTMLIFrameElement;
-                  try {
-                    if (iframe.contentWindow) {
-                      console.log('YouTube embed loaded successfully');
-                    }
-                  } catch (error) {
-                    console.warn('YouTube embed may have loading issues:', error);
-                  }
-                }}
+                onError={() => setEmbedError(true)}
               />
             ) : (youtubeEmbedUrl && embedError) ? (
               <div className="flex flex-col items-center justify-center h-full text-white">

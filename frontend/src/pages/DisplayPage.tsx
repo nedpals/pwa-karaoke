@@ -3,7 +3,6 @@ import { useWebSocket } from "../hooks/useWebSocket";
 
 export default function DisplayPage() {
   const videoRef = useRef<HTMLVideoElement>(null);
-  const [, setIsVideoReady] = useState(false);
   const hasRequestedInitialQueue = useRef(false);
   const [isMuted, setIsMuted] = useState(true); // Start muted, then auto-unmute
 
@@ -14,6 +13,7 @@ export default function DisplayPage() {
     playerState,
     requestQueueUpdate,
     updatePlayerState,
+    // videoLoaded,
   } = useWebSocket("display");
 
   const videoUrl = useMemo(() => {
@@ -28,6 +28,7 @@ export default function DisplayPage() {
   useEffect(() => {
     if (connected && !hasRequestedInitialQueue.current) {
       hasRequestedInitialQueue.current = true;
+      // Request both queue and current player state on mount/reconnect
       requestQueueUpdate();
     } else if (!connected) {
       // Reset flag when disconnected so we'll request again on reconnect
@@ -35,6 +36,7 @@ export default function DisplayPage() {
     }
   }, [connected, requestQueueUpdate]);
 
+  // Sync video with playerState and handle resume on reload
   useEffect(() => {
     console.log(playerState);
     if (!videoRef.current || !playerState) return;
@@ -42,6 +44,14 @@ export default function DisplayPage() {
     const video = videoRef.current;
     const shouldPlay = playerState.play_state === "playing";
     const shouldPause = playerState.play_state === "paused";
+
+    // Set video time to match playerState (for reload/sync)
+    if (
+      playerState.current_time &&
+      Math.abs(video.currentTime - playerState.current_time) > 2
+    ) {
+      video.currentTime = playerState.current_time;
+    }
 
     if (shouldPlay && video.paused) {
       video.play().catch((error) => {
@@ -137,6 +147,46 @@ export default function DisplayPage() {
     };
   }, [playerState?.entry, updatePlayerState]);
 
+  // Handle page unload/reload - save current video state
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      if (videoRef.current && playerState?.entry) {
+        const video = videoRef.current;
+        // Send final state update before page closes
+        updatePlayerState({
+          entry: playerState.entry,
+          play_state: video.paused ? "paused" : "playing",
+          current_time: video.currentTime,
+          duration: video.duration || 0,
+        });
+      }
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.hidden && videoRef.current && playerState?.entry) {
+        // Page is being hidden/backgrounded - pause video and save state
+        const video = videoRef.current;
+        if (!video.paused) {
+          video.pause();
+          updatePlayerState({
+            entry: playerState.entry,
+            play_state: "paused",
+            current_time: video.currentTime,
+            duration: video.duration || 0,
+          });
+        }
+      }
+    };
+
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [playerState?.entry, updatePlayerState]);
+
   return (
     <div className="bg-black h-screen w-screen relative">
       <div className="pt-6 px-6 absolute top-0 inset-x-0 z-50">
@@ -209,7 +259,55 @@ export default function DisplayPage() {
                   className="w-full h-full object-cover"
                   autoPlay
                   muted={isMuted}
-                  onLoadedData={() => setIsVideoReady(true)}
+                  onCanPlayThrough={() => {
+                    // Restore video position and play state when video is ready
+                    if (videoRef.current && playerState) {
+                      const video = videoRef.current;
+
+                      // Set current time if we have it
+                      if (
+                        playerState.current_time &&
+                        playerState.current_time > 0
+                      ) {
+                        video.currentTime = playerState.current_time;
+                      }
+
+                      // Handle play state with autoplay fix
+                      if (playerState.play_state === "playing") {
+                        // Mute-unmute strategy for autoplay
+                        video.muted = true;
+                        video
+                          .play()
+                          .then(() => {
+                            // Unmute after 1 second if we were supposed to be unmuted
+                            if (!isMuted) {
+                              setTimeout(() => {
+                                video.muted = false;
+                              }, 1000);
+                            }
+                          })
+                          .catch((error) => {
+                            if (error.name !== "AbortError") {
+                              console.error(
+                                "Video play failed on load:",
+                                error,
+                              );
+                            }
+                          });
+                      } else if (playerState.play_state === "paused") {
+                        video.pause();
+                      }
+
+                      // Notify server that video is loaded and ready for sync
+                      // NOTE: I commented it because I removed the command
+                      // videoLoaded({
+                      //   entry: playerState.entry,
+                      //   play_state: playerState.play_state,
+                      //   current_time: video.currentTime,
+                      //   duration: video.duration || 0,
+                      // });
+                    }
+                  }}
                   onEnded={() => {
                     if (!playerState.entry) return;
                     updatePlayerState({

@@ -1,3 +1,5 @@
+import random
+
 from typing_extensions import Literal
 from core.queue import KaraokeQueue
 from core.search import KaraokeEntry
@@ -99,10 +101,43 @@ class ControllerCommands(ClientCommands):
         await self._toggle_playback_state("pause")
 
 class DisplayCommands(ClientCommands):
+    async def _request_sync_from_controller(self):
+        controllers = self.conn_manager.get_controllers()
+        if not controllers:
+            return None
+
+        random_controller = random.choice(controllers)
+
+        try:
+            await random_controller.send_command("request_player_state", {})
+            return random_controller
+        except Exception:
+            # Controller disconnected, remove it
+            await self.conn_manager.disconnect(random_controller)
+            return None
+
     async def update_player_state(self, state: DisplayPlayerState):
-        # TIP: When the song is finished, the display client should send a "finished" state
+        # Broadcast the updated player state to all clients
+        #
+         # TIP: When the song is finished, the display client should send a "finished" state
         # so that the controller clients will be the ones to request to play the next song
         await self._update_player_state(state)
 
     async def request_queue_update(self, _: None):
         await self._queue_update()
+
+        # Request current player state from a random controller
+        requested_controller = await self._request_sync_from_controller()
+
+        # If no controllers available, send empty state
+        if not requested_controller:
+            await self._update_player_state(DisplayPlayerState(
+                entry=None,
+                play_state="paused",
+                current_time=0.0,
+                duration=0.0
+            ))
+
+    async def video_loaded(self, state: DisplayPlayerState):
+        # Sync this state back to all controllers using the standard player_state command
+        await self.conn_manager.broadcast_to_controllers("player_state", state.model_dump())

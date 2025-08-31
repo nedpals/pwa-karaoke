@@ -2,9 +2,17 @@ from typing import Literal
 from fastapi import WebSocket, WebSocketDisconnect
 from fastapi.websockets import WebSocketState
 
+from nanoid import generate as generate_nanoid
+
 class ConnectionClient:
+    id: str
     websocket: WebSocket
     client_type: Literal["controller", "display"]
+
+    def __init__(self, websocket: WebSocket, client_type: Literal["controller", "display"]):
+        self.id = generate_nanoid()
+        self.websocket = websocket
+        self.client_type = client_type
 
     async def send_command(self, command: str, data):
         if self.websocket.client_state != WebSocketState.CONNECTED:
@@ -73,10 +81,7 @@ class ClientManager:
             # TODO: Add custom error message for this
             # raise WebSocketDisconnect()
 
-        client = ConnectionClient()
-        client.websocket = websocket
-        client.client_type = client_type
-
+        client = ConnectionClient(websocket, client_type)
         if client_type == "display":
             self.has_display_client = True
 
@@ -89,18 +94,18 @@ class ClientManager:
             self.has_display_client = False
         await self.broadcast_client_count()
 
-    async def broadcast_command(self, command: str, data):
-        # Create a copy of the list to avoid modification during iteration
-        connections = list(self.active_connections)
+    async def broadcast_command(self, command: str, data, clients=None):
+        # Use provided clients list or all active connections
+        connections = list(clients if clients is not None else self.active_connections)
         disconnected_clients = []
-        
+
         for connection in connections:
             try:
                 await connection.send_command(command, data)
             except Exception:
                 # Mark for removal
                 disconnected_clients.append(connection)
-        
+
         # Remove failed connections and update client count if needed
         if disconnected_clients:
             for client in disconnected_clients:
@@ -108,3 +113,15 @@ class ClientManager:
 
     async def broadcast_client_count(self):
         return await self.broadcast_command("client_count", len(self.active_connections))
+
+    def get_controllers(self):
+        return [client for client in self.active_connections if client.client_type == "controller"]
+
+    def get_display_clients(self):
+        return [client for client in self.active_connections if client.client_type == "display"]
+
+    async def broadcast_to_displays(self, command: str, data):
+        await self.broadcast_command(command, data, clients=self.get_display_clients())
+
+    async def broadcast_to_controllers(self, command: str, data):
+        await self.broadcast_command(command, data, clients=self.get_controllers())

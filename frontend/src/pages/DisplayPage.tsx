@@ -21,11 +21,8 @@ export default function DisplayPage() {
   useEffect(() => {
     if (connected) {
       wsActions.requestQueueUpdate();
-      if (!playerState?.entry) {
-        wsActions.requestCurrentSong();
-      }
     }
-  }, [connected, wsActions, playerState]);
+  }, [connected, wsActions]);
 
   useEffect(() => {
     if (!videoRef.current || !playerState) return;

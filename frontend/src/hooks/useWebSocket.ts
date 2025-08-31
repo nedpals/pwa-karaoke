@@ -27,7 +27,6 @@ export interface WebSocketActions {
   // Display commands
   updatePlayerState: (state: DisplayPlayerState) => void;
   requestQueueUpdate: () => void;
-  requestCurrentSong: () => void;
 }
 
 export function useWebSocket(clientType: ClientType): [WebSocketState, WebSocketActions] {
@@ -40,7 +39,6 @@ export function useWebSocket(clientType: ClientType): [WebSocketState, WebSocket
 
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const hasRequestedCurrentSongRef = useRef<boolean>(false);
 
   const sendCommand = useCallback((command: string, payload: unknown = null) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
@@ -72,25 +70,7 @@ export function useWebSocket(clientType: ClientType): [WebSocketState, WebSocket
             setState(prev => ({ ...prev, queue: data }));
             break;
           case 'player_state':
-            setState(prev => {
-              // Reset the flag if we get a new song entry from player_state update
-              if (data?.entry && data.entry.id !== prev.playerState?.entry?.id) {
-                hasRequestedCurrentSongRef.current = false;
-              }
-              return { ...prev, playerState: data };
-            });
-            break;
-          case 'current_song':
-            // Handle current song response for display clients
-            if (data) {
-              setState(prev => ({ 
-                ...prev, 
-                playerState: { 
-                  ...prev.playerState, 
-                  entry: data 
-                } as DisplayPlayerState 
-              }));
-            }
+            setState(prev => ({ ...prev, playerState: data }));
             break;
           case 'play_song':
             setState(prev => ({
@@ -115,8 +95,6 @@ export function useWebSocket(clientType: ClientType): [WebSocketState, WebSocket
 
     wsRef.current.onclose = () => {
       setState(prev => ({ ...prev, connected: false }));
-      // Reset flag when connection is lost so we'll request current song on reconnect
-      hasRequestedCurrentSongRef.current = false;
       
       // Attempt to reconnect after 3 seconds
       reconnectTimeoutRef.current = setTimeout(() => {
@@ -168,13 +146,6 @@ export function useWebSocket(clientType: ClientType): [WebSocketState, WebSocket
     // Display commands
     updatePlayerState: (state) => sendCommand('update_player_state', state),
     requestQueueUpdate: () => sendCommand('request_queue_update'),
-    requestCurrentSong: () => {
-      // Only request if we haven't already requested or if we don't have current song data
-      if (!hasRequestedCurrentSongRef.current || !state.playerState?.entry) {
-        hasRequestedCurrentSongRef.current = true;
-        sendCommand('request_current_song');
-      }
-    },
   };
 
   return [state, actions];

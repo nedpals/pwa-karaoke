@@ -28,6 +28,30 @@ class ClientCommands:
     async def _toggle_playback_state(self, playback_state: Literal["play", "pause"]):
         command = "play_song" if playback_state == "play" else "pause_song"
         await self.conn_manager.broadcast_command(command, {})
+    
+    async def _auto_play_first_song(self):
+        """Auto-play the first song in queue with initial player state"""
+        if len(self.queue.items) == 0:
+            return
+            
+        first_song = self.queue.items[0].entry
+        player_state = DisplayPlayerState(
+            entry=first_song,
+            play_state="playing",
+            current_time=0.0,
+            duration=0.0
+        )
+        await self._update_player_state(player_state)
+    
+    async def _auto_stop_playback(self):
+        """Auto-stop playback when queue is empty"""
+        player_state = DisplayPlayerState(
+            entry=None,
+            play_state="paused",
+            current_time=0.0,
+            duration=0.0
+        )
+        await self._update_player_state(player_state)
 
 class ControllerCommands(ClientCommands):
     async def remove_song(self, id_to_delete: str):
@@ -41,12 +65,22 @@ class ControllerCommands(ClientCommands):
             
         current_playing = self.queue.items[0]
         # remove_song will take care of broadcasting the updated queue
-        # and the display client will handle playing the next song
         await self.remove_song(current_playing.id)
+        
+        # Auto-stop if queue is now empty, or auto-play next song
+        if len(self.queue.items) == 0:
+            await self._auto_stop_playback()
+        else:
+            await self._auto_play_first_song()
 
     async def queue_song(self, entry: KaraokeEntry):
+        was_empty = len(self.queue.items) == 0
         self.queue.enqueue(entry)
         await self._queue_update()
+        
+        # Auto-play if queue was empty before adding this song
+        if was_empty:
+            await self._auto_play_first_song()
 
     async def queue_next_song(self, entry_id: str):
         self.queue.queue_next(entry_id)
@@ -56,6 +90,9 @@ class ControllerCommands(ClientCommands):
         # Clear all items from the queue
         self.queue.items.clear()
         await self._queue_update()
+        
+        # Auto-stop when queue is cleared
+        await self._auto_stop_playback()
 
     async def play_song(self, _: None):
         await self._toggle_playback_state("play")
@@ -72,10 +109,3 @@ class DisplayCommands(ClientCommands):
     async def request_queue_update(self, _: None):
         await self._queue_update()
 
-    async def request_current_song(self, _: None):
-        # Only respond if there's actually something in the queue
-        if len(self.queue.items) == 0:
-            return  # Don't send anything if queue is empty
-            
-        current_playing = self.queue.items[0]
-        await self.client.send_command("current_song", current_playing.model_dump())

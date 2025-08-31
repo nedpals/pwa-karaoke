@@ -6,32 +6,66 @@ export default function DisplayPage() {
   const { connected, queue, playerState } = wsState;
   const videoRef = useRef<HTMLVideoElement>(null);
   const [, setIsVideoReady] = useState(false);
+  const [embedError, setEmbedError] = useState(false);
 
   // Convert YouTube URL to direct video URL (this is a simplified approach)
   const getVideoUrl = (url: string) => {
-    // For production, you'd want to use YouTube API or a service like youtube-dl
-    // For now, we'll handle direct video URLs or use a placeholder
-    if (url.includes('youtube.com') || url.includes('youtu.be')) {
-      // In a real app, you'd need to extract video and use YouTube API
-      // For demo purposes, return a placeholder or handle differently
-      return null; // Will show YouTube embed instead
+    console.log('Getting video URL for:', url);
+    try {
+      // Check if it's a YouTube URL
+      if (url.includes('youtube.com') || url.includes('youtu.be')) {
+        // YouTube videos will be handled by the embed iframe
+        return null;
+      }
+      // For other video URLs, return as-is
+      return url;
+    } catch (error) {
+      console.error('Error processing video URL:', error, url);
+      return null;
     }
-    return url;
   };
 
   const getYouTubeEmbedUrl = (url: string) => {
-    let videoId = '';
-    if (url.includes('watch?v=')) {
-      videoId = url.split('watch?v=')[1].split('&')[0];
-    } else if (url.includes('youtu.be/')) {
-      videoId = url.split('youtu.be/')[1].split('?')[0];
+    try {
+      let videoId = '';
+      console.log('Parsing YouTube URL:', url);
+      
+      const ytUrl = new URL(url);
+      
+      // Handle different YouTube URL formats using URL constructor
+      if (ytUrl.hostname === 'youtu.be') {
+        // Short URL format: https://youtu.be/VIDEO_ID
+        videoId = ytUrl.pathname.slice(1); // Remove leading slash
+      } else if (ytUrl.hostname.includes('youtube.com')) {
+        // Handle various youtube.com formats
+        if (ytUrl.pathname === '/watch') {
+          // Standard format: https://www.youtube.com/watch?v=VIDEO_ID
+          videoId = ytUrl.searchParams.get('v') || '';
+        } else if (ytUrl.pathname.startsWith('/embed/')) {
+          // Embed format: https://www.youtube.com/embed/VIDEO_ID
+          videoId = ytUrl.pathname.replace('/embed/', '');
+        }
+      }
+      
+      // Clean video ID (remove any extra parameters)
+      videoId = videoId.split('&')[0].split('?')[0];
+      
+      console.log('Extracted video ID:', videoId);
+      return videoId ? `https://www.youtube.com/embed/${videoId}?autoplay=1&controls=0&modestbranding=1&rel=0&showinfo=0` : null;
+    } catch (error) {
+      console.error('Error parsing YouTube URL:', error, url);
+      return null;
     }
-    return videoId ? `https://www.youtube.com/embed/${videoId}?autoplay=1&controls=0&modestbranding=1&rel=0&showinfo=0` : null;
   };
 
   // Get video URLs for current entry
-  const videoUrl = playerState?.entry ? getVideoUrl(playerState.entry.video_url) : null;
-  const youtubeEmbedUrl = playerState?.entry ? getYouTubeEmbedUrl(playerState.entry.video_url) : null;
+  const videoUrl = playerState?.entry?.video_url ? getVideoUrl(playerState.entry.video_url) : null;
+  const youtubeEmbedUrl = playerState?.entry?.video_url ? getYouTubeEmbedUrl(playerState.entry.video_url) : null;
+  
+  // Reset embed error when new video loads
+  useEffect(() => {
+    setEmbedError(false);
+  }, [playerState?.entry?.video_url]);
 
   // Request initial data when connected
   useEffect(() => {
@@ -53,6 +87,10 @@ export default function DisplayPage() {
       video.pause();
     }
   }, [playerState]);
+
+  useEffect(() => {
+    console.log({ videoUrl, youtubeEmbedUrl });
+  }, [videoUrl, youtubeEmbedUrl]);
 
   // Update player state periodically
   useEffect(() => {
@@ -128,15 +166,46 @@ export default function DisplayPage() {
       <div className="relative h-full w-full flex items-center justify-center">
         {playerState?.entry ? (
           <div className="relative w-full h-full">
-            {youtubeEmbedUrl ? (
+            {youtubeEmbedUrl && !embedError ? (
               <iframe
                 src={youtubeEmbedUrl}
                 className="w-full h-full"
-style={{ border: 0 }}
+                style={{ border: 0 }}
                 allow="autoplay; encrypted-media"
                 allowFullScreen
                 title={`${playerState.entry.artist} - ${playerState.entry.title}`}
+                onError={() => {
+                  console.error('YouTube embed failed to load');
+                  setEmbedError(true);
+                }}
+                onLoad={(e) => {
+                  const iframe = e.target as HTMLIFrameElement;
+                  try {
+                    if (iframe.contentWindow) {
+                      console.log('YouTube embed loaded successfully');
+                    }
+                  } catch (error) {
+                    console.warn('YouTube embed may have loading issues:', error);
+                  }
+                }}
               />
+            ) : (youtubeEmbedUrl && embedError) ? (
+              <div className="flex flex-col items-center justify-center h-full text-white">
+                <div className="text-6xl mb-8">⚠️</div>
+                <h2 className="text-4xl font-bold mb-4">YouTube Video Failed to Load</h2>
+                <p className="text-2xl mb-8">{playerState.entry.title} - {playerState.entry.artist}</p>
+                <div className="text-lg opacity-70 text-center">
+                  <p>Unable to load YouTube video</p>
+                  <p className="mt-2">URL: {playerState.entry.video_url}</p>
+                  <button 
+                    type="button"
+                    onClick={() => setEmbedError(false)}
+                    className="mt-4 px-6 py-2 bg-white/20 rounded-lg hover:bg-white/30 transition-colors"
+                  >
+                    Try Again
+                  </button>
+                </div>
+              </div>
             ) : videoUrl ? (
               <video
                 ref={videoRef}

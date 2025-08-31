@@ -8,6 +8,10 @@ export interface KaraokeEntry {
   duration: number | null;
 }
 
+export interface KaraokeSearchResult {
+  entries: KaraokeEntry[];
+}
+
 export interface DisplayPlayerState {
   entry: KaraokeEntry | null;
   play_state: "playing" | "paused" | "finished";

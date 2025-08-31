@@ -1,5 +1,10 @@
 import { useState } from "react";
-import type { KaraokeQueue, DisplayPlayerState, KaraokeEntry } from "../types";
+import type {
+  KaraokeQueue,
+  DisplayPlayerState,
+  KaraokeEntry,
+  KaraokeSearchResult,
+} from "../types";
 import { MaterialSymbolsPlayArrowRounded } from "../components/icons/MaterialSymbolsPlayRounded";
 import { MaterialSymbolsFastForwardRounded } from "../components/icons/MaterialSymbolsFastForwardRounded";
 import { MaterialSymbolsKeyboardArrowUpRounded } from "../components/icons/MaterialSymbolsArrowUpRounded";
@@ -38,6 +43,8 @@ export default function ControllerPage() {
   const [playerState, setPlayerState] = useState<DisplayPlayerState | null>(
     null,
   );
+  const [searchResults, setSearchResults] =
+    useState<KaraokeSearchResult | null>(null);
   const [queue, setQueue] = useState<KaraokeQueue | null>(null);
   const [showVirtualKeyboard, setShowVirtualKeyboard] = useState(false);
 
@@ -51,8 +58,13 @@ export default function ControllerPage() {
     }
   };
 
+  const handleAddQueueItem = (entry: KaraokeEntry) => {
+    // TODO: send a websocket command
+  };
+
   const handlePlayNext = () => {
     if (!queue || queue.items.length === 0) return;
+    // TODO: send a websocket command
   };
 
   return (
@@ -87,23 +99,16 @@ export default function ControllerPage() {
                 </div>
 
                 <div className="pt-12">
-                  {[...Array(12)].map((_, i) => (
+                  {searchResults?.entries.map((entry, i) => (
                     <div
-                      key={`search_result_${i}`}
+                      key={`search_result_${entry.id}_${i}`}
                       className="mb-4 flex flex-row items-stretch space-x-1 text-white"
                     >
-                      <KaraokeEntryCard
-                        entry={{
-                          id: i,
-                          title: `Test Song ${i + 1}`,
-                          artist: `Artist ${i + 1}`,
-                          video_url: "https://youtube.com",
-                          source: "youtube",
-                          uploader: "Channel Name",
-                          duration: 200,
-                        }}
-                      />
-                      <button className="px-3 py-2 flex items-center bg-black/40 rounded-lg border border-white/20 hover:bg-white/20">
+                      <KaraokeEntryCard entry={entry} />
+                      <button
+                        onClick={() => handleAddQueueItem(entry)}
+                        className="px-3 py-2 flex items-center bg-black/40 rounded-lg border border-white/20 hover:bg-white/20"
+                      >
                         <MaterialSymbolsPlaylistAddRounded className="text-2xl" />
                       </button>
                     </div>

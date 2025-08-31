@@ -33,10 +33,6 @@ class ControllerCommands(ClientCommands):
     async def search(self, query: str):
         return await self.search(query)
 
-    async def select_song(self, entry: KaraokeEntry):
-        self.queue.enqueue(entry)
-        await self.__queue_update()
-
     async def remove_song(self, id_to_delete: str):
         self.queue.dequeue(id_to_delete)
         await self.__queue_update()
@@ -51,7 +47,11 @@ class ControllerCommands(ClientCommands):
         # and the display client will handle playing the next song
         return self.remove_song(current_playing.id)
 
-    async def queue_next(self, entry_id: str):
+    async def queue_song(self, entry: KaraokeEntry):
+        self.queue.enqueue(entry)
+        await self.__queue_update()
+
+    async def queue_next_song(self, entry_id: str):
         self.queue.queue_next(entry_id)
 
     async def play_song(self):

@@ -190,9 +190,7 @@ function PlayerTab() {
   const { playerState, queue } = wsState;
 
   const handlePlayerPlayback = () => {
-    if (!playerState) return;
-
-    if (playerState.play_state === "playing") {
+    if (playerState?.play_state === "playing") {
       wsActions.pauseSong();
     } else {
       wsActions.playSong();
@@ -200,8 +198,7 @@ function PlayerTab() {
   };
 
   const handlePlayNext = () => {
-    if (!queue || queue.items.length === 0) return;
-    wsActions.playNext();
+    wsActions.playNext(); // Backend handles validation
   };
 
   return (
@@ -291,8 +288,7 @@ function QueueTab() {
   const { queue, playerState } = wsState;
 
   const handlePlayNext = () => {
-    if (!queue || queue.items.length === 0) return;
-    wsActions.playNext();
+    wsActions.playNext(); // Backend handles validation
   };
 
   return (
@@ -304,11 +300,7 @@ function QueueTab() {
         {queue && queue.items.length > 0 && (
           <button
             type="button"
-            onClick={() => {
-              for (const item of queue.items) {
-                wsActions.removeSong(item.id);
-              }
-            }}
+            onClick={() => wsActions.clearQueue()}
             className="px-4 py-2 bg-red-600/80 hover:bg-red-600 rounded-lg text-white text-sm"
           >
             Clear All

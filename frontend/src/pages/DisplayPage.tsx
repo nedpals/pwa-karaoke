@@ -38,10 +38,14 @@ export default function DisplayPage() {
   // Request initial data when connected
   useEffect(() => {
     if (connected) {
+      // Request initial queue data only on connection (backend now broadcasts changes)
       wsActions.requestQueueUpdate();
-      wsActions.requestCurrentSong();
+      // Request current song if we don't already have player state (backend handles queue checking)
+      if (!playerState?.entry) {
+        wsActions.requestCurrentSong();
+      }
     }
-  }, [connected, wsActions]);
+  }, [connected, wsActions, playerState?.entry]);
 
   // Handle video playback state changes (optimized)
   useEffect(() => {

@@ -20,7 +20,7 @@ class ClientCommands:
         self.queue = queue
 
     async def _queue_update(self):
-        await self.client.send_command("queue_update", self.queue.model_dump())
+        await self.conn_manager.broadcast_command("queue_update", self.queue.model_dump())
 
     async def _update_player_state(self, state: DisplayPlayerState):
         await self.conn_manager.broadcast_command("player_state", state.model_dump())
@@ -35,11 +35,11 @@ class ControllerCommands(ClientCommands):
         await self._queue_update()
 
     async def play_next(self, _: None):
-        current_playing = self.queue.items[0] if len(self.queue.items) > 0 else None
-        if not current_playing:
-            # There's nothing to play next in the queue
-            return
-
+        # Backend handles validation - only proceed if there are items in queue
+        if len(self.queue.items) == 0:
+            return  # Nothing to play next
+            
+        current_playing = self.queue.items[0]
         # remove_song will take care of broadcasting the updated queue
         # and the display client will handle playing the next song
         await self.remove_song(current_playing.id)
@@ -50,6 +50,11 @@ class ControllerCommands(ClientCommands):
 
     async def queue_next_song(self, entry_id: str):
         self.queue.queue_next(entry_id)
+        await self._queue_update()
+
+    async def clear_queue(self, _: None):
+        # Clear all items from the queue
+        self.queue.items.clear()
         await self._queue_update()
 
     async def play_song(self, _: None):
@@ -68,5 +73,9 @@ class DisplayCommands(ClientCommands):
         await self._queue_update()
 
     async def request_current_song(self, _: None):
-        current_playing = self.queue.items[0] if len(self.queue.items) > 0 else None
-        await self.client.send_command("current_song", current_playing.model_dump() if current_playing else None)
+        # Only respond if there's actually something in the queue
+        if len(self.queue.items) == 0:
+            return  # Don't send anything if queue is empty
+            
+        current_playing = self.queue.items[0]
+        await self.client.send_command("current_song", current_playing.model_dump())

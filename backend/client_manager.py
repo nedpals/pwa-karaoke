@@ -52,10 +52,10 @@ class ClientManager:
         if client_type not in ["controller", "display"]:
             raise WebSocketDisconnect()
 
-        if client_type == "display" and self.has_display_client:
+        # if client_type == "display" and self.has_display_client:
             # Will only permit one display client
             # TODO: Add custom error message for this
-            raise WebSocketDisconnect()
+            # raise WebSocketDisconnect()
 
         client = ConnectionClient()
         client.websocket = websocket

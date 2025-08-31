@@ -19,13 +19,13 @@ class ClientCommands:
         self.conn_manager = conn_manager
         self.queue = queue
 
-    async def __queue_update(self):
+    async def _queue_update(self):
         await self.client.send_command("queue_update", self.queue.model_dump())
 
-    async def __update_player_state(self, state: DisplayPlayerState):
+    async def _update_player_state(self, state: DisplayPlayerState):
         await self.conn_manager.broadcast_command("player_state", state.model_dump())
 
-    async def __toggle_playback_state(self, playback_state: Literal["play", "pause"]):
+    async def _toggle_playback_state(self, playback_state: Literal["play", "pause"]):
         command = "play_song" if playback_state == "play" else "pause_song"
         await self.conn_manager.broadcast_command(command, {})
 
@@ -36,9 +36,9 @@ class ControllerCommands(ClientCommands):
 
     async def remove_song(self, id_to_delete: str):
         self.queue.dequeue(id_to_delete)
-        await self.__queue_update()
+        await self._queue_update()
 
-    async def play_next(self):
+    async def play_next(self, _: None):
         current_playing = self.queue.items[0] if len(self.queue.items) > 0 else None
         if not current_playing:
             # There's nothing to play next in the queue
@@ -50,27 +50,27 @@ class ControllerCommands(ClientCommands):
 
     async def queue_song(self, entry: KaraokeEntry):
         self.queue.enqueue(entry)
-        await self.__queue_update()
+        await self._queue_update()
 
     async def queue_next_song(self, entry_id: str):
         self.queue.queue_next(entry_id)
-        await self.__queue_update()
+        await self._queue_update()
 
-    async def play_song(self):
-        await self.__toggle_playback_state("play")
+    async def play_song(self, _: None):
+        await self._toggle_playback_state("play")
 
-    async def pause_song(self):
-        await self.__toggle_playback_state("pause")
+    async def pause_song(self, _: None):
+        await self._toggle_playback_state("pause")
 
 class DisplayCommands(ClientCommands):
     async def update_player_state(self, state: DisplayPlayerState):
         # TIP: When the song is finished, the display client should send a "finished" state
         # so that the controller clients will be the ones to request to play the next song
-        await self.__update_player_state(state)
+        await self._update_player_state(state)
 
-    async def request_queue_update(self):
-        await self.__queue_update()
+    async def request_queue_update(self, _: None):
+        await self._queue_update()
 
-    async def request_current_song(self):
+    async def request_current_song(self, _: None):
         current_playing = self.queue.items[0] if len(self.queue.items) > 0 else None
         await self.client.send_command("current_song", current_playing.model_dump() if current_playing else None)

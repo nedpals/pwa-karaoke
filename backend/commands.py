@@ -28,21 +28,19 @@ class ClientCommands:
     async def _toggle_playback_state(self, playback_state: Literal["play", "pause"]):
         command = "play_song" if playback_state == "play" else "pause_song"
         await self.conn_manager.broadcast_command(command, {})
-    
+
     async def _auto_play_first_song(self):
         """Auto-play the first song in queue with initial player state"""
         if len(self.queue.items) == 0:
             return
-            
-        first_song = self.queue.items[0].entry
-        player_state = DisplayPlayerState(
-            entry=first_song,
+
+        await self._update_player_state(DisplayPlayerState(
+            entry=self.queue.items[0].entry,
             play_state="playing",
             current_time=0.0,
             duration=0.0
-        )
-        await self._update_player_state(player_state)
-    
+        ))
+
     async def _auto_stop_playback(self):
         """Auto-stop playback when queue is empty"""
         player_state = DisplayPlayerState(
@@ -62,11 +60,11 @@ class ControllerCommands(ClientCommands):
         # Backend handles validation - only proceed if there are items in queue
         if len(self.queue.items) == 0:
             return  # Nothing to play next
-            
+
         current_playing = self.queue.items[0]
         # remove_song will take care of broadcasting the updated queue
         await self.remove_song(current_playing.id)
-        
+
         # Auto-stop if queue is now empty, or auto-play next song
         if len(self.queue.items) == 0:
             await self._auto_stop_playback()
@@ -77,7 +75,7 @@ class ControllerCommands(ClientCommands):
         was_empty = len(self.queue.items) == 0
         self.queue.enqueue(entry)
         await self._queue_update()
-        
+
         # Auto-play if queue was empty before adding this song
         if was_empty:
             await self._auto_play_first_song()
@@ -90,7 +88,7 @@ class ControllerCommands(ClientCommands):
         # Clear all items from the queue
         self.queue.items.clear()
         await self._queue_update()
-        
+
         # Auto-stop when queue is cleared
         await self._auto_stop_playback()
 
@@ -108,4 +106,3 @@ class DisplayCommands(ClientCommands):
 
     async def request_queue_update(self, _: None):
         await self._queue_update()
-

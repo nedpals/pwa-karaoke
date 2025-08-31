@@ -1,0 +1,44 @@
+from typing_extensions import Annotated
+
+from fastapi import FastAPI, WebSocket, Depends
+from fastapi.websockets import WebSocketDisconnect
+
+from core.queue import KaraokeQueue
+from services.karaoke_service import KaraokeService, KaraokeSearchResult
+from client_manager import ClientManager
+from commands import ControllerCommands, DisplayCommands
+
+app = FastAPI()
+manager = ClientManager()
+queue = KaraokeQueue(items=[])
+
+@app.get("/search")
+async def search(query: str, service: Annotated[KaraokeService, Depends()]) -> KaraokeSearchResult:
+    return await service.search(query)
+
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket, service: Annotated[KaraokeService, Depends()]):
+    client = await manager.connect(websocket)
+    if not client:
+        # Manager already disconnected the websocket
+        return
+
+    try:
+        commands = ControllerCommands(client, queue, manager, service)
+        if client.client_type == "display":
+            commands = DisplayCommands(client, queue, manager, service)
+
+        while True:
+            command, payload = await client.receive()
+            if command.startswith("_") or not hasattr(commands, command):
+                await client.send_command("error", f"Unknown command: {command}")
+                continue
+
+            # See commands.py for command implementations
+            await getattr(commands, command)(payload)
+    except WebSocketDisconnect:
+        await manager.disconnect(client)
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)

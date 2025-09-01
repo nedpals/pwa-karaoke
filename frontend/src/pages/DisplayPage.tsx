@@ -49,7 +49,6 @@ export default function DisplayPage() {
 
   // Sync video with playerState and handle resume on reload
   useEffect(() => {
-    console.log(playerState);
     if (!videoRef.current || !playerState) return;
 
     const video = videoRef.current;
@@ -79,9 +78,8 @@ export default function DisplayPage() {
   useEffect(() => {
     if (playerState?.play_state === "playing" && videoRef.current && isMuted) {
       const timer = setTimeout(() => {
-        if (videoRef.current && !videoRef.current.paused) {
+        if (!videoRef.current?.paused) {
           setIsMuted(false);
-          videoRef.current.muted = false;
         }
       }, 1000); // Unmute after 1 second of successful playback
 
@@ -123,40 +121,6 @@ export default function DisplayPage() {
 
     return () => clearInterval(interval);
   }, [playerState?.entry, playerState?.play_state, updatePlayerState]);
-
-  // Handle video state changes immediately for responsive controls
-  useEffect(() => {
-    if (!videoRef.current || !playerState?.entry) return;
-
-    const video = videoRef.current;
-    const currentEntry = playerState.entry;
-
-    const handlePlay = () => {
-      updatePlayerState({
-        entry: currentEntry,
-        play_state: "playing",
-        current_time: video.currentTime,
-        duration: video.duration || 0,
-      });
-    };
-
-    const handlePause = () => {
-      updatePlayerState({
-        entry: currentEntry,
-        play_state: "paused",
-        current_time: video.currentTime,
-        duration: video.duration || 0,
-      });
-    };
-
-    video.addEventListener("play", handlePlay);
-    video.addEventListener("pause", handlePause);
-
-    return () => {
-      video.removeEventListener("play", handlePlay);
-      video.removeEventListener("pause", handlePause);
-    };
-  }, [playerState?.entry, updatePlayerState]);
 
   // Handle page unload/reload - save current video state
   useEffect(() => {
@@ -254,32 +218,59 @@ export default function DisplayPage() {
                   className="w-full h-full object-cover"
                   autoPlay
                   muted={isMuted}
-                  onWaiting={() => {
-                    // Video is buffering
+                  onPlay={(ev) => {
                     if (playerState?.entry) {
-                      updatePlayerState({
-                        entry: playerState.entry,
-                        play_state: "buffering",
-                        current_time: videoRef.current?.currentTime || 0,
-                        duration: videoRef.current?.duration || 0,
-                      });
-                    }
-                  }}
-                  onCanPlay={() => {
-                    // Video can play again (buffering ended)
-                    if (playerState?.entry && playerState.play_state === "buffering") {
+                      const video = ev.currentTarget;
                       updatePlayerState({
                         entry: playerState.entry,
                         play_state: "playing",
-                        current_time: videoRef.current?.currentTime || 0,
-                        duration: videoRef.current?.duration || 0,
+                        current_time: video.currentTime,
+                        duration: video.duration || 0,
                       });
                     }
                   }}
-                  onCanPlayThrough={() => {
+                  onPause={(ev) => {
+                    if (playerState?.entry) {
+                      const video = ev.currentTarget;
+                      updatePlayerState({
+                        entry: playerState.entry,
+                        play_state: "paused",
+                        current_time: video.currentTime,
+                        duration: video.duration || 0,
+                      });
+                    }
+                  }}
+                  onWaiting={(ev) => {
+                    // Video is buffering
+                    if (playerState?.entry) {
+                      const video = ev.currentTarget;
+                      updatePlayerState({
+                        entry: playerState.entry,
+                        play_state: "buffering",
+                        current_time: video.currentTime || 0,
+                        duration: video.duration || 0,
+                      });
+                    }
+                  }}
+                  onCanPlay={(ev) => {
+                    // Video can play again (buffering ended)
+                    if (
+                      playerState?.entry &&
+                      playerState.play_state === "buffering"
+                    ) {
+                      const video = ev.currentTarget;
+                      updatePlayerState({
+                        entry: playerState.entry,
+                        play_state: "playing",
+                        current_time: video.currentTime || 0,
+                        duration: video.duration || 0,
+                      });
+                    }
+                  }}
+                  onCanPlayThrough={(ev) => {
                     // Restore video position and play state when video is ready
-                    if (videoRef.current && playerState) {
-                      const video = videoRef.current;
+                    if (playerState) {
+                      const video = ev.currentTarget;
 
                       // Set current time if we have it
                       if (
@@ -325,13 +316,14 @@ export default function DisplayPage() {
                       // });
                     }
                   }}
-                  onEnded={() => {
+                  onEnded={(ev) => {
                     if (!playerState.entry) return;
+                    const video = ev.currentTarget;
                     updatePlayerState({
                       entry: playerState.entry,
                       play_state: "finished" as const,
-                      current_time: videoRef.current?.currentTime || 0,
-                      duration: videoRef.current?.duration || 0,
+                      current_time: video.currentTime || 0,
+                      duration: video.duration || 0,
                     });
                   }}
                 >

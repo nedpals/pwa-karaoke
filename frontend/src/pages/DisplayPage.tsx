@@ -223,9 +223,15 @@ export default function DisplayPage() {
         </header>
       </div>
 
-      <div className="pb-6 px-6 absolute bottom-0 inset-x-0 z-50">
-        {/* TODO: */}
-      </div>
+      {/* Buffering indicator */}
+      {playerState?.play_state === "buffering" && (
+        <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 z-50">
+          <div className="bg-black/80 text-white px-6 py-3 rounded-lg flex items-center space-x-3">
+            <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-white" />
+            <span className="text-xl">Buffering...</span>
+          </div>
+        </div>
+      )}
 
       <div className="relative h-full w-full flex items-center justify-center">
         {playerState?.entry ? (
@@ -248,6 +254,28 @@ export default function DisplayPage() {
                   className="w-full h-full object-cover"
                   autoPlay
                   muted={isMuted}
+                  onWaiting={() => {
+                    // Video is buffering
+                    if (playerState?.entry) {
+                      updatePlayerState({
+                        entry: playerState.entry,
+                        play_state: "buffering",
+                        current_time: videoRef.current?.currentTime || 0,
+                        duration: videoRef.current?.duration || 0,
+                      });
+                    }
+                  }}
+                  onCanPlay={() => {
+                    // Video can play again (buffering ended)
+                    if (playerState?.entry && playerState.play_state === "buffering") {
+                      updatePlayerState({
+                        entry: playerState.entry,
+                        play_state: "playing",
+                        current_time: videoRef.current?.currentTime || 0,
+                        duration: videoRef.current?.duration || 0,
+                      });
+                    }
+                  }}
                   onCanPlayThrough={() => {
                     // Restore video position and play state when video is ready
                     if (videoRef.current && playerState) {

@@ -18,7 +18,7 @@ export interface VideoURLResponse {
 
 export interface DisplayPlayerState {
   entry: KaraokeEntry | null;
-  play_state: "playing" | "paused" | "finished";
+  play_state: "playing" | "paused" | "finished" | "buffering";
   current_time: number;
   duration: number;
 }

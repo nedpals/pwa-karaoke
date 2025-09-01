@@ -10,7 +10,7 @@ from pydantic import BaseModel
 
 class DisplayPlayerState(BaseModel):
     entry: KaraokeEntry | None
-    play_state: Literal["playing", "paused", "finished"]
+    play_state: Literal["playing", "paused", "finished", "buffering"]
     current_time: float = 0.0
     duration: float = 0.0
 

@@ -119,7 +119,7 @@ export function useWebSocket(clientType: ClientType): WebSocketReturn {
 
   // Flush pending commands after handshake completion
   useEffect(() => {
-    if (connected && hasHandshaken && pendingCommands.length > 0) {
+    if (hasHandshaken && pendingCommands.length > 0) {
       console.log(
         `[WebSocket ${clientType}] Flushing ${pendingCommands.length} pending commands`,
       );
@@ -132,7 +132,7 @@ export function useWebSocket(clientType: ClientType): WebSocketReturn {
       // Clear the pending commands
       setPendingCommands([]);
     }
-  }, [connected, hasHandshaken, pendingCommands, sendJsonMessage, clientType]);
+  }, [hasHandshaken, pendingCommands, sendJsonMessage, clientType]);
 
   // Handle incoming messages
   useEffect(() => {
@@ -248,12 +248,12 @@ export function useWebSocket(clientType: ClientType): WebSocketReturn {
 
   const sendCommand = useCallback(
     (command: string, payload: unknown = null) => {
-      if (connected && hasHandshaken) {
+      if (hasHandshaken) {
         sendJsonMessage([command, payload]);
       } else {
         // Queue the command to be sent after handshake
         console.log(
-          `[WebSocket ${clientType}] Queueing command '${command}' - ${!connected ? "not connected" : "handshake not completed"}`,
+          `[WebSocket ${clientType}] Queueing command '${command}' - handshake not completed`,
         );
         setPendingCommands((prev) => [
           ...prev,
@@ -265,7 +265,7 @@ export function useWebSocket(clientType: ClientType): WebSocketReturn {
         ]);
       }
     },
-    [connected, hasHandshaken, clientType], // eslint-disable-line react-hooks/exhaustive-deps
+    [hasHandshaken, clientType], // eslint-disable-line react-hooks/exhaustive-deps
   );
 
   const upNextQueue = useMemo(() => {

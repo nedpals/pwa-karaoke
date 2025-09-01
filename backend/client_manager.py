@@ -66,6 +66,7 @@ class ClientManager:
 
     async def handshake(self, websocket: WebSocket) -> ConnectionClient:
         data = await websocket.receive_json()
+        print(f"[DEBUG] Handshake data received: {data}")
         if not isinstance(data, list) or data[0] != "handshake":
             raise WebSocketDisconnect()
 
@@ -142,18 +143,18 @@ class ClientManager:
 
     async def _ensure_controller_leader(self):
         controllers = self.get_controllers()
-        
+
         if not controllers:
             self.controller_leader = None
             return
-            
+
         # If current leader is still connected, keep it
         if self.controller_leader and self.controller_leader in controllers:
             return
-            
+
         # Elect first controller as leader (simple but effective)
         self.controller_leader = controllers[0]
-        
+
         # Notify all controllers about their leadership status
         for controller in controllers:
             is_leader = (controller == self.controller_leader)

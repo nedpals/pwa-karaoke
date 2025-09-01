@@ -12,7 +12,11 @@ export interface WebSocketState {
   upNextQueue: KaraokeQueue | null;
   playerState: DisplayPlayerState | null;
   isLeader: boolean;
-  lastQueueCommand: {command: string, data: unknown, timestamp: number} | null;
+  lastQueueCommand: {
+    command: string;
+    data: unknown;
+    timestamp: number;
+  } | null;
 }
 
 export interface WebSocketActions {
@@ -34,13 +38,26 @@ export interface WebSocketActions {
 
 export type WebSocketReturn = WebSocketState & WebSocketActions;
 
+type PendingCommand = {
+  command: string;
+  payload: unknown;
+  timestamp: number;
+};
+
 export function useWebSocket(clientType: ClientType): WebSocketReturn {
   const [clientCount, setClientCount] = useState(0);
   const [queue, setQueue] = useState<KaraokeQueue | null>(null);
-  const [playerState, setPlayerState] = useState<DisplayPlayerState | null>(null);
+  const [playerState, setPlayerState] = useState<DisplayPlayerState | null>(
+    null,
+  );
   const [hasHandshaken, setHasHandshaken] = useState(false);
   const [isLeader, setIsLeader] = useState(false);
-  const [lastQueueCommand, setLastQueueCommand] = useState<{command: string, data: unknown, timestamp: number} | null>(null);
+  const [lastQueueCommand, setLastQueueCommand] = useState<{
+    command: string;
+    data: unknown;
+    timestamp: number;
+  } | null>(null);
+  const [pendingCommands, setPendingCommands] = useState<PendingCommand[]>([]);
 
   // Generate WebSocket URL
   const socketUrl = useMemo(() => {
@@ -51,38 +68,43 @@ export function useWebSocket(clientType: ClientType): WebSocketReturn {
     return `${protocol}//${host}/ws`;
   }, []);
 
-  const {
-    sendJsonMessage,
-    lastJsonMessage,
-    readyState,
-  } = useWebSocketHook(socketUrl, {
-    shouldReconnect: () => true,
-    reconnectAttempts: 50, // Increased from 10
-    reconnectInterval: (attemptNumber: number) => {
-      // Exponential backoff: 1s, 2s, 4s, 8s, max 30s
-      const baseDelay = 1000;
-      const maxDelay = 30000;
-      const delay = Math.min(baseDelay * Math.pow(2, attemptNumber - 1), maxDelay);
-      console.log(`[WebSocket ${clientType}] Reconnecting in ${delay}ms (attempt ${attemptNumber})`);
-      return delay;
+  const { sendJsonMessage, lastJsonMessage, readyState } = useWebSocketHook(
+    socketUrl,
+    {
+      shouldReconnect: () => true,
+      reconnectAttempts: 50, // Increased from 10
+      reconnectInterval: (attemptNumber: number) => {
+        // Exponential backoff: 1s, 2s, 4s, 8s, max 30s
+        const baseDelay = 1000;
+        const maxDelay = 30000;
+        const delay = Math.min(
+          baseDelay * Math.pow(2, attemptNumber - 1),
+          maxDelay,
+        );
+        console.log(
+          `[WebSocket ${clientType}] Reconnecting in ${delay}ms (attempt ${attemptNumber})`,
+        );
+        return delay;
+      },
+      onOpen: () => {
+        console.log(`[WebSocket ${clientType}] Connected successfully`);
+        setHasHandshaken(false);
+
+        // Reset leader status on reconnection (will be set by server)
+        if (clientType === "controller") {
+          setIsLeader(false);
+        }
+      },
+      onClose: () => {
+        console.log(`[WebSocket ${clientType}] Connection closed`);
+        setHasHandshaken(false);
+        setPendingCommands([]); // Clear pending commands on disconnect
+      },
+      onError: (error) => {
+        console.error(`[WebSocket ${clientType}] Error:`, error);
+      },
     },
-    onOpen: () => {
-      console.log(`[WebSocket ${clientType}] Connected successfully`);
-      setHasHandshaken(false);
-      
-      // Reset leader status on reconnection (will be set by server)
-      if (clientType === "controller") {
-        setIsLeader(false);
-      }
-    },
-    onClose: () => {
-      console.log(`[WebSocket ${clientType}] Connection closed`);
-      setHasHandshaken(false);
-    },
-    onError: (error) => {
-      console.error(`[WebSocket ${clientType}] Error:`, error);
-    },
-  });
+  );
 
   const connected = readyState === 1; // WebSocket.OPEN
 
@@ -93,7 +115,24 @@ export function useWebSocket(clientType: ClientType): WebSocketReturn {
       sendJsonMessage(["handshake", clientType]);
       setHasHandshaken(true);
     }
-  }, [connected, hasHandshaken, clientType, sendJsonMessage]);
+  }, [connected, hasHandshaken, clientType]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Flush pending commands after handshake completion
+  useEffect(() => {
+    if (connected && hasHandshaken && pendingCommands.length > 0) {
+      console.log(
+        `[WebSocket ${clientType}] Flushing ${pendingCommands.length} pending commands`,
+      );
+
+      // Send all pending commands
+      pendingCommands.forEach(({ command, payload }) => {
+        sendJsonMessage([command, payload]);
+      });
+
+      // Clear the pending commands
+      setPendingCommands([]);
+    }
+  }, [connected, hasHandshaken, pendingCommands, sendJsonMessage, clientType]);
 
   // Handle incoming messages
   useEffect(() => {
@@ -110,22 +149,28 @@ export function useWebSocket(clientType: ClientType): WebSocketReturn {
           const incomingQueue = data as KaraokeQueue;
           console.log(`[${clientType}] Received queue_update:`, incomingQueue);
           // Only update if incoming queue is newer (conflict resolution)
-          setQueue(prevQueue => {
+          setQueue((prevQueue) => {
             if (!prevQueue) return incomingQueue;
-            
+
             // Compare versions - higher version wins
             if (incomingQueue.version > prevQueue.version) {
-              console.log(`[${clientType}] Updating queue to newer version ${incomingQueue.version}`);
+              console.log(
+                `[${clientType}] Updating queue to newer version ${incomingQueue.version}`,
+              );
               return incomingQueue;
             }
-            
+
             // If versions are equal, use timestamp as tiebreaker
-            if (incomingQueue.version === prevQueue.version && 
-                incomingQueue.timestamp > prevQueue.timestamp) {
-              console.log(`[${clientType}] Updating queue with newer timestamp`);
+            if (
+              incomingQueue.version === prevQueue.version &&
+              incomingQueue.timestamp > prevQueue.timestamp
+            ) {
+              console.log(
+                `[${clientType}] Updating queue with newer timestamp`,
+              );
               return incomingQueue;
             }
-            
+
             // Keep existing queue if incoming is older
             console.log(`[${clientType}] Ignoring older queue update`);
             return prevQueue;
@@ -134,17 +179,19 @@ export function useWebSocket(clientType: ClientType): WebSocketReturn {
         }
         case "player_state": {
           const incomingState = data as DisplayPlayerState;
-          setPlayerState(prevState => {
+          setPlayerState((prevState) => {
             if (!prevState) return incomingState;
             if (incomingState.version > prevState.version) {
               return incomingState;
             }
-            
-            if (incomingState.version === prevState.version && 
-                incomingState.timestamp > prevState.timestamp) {
+
+            if (
+              incomingState.version === prevState.version &&
+              incomingState.timestamp > prevState.timestamp
+            ) {
               return incomingState;
             }
-            
+
             return prevState;
           });
           break;
@@ -183,7 +230,10 @@ export function useWebSocket(clientType: ClientType): WebSocketReturn {
         case "queue_next_song":
           // Store the last queue command for displays to handle
           if (clientType === "display") {
-            console.log(`[${clientType}] Received queue command: ${command}`, data);
+            console.log(
+              `[${clientType}] Received queue command: ${command}`,
+              data,
+            );
             setLastQueueCommand({ command, data, timestamp: Date.now() });
           }
           break;
@@ -194,17 +244,28 @@ export function useWebSocket(clientType: ClientType): WebSocketReturn {
     } catch (error) {
       console.error("Failed to parse WebSocket message:", error);
     }
-  }, [lastJsonMessage, clientType]);
+  }, [lastJsonMessage, clientType]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const sendCommand = useCallback(
     (command: string, payload: unknown = null) => {
-      if (connected) {
+      if (connected && hasHandshaken) {
         sendJsonMessage([command, payload]);
       } else {
-        console.warn(`[WebSocket ${clientType}] Cannot send command '${command}' - not connected`);
+        // Queue the command to be sent after handshake
+        console.log(
+          `[WebSocket ${clientType}] Queueing command '${command}' - ${!connected ? "not connected" : "handshake not completed"}`,
+        );
+        setPendingCommands((prev) => [
+          ...prev,
+          {
+            command,
+            payload,
+            timestamp: Date.now(),
+          },
+        ]);
       }
     },
-    [connected, sendJsonMessage, clientType],
+    [connected, hasHandshaken, clientType], // eslint-disable-line react-hooks/exhaustive-deps
   );
 
   const upNextQueue = useMemo(() => {
@@ -236,7 +297,7 @@ export function useWebSocket(clientType: ClientType): WebSocketReturn {
         sendCommand("update_player_state", state),
       requestQueueUpdate: () => sendCommand("request_queue_update"),
     }),
-    [sendCommand],
+    [], // eslint-disable-line react-hooks/exhaustive-deps
   );
 
   return {

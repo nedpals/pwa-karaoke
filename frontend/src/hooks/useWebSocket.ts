@@ -1,8 +1,8 @@
-import { useEffect, useRef, useState, useCallback, useMemo } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
+import useWebSocketHook from "react-use-websocket";
 import type { KaraokeQueue, DisplayPlayerState, KaraokeEntry } from "../types";
 
 type ClientType = "controller" | "display";
-
 type WebSocketMessage = [string, unknown];
 
 export interface WebSocketState {
@@ -33,115 +33,103 @@ export interface WebSocketActions {
 export type WebSocketReturn = WebSocketState & WebSocketActions;
 
 export function useWebSocket(clientType: ClientType): WebSocketReturn {
-  const [connected, setConnected] = useState(false);
   const [clientCount, setClientCount] = useState(0);
   const [queue, setQueue] = useState<KaraokeQueue | null>(null);
-  const [playerState, setPlayerState] = useState<DisplayPlayerState | null>(
-    null,
-  );
+  const [playerState, setPlayerState] = useState<DisplayPlayerState | null>(null);
+  const [hasHandshaken, setHasHandshaken] = useState(false);
 
-  const wsRef = useRef<WebSocket | null>(null);
-  const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-
-  const sendCommand = useCallback(
-    (command: string, payload: unknown = null) => {
-      if (wsRef.current?.readyState === WebSocket.OPEN) {
-        wsRef.current.send(JSON.stringify([command, payload]));
-      }
-    },
-    [],
-  );
-
-  const connect = useCallback(() => {
-    // Close existing connection if any
-    if (wsRef.current && wsRef.current.readyState !== WebSocket.CLOSED) {
-      wsRef.current.close();
-    }
-
+  // Generate WebSocket URL
+  const socketUrl = useMemo(() => {
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
     const host = window.location.host.includes("localhost")
       ? "localhost:8000"
       : window.location.host;
-    const wsUrl = `${protocol}//${host}/ws`;
+    return `${protocol}//${host}/ws`;
+  }, []);
 
-    wsRef.current = new WebSocket(wsUrl);
+  const {
+    sendJsonMessage,
+    lastJsonMessage,
+    readyState,
+  } = useWebSocketHook(socketUrl, {
+    shouldReconnect: () => true,
+    reconnectAttempts: 10,
+    reconnectInterval: 3000,
+    onOpen: () => {
+      console.log(`[WebSocket ${clientType}] Connected successfully`);
+      setHasHandshaken(false);
+    },
+    onClose: () => {
+      console.log(`[WebSocket ${clientType}] Connection closed`);
+      setHasHandshaken(false);
+    },
+    onError: (error) => {
+      console.error(`[WebSocket ${clientType}] Error:`, error);
+    },
+  });
 
-    wsRef.current.onopen = () => {
-      // Send handshake directly here to avoid dependency issues
-      if (wsRef.current?.readyState === WebSocket.OPEN) {
-        wsRef.current.send(JSON.stringify(["handshake", clientType]));
-      }
-    };
+  const connected = readyState === 1; // WebSocket.OPEN
 
-    wsRef.current.onmessage = (event) => {
-      try {
-        const [command, data]: WebSocketMessage = JSON.parse(event.data);
-
-        switch (command) {
-          case "client_count":
-            setClientCount(data as number);
-            setConnected(true); // Set connected when we receive client count
-            break;
-          case "queue_update":
-            setQueue(data as KaraokeQueue);
-            break;
-          case "player_state":
-            setPlayerState(data as DisplayPlayerState);
-            break;
-          case "play_song":
-            setPlayerState((prev) =>
-              prev ? { ...prev, play_state: "playing" } : null,
-            );
-            break;
-          case "pause_song":
-            setPlayerState((prev) =>
-              prev ? { ...prev, play_state: "paused" } : null,
-            );
-            break;
-          case "request_player_state":
-            // Server is asking this controller for its current player state
-            if (clientType === "controller" && playerState) {
-              sendCommand("update_player_state", playerState);
-            }
-            break;
-          case "error":
-            console.error("WebSocket error:", data);
-            break;
-        }
-      } catch (error) {
-        console.error("Failed to parse WebSocket message:", error);
-      }
-    };
-
-    wsRef.current.onclose = () => {
-      setConnected(false);
-
-      // Clear reconnect timeout to prevent multiple reconnection attempts
-      if (reconnectTimeoutRef.current) {
-        clearTimeout(reconnectTimeoutRef.current);
-      }
-
-      // Attempt to reconnect after 3 seconds
-      reconnectTimeoutRef.current = setTimeout(() => {
-        connect();
-      }, 3000);
-    };
-
-    wsRef.current.onerror = (error) => {
-      console.error("WebSocket error:", error);
-    };
-  }, [clientType]);
-
+  // Send handshake when connection opens
   useEffect(() => {
-    connect();
+    if (connected && !hasHandshaken) {
+      console.log(`[WebSocket ${clientType}] Sending handshake`);
+      sendJsonMessage(["handshake", clientType]);
+      setHasHandshaken(true);
+    }
+  }, [connected, hasHandshaken, clientType, sendJsonMessage]);
 
-    return () => {
-      if (reconnectTimeoutRef.current) {
-        clearTimeout(reconnectTimeoutRef.current);
+  // Handle incoming messages
+  useEffect(() => {
+    if (!lastJsonMessage) return;
+
+    try {
+      const [command, data] = lastJsonMessage as WebSocketMessage;
+
+      switch (command) {
+        case "client_count":
+          setClientCount(data as number);
+          break;
+        case "queue_update":
+          setQueue(data as KaraokeQueue);
+          break;
+        case "player_state":
+          setPlayerState(data as DisplayPlayerState);
+          break;
+        case "play_song":
+          setPlayerState((prev) =>
+            prev ? { ...prev, play_state: "playing" } : null,
+          );
+          break;
+        case "pause_song":
+          setPlayerState((prev) =>
+            prev ? { ...prev, play_state: "paused" } : null,
+          );
+          break;
+        case "request_player_state":
+          if (clientType === "controller" && playerState) {
+            sendJsonMessage(["update_player_state", playerState]);
+          }
+          break;
+        case "error":
+          console.error("WebSocket error:", data);
+          break;
       }
-      wsRef.current?.close();
-    };
-  }, [connect]);
+    } catch (error) {
+      console.error("Failed to parse WebSocket message:", error);
+    }
+  }, [lastJsonMessage, clientType, playerState, sendJsonMessage]);
+
+  const sendCommand = useCallback(
+    (command: string, payload: unknown = null) => {
+      if (connected) {
+        sendJsonMessage([command, payload]);
+      } else {
+        console.warn(`[WebSocket ${clientType}] Cannot send command '${command}' - not connected`);
+      }
+    },
+    [connected, sendJsonMessage, clientType],
+  );
 
   const upNextQueue = useMemo(() => {
     if (!queue || !queue.items.length) {
@@ -155,7 +143,7 @@ export function useWebSocket(clientType: ClientType): WebSocketReturn {
     };
   }, [queue, playerState?.entry]);
 
-  // Create stable action functions (temporarily removing useCallback to debug hook issues)
+  // Create stable action functions
   const actions = useMemo(
     () => ({
       queueSong: (entry: KaraokeEntry) => sendCommand("queue_song", entry),

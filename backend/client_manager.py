@@ -16,30 +16,24 @@ class ConnectionClient:
 
     async def send_command(self, command: str, data):
         if self.websocket.client_state != WebSocketState.CONNECTED:
-            raise Exception("WebSocket is not connected")
+            raise WebSocketDisconnect()
         try:
             await self.websocket.send_json([command, data])
         except Exception:
             # Connection is closed, re-raise to trigger cleanup
-            raise
+            raise WebSocketDisconnect()
 
-    async def receive(self, attempt = 0) -> tuple[str, any]:
-        if attempt > 3:
-            raise Exception("Failed to receive message after multiple attempts")
-
+    async def receive(self) -> tuple[str, any]:
+        if self.websocket.client_state != WebSocketState.CONNECTED:
+            raise WebSocketDisconnect()
         try:
             data = await self.websocket.receive_json()
-            if not isinstance(data, list):
-                raise Exception("Invalid message format")
+            if not isinstance(data, list) or len(data) != 2:
+                raise WebSocketDisconnect()
             return data[0], data[1]
-        except RuntimeError:
-            # Handle 'WebSocket is not connected. Need to call "accept" first.' error
-            if not self.websocket.client_state == WebSocketState.CONNECTED:
-                # Reconnect the websocket
-                await self.websocket.accept()
-                return await self.receive(attempt + 1)
-            else:
-                raise
+        except Exception:
+            # Connection is closed or invalid, re-raise to trigger cleanup
+            raise WebSocketDisconnect()
 
 
 class ClientManager:

@@ -1,10 +1,10 @@
-import { useState, createContext, useContext, useEffect } from "react";
-import type { ReactNode } from "react";
-import type {
-  KaraokeEntry,
-  KaraokeQueueItem,
-} from "../types";
-import { useWebSocket, type WebSocketReturn } from "../hooks/useWebSocket";
+import { useState, useEffect } from "react";
+import type { KaraokeEntry, KaraokeQueueItem } from "../types";
+import { useWebSocket } from "../hooks/useWebSocket";
+import {
+  WebSocketStateProvider,
+  useWebSocketState,
+} from "../providers/WebSocketStateProvider";
 import { useSearchMutation } from "../hooks/useApi";
 import { MaterialSymbolsFastForwardRounded } from "../components/icons/MaterialSymbolsFastForwardRounded";
 import { MaterialSymbolsKeyboardArrowUpRounded } from "../components/icons/MaterialSymbolsArrowUpRounded";
@@ -29,60 +29,6 @@ const CONTROLLER_TABS = [
   },
 ] as const;
 
-interface ControllerContextType {
-  ws: WebSocketReturn;
-}
-
-const ControllerContext = createContext<ControllerContextType | undefined>(
-  undefined,
-);
-
-const useController = () => {
-  const context = useContext(ControllerContext);
-  if (context === undefined) {
-    throw new Error("useController must be used within a ControllerProvider");
-  }
-  return context;
-};
-
-interface ControllerProviderProps {
-  children: ReactNode;
-}
-
-function ControllerProvider({ children }: ControllerProviderProps) {
-  const ws = useWebSocket("controller");
-
-  // Request queue and player state on connect/reconnect
-  useEffect(() => {
-    if (ws.connected) {
-      console.log("[Controller] Requesting queue update on connect");
-      ws.requestQueueUpdate();
-    }
-  }, [ws.connected, ws.requestQueueUpdate]);
-
-  // Auto-play next song when current song finishes (only leader controller does this)
-  useEffect(() => {
-    if (ws.playerState?.play_state === "finished" && ws.isLeader) {
-      // Small delay to ensure the finished state is processed
-      const timer = setTimeout(() => {
-        ws.playNext();
-      }, 100);
-      
-      return () => clearTimeout(timer);
-    }
-  }, [ws.playerState?.play_state, ws.playNext, ws.isLeader]);
-
-  const value: ControllerContextType = {
-    ws,
-  };
-
-  return (
-    <ControllerContext.Provider value={value}>
-      {children}
-    </ControllerContext.Provider>
-  );
-}
-
 function KaraokeEntryCard({ entry }: { entry: KaraokeEntry }) {
   return (
     <div className="flex-1 p-4 bg-black/40 rounded-lg border border-white/20 text-white">
@@ -93,14 +39,14 @@ function KaraokeEntryCard({ entry }: { entry: KaraokeEntry }) {
 }
 
 function SongSelectTab() {
-  const { ws } = useController();
+  const { queueSong } = useWebSocketState();
   const [search, setSearch] = useState("");
   const [showVirtualKeyboard, setShowVirtualKeyboard] = useState(false);
-  
-  const { 
-    trigger: triggerSearch, 
-    data: searchResults, 
-    isMutating: isSearching 
+
+  const {
+    trigger: triggerSearch,
+    data: searchResults,
+    isMutating: isSearching,
   } = useSearchMutation();
 
   const handleSearch = async () => {
@@ -113,7 +59,7 @@ function SongSelectTab() {
   };
 
   const handleAddQueueItem = (entry: KaraokeEntry) => {
-    ws.queueSong(entry);
+    queueSong(entry);
   };
 
   return (
@@ -199,7 +145,7 @@ function SongSelectTab() {
 
 function PlayerTab() {
   const { playerState, queue, playSong, pauseSong, playNext } =
-    useController().ws;
+    useWebSocketState();
 
   const handlePlayerPlayback = () => {
     if (playerState?.play_state === "playing") {
@@ -207,10 +153,6 @@ function PlayerTab() {
     } else {
       playSong();
     }
-  };
-
-  const handlePlayNext = () => {
-    playNext(); // Backend handles validation
   };
 
   return (
@@ -278,7 +220,7 @@ function PlayerTab() {
         </div>
         <button
           type="button"
-          onClick={handlePlayNext}
+          onClick={playNext}
           disabled={
             !playerState ||
             !playerState.entry ||
@@ -304,11 +246,7 @@ function QueueTab() {
     clearQueue,
     queueNextSong,
     removeSong,
-  } = useController().ws;
-
-  const handlePlayNext = () => {
-    playNext(); // Backend handles validation
-  };
+  } = useWebSocketState();
 
   return (
     <div className="max-w-3xl mx-auto px-4 py-12 text-white">
@@ -334,7 +272,7 @@ function QueueTab() {
             <KaraokeEntryCard entry={playerState.entry} />
             <button
               type="button"
-              onClick={handlePlayNext}
+              onClick={playNext}
               className="px-3 py-2 flex items-center bg-black/40 rounded-lg border border-white/20 hover:bg-white/20"
             >
               <MaterialSymbolsFastForwardRounded className="text-2xl" />
@@ -423,9 +361,31 @@ function ControllerPageContent() {
 }
 
 export default function ControllerPage() {
+  const ws = useWebSocket("controller");
+
+  // Request queue and player state on connect/reconnect
+  useEffect(() => {
+    if (ws.connected) {
+      console.log("[Controller] Requesting queue update on connect");
+      ws.requestQueueUpdate();
+    }
+  }, [ws.connected]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Auto-play next song when current song finishes (only leader controller does this)
+  useEffect(() => {
+    if (ws.playerState?.play_state === "finished" && ws.isLeader) {
+      // Small delay to ensure the finished state is processed
+      const timer = setTimeout(() => {
+        ws.playNext();
+      }, 100);
+
+      return () => clearTimeout(timer);
+    }
+  }, [ws.playerState?.play_state, ws.isLeader]); // eslint-disable-line react-hooks/exhaustive-deps
+
   return (
-    <ControllerProvider>
+    <WebSocketStateProvider data={ws}>
       <ControllerPageContent />
-    </ControllerProvider>
+    </WebSocketStateProvider>
   );
 }

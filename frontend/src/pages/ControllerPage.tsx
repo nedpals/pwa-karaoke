@@ -1,6 +1,10 @@
 import { useState, createContext, useContext } from "react";
 import type { ReactNode } from "react";
-import type { KaraokeEntry, KaraokeSearchResult, KaraokeQueueItem } from "../types";
+import type {
+  KaraokeEntry,
+  KaraokeSearchResult,
+  KaraokeQueueItem,
+} from "../types";
 import { useWebSocket, type WebSocketReturn } from "../hooks/useWebSocket";
 import { MaterialSymbolsFastForwardRounded } from "../components/icons/MaterialSymbolsFastForwardRounded";
 import { MaterialSymbolsKeyboardArrowUpRounded } from "../components/icons/MaterialSymbolsArrowUpRounded";
@@ -29,12 +33,14 @@ interface ControllerContextType {
   ws: WebSocketReturn;
 }
 
-const ControllerContext = createContext<ControllerContextType | undefined>(undefined);
+const ControllerContext = createContext<ControllerContextType | undefined>(
+  undefined,
+);
 
 const useController = () => {
   const context = useContext(ControllerContext);
   if (context === undefined) {
-    throw new Error('useController must be used within a ControllerProvider');
+    throw new Error("useController must be used within a ControllerProvider");
   }
   return context;
 };
@@ -69,29 +75,34 @@ function KaraokeEntryCard({ entry }: { entry: KaraokeEntry }) {
 function SongSelectTab() {
   const { ws } = useController();
   const [search, setSearch] = useState("");
-  const [searchResults, setSearchResults] = useState<KaraokeSearchResult | null>(null);
+  const [searchResults, setSearchResults] =
+    useState<KaraokeSearchResult | null>(null);
   const [showVirtualKeyboard, setShowVirtualKeyboard] = useState(false);
   const [isSearching, setIsSearching] = useState(false);
 
   const handleSearch = async () => {
     if (!search.trim()) return;
-    
+
     setIsSearching(true);
     try {
       const protocol = window.location.protocol;
-      const host = window.location.host.includes('localhost') ? 'localhost:8000' : window.location.host;
+      const host = window.location.host.includes("localhost")
+        ? "localhost:8000"
+        : window.location.host;
       const baseUrl = `${protocol}//${host}`;
-      
-      const response = await fetch(`${baseUrl}/search?query=${encodeURIComponent(search)}`);
+
+      const response = await fetch(
+        `${baseUrl}/search?query=${encodeURIComponent(search)}`,
+      );
       if (response.ok) {
         const data = await response.json();
         setSearchResults(data);
       } else {
-        console.error('Search failed:', response.statusText);
+        console.error("Search failed:", response.statusText);
         setSearchResults(null);
       }
     } catch (error) {
-      console.error('Search error:', error);
+      console.error("Search error:", error);
       setSearchResults(null);
     } finally {
       setIsSearching(false);
@@ -129,7 +140,7 @@ function SongSelectTab() {
               disabled={!search.trim() || isSearching}
               className="absolute right-2 top-1/2 -translate-y-1/2 px-3 py-2 bg-white/20 hover:bg-white/30 disabled:bg-white/10 disabled:opacity-50 rounded text-white"
             >
-              {isSearching ? 'Searching...' : 'Search'}
+              {isSearching ? "Searching..." : "Search"}
             </button>
           </div>
         </div>
@@ -184,7 +195,8 @@ function SongSelectTab() {
 }
 
 function PlayerTab() {
-  const { playerState, queue, playSong, pauseSong, playNext } = useController().ws;
+  const { playerState, queue, playSong, pauseSong, playNext } =
+    useController().ws;
 
   const handlePlayerPlayback = () => {
     if (playerState?.play_state === "playing") {
@@ -281,7 +293,15 @@ function PlayerTab() {
 }
 
 function QueueTab() {
-  const { queue, upNextQueue, playerState, playNext, clearQueue, queueNextSong, removeSong } = useController().ws;
+  const {
+    queue,
+    upNextQueue,
+    playerState,
+    playNext,
+    clearQueue,
+    queueNextSong,
+    removeSong,
+  } = useController().ws;
 
   const handlePlayNext = () => {
     playNext(); // Backend handles validation
@@ -293,7 +313,7 @@ function QueueTab() {
         <h2 className="text-4xl font-bold text-white">
           {upNextQueue?.items.length || 0} Songs in Queue
         </h2>
-        {queue && (queue.items.length > (playerState?.entry ? 1 : 0)) && (
+        {queue && queue.items.length > (playerState?.entry ? 1 : 0) && (
           <button
             type="button"
             onClick={() => clearQueue()}
@@ -352,7 +372,8 @@ function QueueTab() {
 }
 
 function ControllerPageContent() {
-  const [tab, setTab] = useState<(typeof CONTROLLER_TABS)[number]["id"]>("song-select");
+  const [tab, setTab] =
+    useState<(typeof CONTROLLER_TABS)[number]["id"]>("song-select");
 
   return (
     <div className="min-h-screen min-w-screen bg-black relative">
@@ -370,10 +391,16 @@ function ControllerPageContent() {
           ))}
         </div>
 
-        <div className="flex-1 overflow-y-scroll">
-          {tab === "song-select" && <SongSelectTab />}
-          {tab === "player" && <PlayerTab />}
-          {tab === "queue" && <QueueTab />}
+        <div className="flex-1 overflow-y-scroll relative">
+          <div className={`${tab === "song-select" ? "block" : "hidden"}`}>
+            <SongSelectTab />
+          </div>
+          <div className={`${tab === "player" ? "block" : "hidden"}`}>
+            <PlayerTab />
+          </div>
+          <div className={`${tab === "queue" ? "block" : "hidden"}`}>
+            <QueueTab />
+          </div>
         </div>
       </div>
       <div

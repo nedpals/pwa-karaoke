@@ -2,10 +2,10 @@ import { useState, createContext, useContext } from "react";
 import type { ReactNode } from "react";
 import type {
   KaraokeEntry,
-  KaraokeSearchResult,
   KaraokeQueueItem,
 } from "../types";
 import { useWebSocket, type WebSocketReturn } from "../hooks/useWebSocket";
+import { useSearchMutation } from "../hooks/useApi";
 import { MaterialSymbolsFastForwardRounded } from "../components/icons/MaterialSymbolsFastForwardRounded";
 import { MaterialSymbolsKeyboardArrowUpRounded } from "../components/icons/MaterialSymbolsArrowUpRounded";
 import { MaterialSymbolsDeleteOutline } from "../components/icons/MaterialSymbolsDeleteOutline";
@@ -75,37 +75,20 @@ function KaraokeEntryCard({ entry }: { entry: KaraokeEntry }) {
 function SongSelectTab() {
   const { ws } = useController();
   const [search, setSearch] = useState("");
-  const [searchResults, setSearchResults] =
-    useState<KaraokeSearchResult | null>(null);
   const [showVirtualKeyboard, setShowVirtualKeyboard] = useState(false);
-  const [isSearching, setIsSearching] = useState(false);
+  
+  const { 
+    trigger: triggerSearch, 
+    data: searchResults, 
+    isMutating: isSearching 
+  } = useSearchMutation();
 
   const handleSearch = async () => {
     if (!search.trim()) return;
-
-    setIsSearching(true);
     try {
-      const protocol = window.location.protocol;
-      const host = window.location.host.includes("localhost")
-        ? "localhost:8000"
-        : window.location.host;
-      const baseUrl = `${protocol}//${host}`;
-
-      const response = await fetch(
-        `${baseUrl}/search?query=${encodeURIComponent(search)}`,
-      );
-      if (response.ok) {
-        const data = await response.json();
-        setSearchResults(data);
-      } else {
-        console.error("Search failed:", response.statusText);
-        setSearchResults(null);
-      }
+      await triggerSearch(search);
     } catch (error) {
       console.error("Search error:", error);
-      setSearchResults(null);
-    } finally {
-      setIsSearching(false);
     }
   };
 

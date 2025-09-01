@@ -1,15 +1,11 @@
 import { useEffect, useRef, useState, useMemo } from "react";
 import { useWebSocket } from "../hooks/useWebSocket";
-import type { VideoURLResponse } from "../types";
+import { useVideoUrl } from "../hooks/useApi";
 
 export default function DisplayPage() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const hasRequestedInitialQueue = useRef(false);
   const [isMuted, setIsMuted] = useState(true); // Start muted, then auto-unmute
-  const [isLoadingVideoUrl, setIsLoadingVideoUrl] = useState(false);
-  const [videoUrlCache, setVideoUrlCache] = useState<Record<string, string>>(
-    {},
-  );
 
   // Ensure websocket hook is always called at the same position
   const {
@@ -21,69 +17,20 @@ export default function DisplayPage() {
     // videoLoaded,
   } = useWebSocket("display");
 
-  // Fetch video URL when entry changes and doesn't have a video_url
-  useEffect(() => {
-    const entry = playerState?.entry;
-    if (!entry || entry.video_url) return; // Already has URL or no entry
+  // Use SWR to fetch video URL when needed
+  const { data: videoUrlData, isLoading: isLoadingVideoUrl } = useVideoUrl(
+    playerState?.entry && !playerState.entry.video_url ? playerState.entry : null
+  );
 
-    // Check cache first
-    if (videoUrlCache[entry.id]) {
-      // Update the entry with cached URL
+  // Update player state with fetched video URL from SWR
+  useEffect(() => {
+    if (videoUrlData && playerState?.entry && !playerState.entry.video_url) {
       updatePlayerState({
         ...playerState,
-        entry: { ...entry, video_url: videoUrlCache[entry.id] },
+        entry: { ...playerState.entry, video_url: videoUrlData.video_url },
       });
-      return;
     }
-
-    // Fetch video URL
-    const fetchVideoUrl = async () => {
-      setIsLoadingVideoUrl(true);
-      try {
-        const protocol = window.location.protocol;
-        const host = window.location.host.includes("localhost")
-          ? "localhost:8000"
-          : window.location.host;
-        const baseUrl = `${protocol}//${host}`;
-
-        const response = await fetch(`${baseUrl}/get_video_url`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify(entry),
-        });
-
-        if (response.ok) {
-          const data = (await response.json()) as VideoURLResponse;
-          const videoUrl = data.video_url;
-
-          if (!videoUrl) {
-            console.error("No video URL returned from server");
-            setIsLoadingVideoUrl(false);
-            return;
-          }
-
-          // Cache the URL
-          setVideoUrlCache((prev) => ({ ...prev, [entry.id]: videoUrl }));
-
-          // Update player state with the fetched URL
-          updatePlayerState({
-            ...playerState,
-            entry: { ...entry, video_url: videoUrl },
-          });
-        } else {
-          console.error("Failed to fetch video URL:", response.statusText);
-        }
-      } catch (error) {
-        console.error("Error fetching video URL:", error);
-      } finally {
-        setIsLoadingVideoUrl(false);
-      }
-    };
-
-    fetchVideoUrl();
-  }, [playerState?.entry?.id, playerState, updatePlayerState, videoUrlCache]);
+  }, [videoUrlData, playerState, updatePlayerState]);
 
   const videoUrl = useMemo(() => {
     try {

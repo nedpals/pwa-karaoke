@@ -1,0 +1,18 @@
+@keyframes marqueeScroll {
+  0% {
+    transform: translateX(100%);
+  }
+  100% {
+    transform: translateX(-100%);
+  }
+}
+
+.marqueeContainer {
+  overflow: hidden;
+  position: relative;
+}
+
+.marqueeText {
+  white-space: nowrap;
+  animation: marqueeScroll 15s linear infinite;
+}

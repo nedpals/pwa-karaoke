@@ -10,6 +10,7 @@ import type {
   KaraokeEntry,
   DisplayPlayerState,
 } from "../types";
+import styles from "./DisplayPage.module.css";
 
 function VideoPlayerComponent({
   videoUrl,
@@ -305,8 +306,10 @@ function PlayingStateComponent({
             <p>Now Playing:</p>
           </div>
 
-          <div className="flex flex-row text-2xl py-3 px-6 flex-1">
-            <p>{`${playerState.entry.artist} - ${playerState.entry.title}`}</p>
+          <div className={`flex flex-row text-2xl py-3 px-6 flex-1 ${styles.marqueeContainer}`}>
+            <div className={styles.marqueeText}>
+              <p>{`${playerState.entry.artist} - ${playerState.entry.title}`}</p>
+            </div>
           </div>
 
           <div className="rounded-r-[inherit] bg-black/20 text-2xl px-6 py-3">

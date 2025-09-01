@@ -49,8 +49,10 @@ function VideoPlayerComponent({
     const shouldPause = playerState.play_state === "paused";
 
     // Set video time to match playerState (for reload/sync)
+    // Only sync forward to prevent regression loops on reconnection
     if (
       playerState.current_time &&
+      playerState.current_time > video.currentTime &&
       Math.abs(video.currentTime - playerState.current_time) > 2
     ) {
       video.currentTime = playerState.current_time;
@@ -230,8 +232,10 @@ function VideoPlayerComponent({
           const shouldPause = playerState.play_state === "paused";
 
           // Set video time to match playerState (for reload/sync)
+          // Only sync forward to prevent regression loops on reconnection
           if (
             playerState.current_time &&
+            playerState.current_time > video.currentTime &&
             Math.abs(video.currentTime - playerState.current_time) > 2
           ) {
             video.currentTime = playerState.current_time - 1;
@@ -390,6 +394,7 @@ function DisplayPageContent() {
   const queueSong = (entry: KaraokeEntry) => {
     console.log("[DisplayPage] queueSong called with:", entry.title);
     const wasEmpty = localQueue.length === 0;
+    
     console.log("[DisplayPage] Queue was empty:", wasEmpty);
 
     const newItem: KaraokeQueueItem = {

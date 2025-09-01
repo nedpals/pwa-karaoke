@@ -1,21 +1,166 @@
 import { useEffect, useRef, useState, useMemo } from "react";
 import { useWebSocket } from "../hooks/useWebSocket";
 import { useVideoUrl } from "../hooks/useApi";
+import type {
+  KaraokeQueueItem,
+  KaraokeEntry,
+  DisplayPlayerState,
+} from "../types";
 
 export default function DisplayPage() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const hasRequestedInitialQueue = useRef(false);
   const [isMuted, setIsMuted] = useState(true); // Start muted, then auto-unmute
+  const [localQueue, setLocalQueue] = useState<KaraokeQueueItem[]>([]);
+  const [_, setPlayerStateVersion] = useState(1);
+  const [__, setQueueVersion] = useState(1);
+  const lastBufferingUpdate = useRef(0);
 
   // Ensure websocket hook is always called at the same position
   const {
     connected,
-    upNextQueue,
     playerState,
     requestQueueUpdate,
     updatePlayerState,
+    sendCommand,
+    lastQueueCommand,
     // videoLoaded,
   } = useWebSocket("display");
+
+  // Broadcast queue updates to all controllers
+  const broadcastQueueUpdate = useMemo(() => {
+    return (queue: KaraokeQueueItem[]) => {
+      setQueueVersion((prev) => {
+        const newVersion = prev + 1;
+        sendCommand("queue_update", {
+          items: queue,
+          version: newVersion,
+          timestamp: Date.now(),
+        });
+        return newVersion;
+      });
+    };
+  }, [sendCommand]);
+
+  // Versioned player state update
+  const updateVersionedPlayerState = useMemo(() => {
+    return (partialState: Partial<DisplayPlayerState>) => {
+      setPlayerStateVersion((prev) => {
+        const newVersion = prev + 1;
+
+        const versionedState = {
+          entry: playerState?.entry || null,
+          play_state: "paused" as const,
+          current_time: 0,
+          duration: 0,
+          version: newVersion,
+          timestamp: Date.now(),
+          ...partialState,
+        };
+
+        updatePlayerState(versionedState);
+        return newVersion;
+      });
+    };
+  }, [updatePlayerState, playerState]);
+
+  // Queue management functions
+  const generateQueueItemId = () =>
+    `queue_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+  const queueSong = (entry: KaraokeEntry) => {
+    console.log("[DisplayPage] queueSong called with:", entry.title);
+    const wasEmpty = localQueue.length === 0;
+    console.log("[DisplayPage] Queue was empty:", wasEmpty);
+
+    const newItem: KaraokeQueueItem = {
+      id: generateQueueItemId(),
+      entry,
+    };
+
+    const newQueue = [...localQueue, newItem];
+    setLocalQueue(newQueue);
+    broadcastQueueUpdate(newQueue);
+
+    // Auto-play if queue was empty before adding this song
+    if (wasEmpty) {
+      console.log(
+        "[DisplayPage] Auto-playing first song:",
+        newItem.entry.title,
+      );
+      updateVersionedPlayerState({
+        entry: newItem.entry,
+        play_state: "playing",
+        current_time: 0,
+        duration: 0,
+      });
+    }
+  };
+
+  const removeSong = (idToDelete: string) => {
+    const newQueue = localQueue.filter((item) => item.id !== idToDelete);
+    setLocalQueue(newQueue);
+    broadcastQueueUpdate(newQueue);
+
+    // If we removed the currently playing song and queue is empty, stop
+    if (newQueue.length === 0) {
+      updateVersionedPlayerState({
+        entry: null,
+        play_state: "paused",
+        current_time: 0,
+        duration: 0,
+      });
+    }
+  };
+
+  const playNextSong = () => {
+    // Remove first song (currently playing)
+    const newQueue = localQueue.slice(1);
+    setLocalQueue(newQueue);
+    broadcastQueueUpdate(newQueue);
+
+    // Reset muted state when new song starts
+    // Start each new song muted for autoplay
+    if (newQueue.length > 0) {
+      setIsMuted(true);
+    }
+
+    // Play next song
+    updateVersionedPlayerState({
+      entry: newQueue.length > 0 ? newQueue[0].entry : null,
+      play_state: newQueue.length > 0 ? "playing" : "finished",
+      current_time: 0,
+      duration: 0,
+    });
+  };
+
+  const clearQueue = () => {
+    setLocalQueue([]);
+    broadcastQueueUpdate([]);
+
+    // Stop playback when queue is cleared
+    updateVersionedPlayerState({
+      entry: null,
+      play_state: "paused",
+      current_time: 0,
+      duration: 0,
+    });
+  };
+
+  const queueNextSong = (entryId: string) => {
+    const entryIndex = localQueue.findIndex(
+      (item) => item.entry.id === entryId,
+    );
+    if (entryIndex === -1 || entryIndex <= 1) return; // Not found or already at front
+
+    // Move the song to second position (after currently playing)
+    const newQueue = [...localQueue];
+    const [songToMove] = newQueue.splice(entryIndex, 1);
+    newQueue.splice(1, 0, songToMove);
+
+    setLocalQueue(newQueue);
+    broadcastQueueUpdate(newQueue);
+  };
 
   // Use SWR to fetch video URL when needed
   const { data: videoUrlData, isLoading: isLoadingVideoUrl } = useVideoUrl(
@@ -41,6 +186,41 @@ export default function DisplayPage() {
       hasRequestedInitialQueue.current = false;
     }
   }, [connected, requestQueueUpdate]);
+
+  // Handle queue commands from controllers (via server relay)
+  useEffect(() => {
+    if (!lastQueueCommand) return;
+
+    const { command, data } = lastQueueCommand;
+
+    switch (command) {
+      case "send_current_queue":
+        console.log("[DisplayPage] Sending current queue to controllers");
+        broadcastQueueUpdate(localQueue);
+        break;
+      case "queue_song":
+        console.log("[DisplayPage] Executing queueSong with:", data);
+        queueSong(data as KaraokeEntry);
+        break;
+      case "remove_song":
+        console.log("[DisplayPage] Executing removeSong with:", data);
+        removeSong(data as string);
+        break;
+      case "play_next":
+        console.log("[DisplayPage] Executing playNextSong");
+        playNextSong();
+        break;
+      case "clear_queue":
+        console.log("[DisplayPage] Executing clearQueue");
+        clearQueue();
+        break;
+      case "queue_next_song":
+        console.log("[DisplayPage] Executing queueNextSong with:", data);
+        queueNextSong(data as string);
+        break;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lastQueueCommand]);
 
   useEffect(() => {
     if (!videoRef.current || !playerState) return;
@@ -69,25 +249,17 @@ export default function DisplayPage() {
   }, [playerState]);
 
   useEffect(() => {
-    if (playerState?.play_state === "playing" && videoRef.current && isMuted) {
+    if (playerState?.play_state === "playing" && isMuted) {
       // Unmute after 1 second of successful playback
       const timer = setTimeout(() => {
-        if (!videoRef.current?.paused) {
+        if (videoRef.current && !videoRef.current.paused) {
           setIsMuted(false);
         }
       }, 1000);
 
       return () => clearTimeout(timer);
     }
-  }, [playerState?.play_state, isMuted]);
-
-  useEffect(() => {
-    // Reset muted state when new song starts
-    // Start each new song muted for autoplay
-    if (playerState?.entry) {
-      setIsMuted(true);
-    }
-  }, [playerState?.entry]);
+  }, [playerState, isMuted]);
 
   useEffect(() => {
     if (videoRef.current) {
@@ -113,16 +285,17 @@ export default function DisplayPage() {
         return;
       }
 
-      updatePlayerState({
+      updateVersionedPlayerState({
         entry: playerState.entry,
         play_state: "playing",
         current_time: video.currentTime,
         duration: video.duration || 0,
       });
-    }, 2000);
+    }, 1000);
 
     return () => clearInterval(interval);
-  }, [playerState?.entry, playerState?.play_state, updatePlayerState]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [playerState]);
 
   // Handle page unload/reload - save current video state
   useEffect(() => {
@@ -130,7 +303,7 @@ export default function DisplayPage() {
       if (videoRef.current && playerState?.entry) {
         const video = videoRef.current;
         // Send final state update before page closes
-        updatePlayerState({
+        updateVersionedPlayerState({
           entry: playerState.entry,
           play_state: video.paused ? "paused" : "playing",
           current_time: video.currentTime,
@@ -139,30 +312,12 @@ export default function DisplayPage() {
       }
     };
 
-    const handleVisibilityChange = () => {
-      if (document.hidden && videoRef.current && playerState?.entry) {
-        // Page is being hidden/backgrounded - pause video and save state
-        const video = videoRef.current;
-        if (!video.paused) {
-          video.pause();
-          updatePlayerState({
-            entry: playerState.entry,
-            play_state: "paused",
-            current_time: video.currentTime,
-            duration: video.duration || 0,
-          });
-        }
-      }
-    };
-
     window.addEventListener("beforeunload", handleBeforeUnload);
-    document.addEventListener("visibilitychange", handleVisibilityChange);
 
     return () => {
       window.removeEventListener("beforeunload", handleBeforeUnload);
-      document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, [playerState?.entry, updatePlayerState]);
+  }, [playerState?.entry]);
 
   return (
     <div className="bg-black h-screen w-screen relative">
@@ -182,8 +337,7 @@ export default function DisplayPage() {
 
           <div className="rounded-r-[inherit] bg-black/20 text-2xl px-6 py-3">
             <p>
-              <span className="font-bold">On Queue:</span>{" "}
-              {upNextQueue?.items.length || 0}
+              <span className="font-bold">On Queue:</span> {localQueue.length}
             </p>
           </div>
         </header>
@@ -223,7 +377,7 @@ export default function DisplayPage() {
                   onPlay={(ev) => {
                     if (playerState?.entry) {
                       const video = ev.currentTarget;
-                      updatePlayerState({
+                      updateVersionedPlayerState({
                         entry: playerState.entry,
                         play_state: "playing",
                         current_time: video.currentTime,
@@ -234,7 +388,7 @@ export default function DisplayPage() {
                   onPause={(ev) => {
                     if (playerState?.entry) {
                       const video = ev.currentTarget;
-                      updatePlayerState({
+                      updateVersionedPlayerState({
                         entry: playerState.entry,
                         play_state: "paused",
                         current_time: video.currentTime,
@@ -243,25 +397,29 @@ export default function DisplayPage() {
                     }
                   }}
                   onWaiting={(ev) => {
-                    // Video is buffering
-                    if (playerState?.entry) {
-                      const video = ev.currentTarget;
-                      updatePlayerState({
-                        entry: playerState.entry,
-                        play_state: "buffering",
-                        current_time: video.currentTime || 0,
-                        duration: video.duration || 0,
-                      });
-                    }
+                    // Video is buffering - throttle updates to prevent infinite loops
+                    // const now = Date.now();
+                    // if (playerState?.entry &&
+                    //     playerState.play_state !== "buffering" &&
+                    //     now - lastBufferingUpdate.current > 2000) { // Throttle to max once per 2 seconds
+                    //   lastBufferingUpdate.current = now;
+                    //   const video = ev.currentTarget;
+                    //   updateVersionedPlayerState({
+                    //     entry: playerState.entry,
+                    //     play_state: "buffering",
+                    //     current_time: video.currentTime || 0,
+                    //     duration: video.duration || 0,
+                    //   });
+                    // }
                   }}
                   onCanPlay={(ev) => {
-                    // Video can play again (buffering ended)
+                    // Video can play again (buffering ended) - only if currently buffering
                     if (
                       playerState?.entry &&
                       playerState.play_state === "buffering"
                     ) {
                       const video = ev.currentTarget;
-                      updatePlayerState({
+                      updateVersionedPlayerState({
                         entry: playerState.entry,
                         play_state: "playing",
                         current_time: video.currentTime || 0,
@@ -282,10 +440,7 @@ export default function DisplayPage() {
                         video.currentTime = playerState.current_time;
                       }
 
-                      // Handle play state with autoplay fix
                       if (playerState.play_state === "playing") {
-                        // Mute-unmute strategy for autoplay
-                        video.muted = true;
                         video
                           .play()
                           .then(() => {
@@ -321,7 +476,7 @@ export default function DisplayPage() {
                   onEnded={(ev) => {
                     if (!playerState.entry) return;
                     const video = ev.currentTarget;
-                    updatePlayerState({
+                    updateVersionedPlayerState({
                       entry: playerState.entry,
                       play_state: "finished" as const,
                       current_time: video.currentTime || 0,

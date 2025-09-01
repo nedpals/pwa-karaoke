@@ -52,9 +52,17 @@ interface ControllerProviderProps {
 function ControllerProvider({ children }: ControllerProviderProps) {
   const ws = useWebSocket("controller");
 
-  // Auto-play next song when current song finishes
+  // Request queue and player state on connect/reconnect
   useEffect(() => {
-    if (ws.playerState?.play_state === "finished") {
+    if (ws.connected) {
+      console.log("[Controller] Requesting queue update on connect");
+      ws.requestQueueUpdate();
+    }
+  }, [ws.connected, ws.requestQueueUpdate]);
+
+  // Auto-play next song when current song finishes (only leader controller does this)
+  useEffect(() => {
+    if (ws.playerState?.play_state === "finished" && ws.isLeader) {
       // Small delay to ensure the finished state is processed
       const timer = setTimeout(() => {
         ws.playNext();
@@ -62,7 +70,7 @@ function ControllerProvider({ children }: ControllerProviderProps) {
       
       return () => clearTimeout(timer);
     }
-  }, [ws.playerState?.play_state, ws.playNext]);
+  }, [ws.playerState?.play_state, ws.playNext, ws.isLeader]);
 
   const value: ControllerContextType = {
     ws,

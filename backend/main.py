@@ -4,7 +4,6 @@ from fastapi import FastAPI, WebSocket, Depends
 from fastapi.websockets import WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
-from core.queue import KaraokeQueue
 from core.search import KaraokeEntry
 from services.karaoke_service import KaraokeService, KaraokeSearchResult, VideoURLResponse
 from client_manager import ClientManager
@@ -22,7 +21,6 @@ app.add_middleware(
 )
 
 manager = ClientManager()
-queue = KaraokeQueue(items=[])
 
 @app.get("/search")
 async def search(query: str, service: Annotated[KaraokeService, Depends()]) -> KaraokeSearchResult:
@@ -40,19 +38,23 @@ async def websocket_endpoint(websocket: WebSocket, service: Annotated[KaraokeSer
         return
 
     try:
-        commands = ControllerCommands(client, queue, manager, service)
+        commands = ControllerCommands(client, manager, service)
         if client.client_type == "display":
-            commands = DisplayCommands(client, queue, manager, service)
+            commands = DisplayCommands(client, manager, service)
 
         while True:
             command, payload = await client.receive()
+            print(f"[DEBUG] Received command from {client.client_type}: {command}")
             if command.startswith("_") or not hasattr(commands, command):
-                await client.send_command("error", f"Unknown command: {command}")
+                print(f"[DEBUG] Unknown command: {command} for {client.client_type}")
+                await client.send_command("error", f"Unknown command (for '{client.client_type}'): {command}")
                 continue
 
             # See commands.py for command implementations
+            print(f"[DEBUG] Executing command: {client.client_type}.{command}")
             await getattr(commands, command)(payload)
-    except (WebSocketDisconnect, Exception):
+    except (WebSocketDisconnect, Exception) as e:
+        print(f"[ERROR] {e}")
         # Handle all disconnection scenarios
         await manager.disconnect(client)
 

@@ -21,6 +21,8 @@ export interface DisplayPlayerState {
   play_state: "playing" | "paused" | "finished" | "buffering";
   current_time: number;
   duration: number;
+  version: number;
+  timestamp: number;
 }
 
 export interface KaraokeQueueItem {
@@ -30,4 +32,6 @@ export interface KaraokeQueueItem {
 
 export interface KaraokeQueue {
   items: KaraokeQueueItem[];
+  version: number;
+  timestamp: number;
 }

@@ -19,27 +19,22 @@ export default function DisplayPage() {
 
   // Use SWR to fetch video URL when needed
   const { data: videoUrlData, isLoading: isLoadingVideoUrl } = useVideoUrl(
-    playerState?.entry && !playerState.entry.video_url ? playerState.entry : null
+    playerState?.entry && !playerState.entry.video_url
+      ? playerState.entry
+      : null,
   );
-
-  // Update player state with fetched video URL from SWR
-  useEffect(() => {
-    if (videoUrlData && playerState?.entry && !playerState.entry.video_url) {
-      updatePlayerState({
-        ...playerState,
-        entry: { ...playerState.entry, video_url: videoUrlData.video_url },
-      });
-    }
-  }, [videoUrlData, playerState, updatePlayerState]);
 
   const videoUrl = useMemo(() => {
     try {
+      if (videoUrlData?.video_url) {
+        return videoUrlData.video_url;
+      }
       return playerState?.entry?.video_url || null;
     } catch (error) {
       console.error("Error processing video URL:", error, playerState?.entry);
       return null;
     }
-  }, [playerState]);
+  }, [playerState, videoUrlData]);
 
   useEffect(() => {
     if (connected && !hasRequestedInitialQueue.current) {

@@ -1,8 +1,8 @@
 export interface KaraokeEntry {
-  id: number;
+  id: string;  // Changed to string to match YouTube video IDs
   title: string;
   artist: string;
-  video_url: string;
+  video_url: string | null;  // Made optional for lazy loading
   source: string;
   uploader: string;
   duration: number | null;
@@ -10,6 +10,10 @@ export interface KaraokeEntry {
 
 export interface KaraokeSearchResult {
   entries: KaraokeEntry[];
+}
+
+export interface VideoURLResponse {
+  video_url: string | null;
 }
 
 export interface DisplayPlayerState {

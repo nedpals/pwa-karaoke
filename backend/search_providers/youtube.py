@@ -1,6 +1,6 @@
 import re
-import asyncio
 from urllib.parse import quote
+from typing import Optional
 from playwright.async_api import async_playwright, Browser
 from pytube import YouTube
 from core.search import KaraokeSearchProvider, KaraokeSearchResult, KaraokeEntry
@@ -12,6 +12,10 @@ class YTKaraokeSearchProvider(KaraokeSearchProvider):
         # Examples: ["KaraFun", "Sing King", "Lucky Voice", "Karaoke Mugen"]
         self.allowed_channels = allowed_channels or []
         self.karaoke_keywords = karaoke_keywords or ["karaoke", "instrumental", "backing track", "sing along"]
+    
+    @property
+    def provider_id(self) -> str:
+        return "youtube"
 
     async def _get_browser(self) -> Browser:
         if self.browser is None:
@@ -56,13 +60,13 @@ class YTKaraokeSearchProvider(KaraokeSearchProvider):
                     duration_text = await duration_element.inner_text() if duration_element else ""
                     duration = self._parse_duration(duration_text) if duration_text else None
 
-                    video_id = self._extract_video_id(href) if href else str(i)
+                    video_id = self._extract_video_id(href) if href else f"unknown_{i}"
 
                     video_data.append({
                         'id': video_id,
                         'title': title.strip(),
                         'artist': artist.strip(),
-                        'video_url': video_url,
+                        'youtube_url': video_url,  # Keep YouTube URL for lazy loading
                         'duration': duration
                     })
                 except Exception:
@@ -71,21 +75,16 @@ class YTKaraokeSearchProvider(KaraokeSearchProvider):
             if not video_data:
                 return KaraokeSearchResult(entries=[])
 
-            # Extract raw URLs in parallel
-            video_urls = [data['video_url'] for data in video_data]
-            raw_urls = await asyncio.gather(*[self._get_raw_video_url(url) for url in video_urls], return_exceptions=True)
-
-            # Create entries only for successful extractions
+            # Create entries without fetching video URLs (lazy loading)
             entries = []
-            for data, raw_url in zip(video_data, raw_urls):
-                # Skip if extraction failed or returned an exception
-                if raw_url and not isinstance(raw_url, Exception):
+            for data in video_data:
+                if data['id'] and data['id'] != 'unknown_':  # Skip entries without valid IDs
                     karaoke_entry = KaraokeEntry(
-                        id=hash(data['id']) % (10**9),
+                        id=data['id'],
                         title=data['title'],
                         artist=data['artist'],
-                        video_url=raw_url,
-                        source="YouTube",
+                        video_url=None,  # Will be loaded on demand
+                        source=self.provider_id,
                         uploader=data['artist'],
                         duration=data['duration']
                     )
@@ -126,7 +125,24 @@ class YTKaraokeSearchProvider(KaraokeSearchProvider):
             return True
         return any(allowed.lower() in channel_name.lower() for allowed in self.allowed_channels)
 
-    async def _get_raw_video_url(self, youtube_url: str) -> str | None:
+    async def get_video_url(self, entry: KaraokeEntry) -> Optional[str]:
+        """
+        Fetch the actual video URL for a YouTube entry on demand.
+        
+        Args:
+            entry: KaraokeEntry with YouTube video ID as the id
+            
+        Returns:
+            The actual video URL or None if not available
+        """
+        if not entry.id:
+            return None  # No video ID
+            
+        # Construct YouTube URL from video ID
+        youtube_url = f"https://www.youtube.com/watch?v={entry.id}"
+        return await self._get_raw_video_url(youtube_url)
+
+    async def _get_raw_video_url(self, youtube_url: str) -> Optional[str]:
         """
         Extract raw video URL using pytube2.
         Returns the highest quality video stream URL.

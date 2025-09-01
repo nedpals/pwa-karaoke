@@ -5,7 +5,8 @@ from fastapi.websockets import WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
 from core.queue import KaraokeQueue
-from services.karaoke_service import KaraokeService, KaraokeSearchResult
+from core.search import KaraokeEntry
+from services.karaoke_service import KaraokeService, KaraokeSearchResult, VideoURLResponse
 from client_manager import ClientManager
 from commands import ControllerCommands, DisplayCommands
 
@@ -26,6 +27,10 @@ queue = KaraokeQueue(items=[])
 @app.get("/search")
 async def search(query: str, service: Annotated[KaraokeService, Depends()]) -> KaraokeSearchResult:
     return await service.search(query)
+
+@app.post("/get_video_url")
+async def get_video_url(entry: KaraokeEntry, service: Annotated[KaraokeService, Depends()]) -> VideoURLResponse:
+    return await service.get_video_url(entry)
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket, service: Annotated[KaraokeService, Depends()]):

@@ -25,15 +25,10 @@ export default function DisplayPage() {
   );
 
   const videoUrl = useMemo(() => {
-    try {
-      if (videoUrlData?.video_url) {
-        return videoUrlData.video_url;
-      }
-      return playerState?.entry?.video_url || null;
-    } catch (error) {
-      console.error("Error processing video URL:", error, playerState?.entry);
-      return null;
+    if (videoUrlData?.video_url) {
+      return videoUrlData.video_url;
     }
+    return playerState?.entry?.video_url || null;
   }, [playerState, videoUrlData]);
 
   useEffect(() => {
@@ -47,7 +42,6 @@ export default function DisplayPage() {
     }
   }, [connected, requestQueueUpdate]);
 
-  // Sync video with playerState and handle resume on reload
   useEffect(() => {
     if (!videoRef.current || !playerState) return;
 
@@ -74,25 +68,33 @@ export default function DisplayPage() {
     }
   }, [playerState]);
 
-  // Auto-unmute after video starts playing
   useEffect(() => {
     if (playerState?.play_state === "playing" && videoRef.current && isMuted) {
+      // Unmute after 1 second of successful playback
       const timer = setTimeout(() => {
         if (!videoRef.current?.paused) {
           setIsMuted(false);
         }
-      }, 1000); // Unmute after 1 second of successful playback
+      }, 1000);
 
       return () => clearTimeout(timer);
     }
   }, [playerState?.play_state, isMuted]);
 
-  // Reset muted state when new song starts
   useEffect(() => {
+    // Reset muted state when new song starts
+    // Start each new song muted for autoplay
     if (playerState?.entry) {
-      setIsMuted(true); // Start each new song muted for autoplay
+      setIsMuted(true);
     }
   }, [playerState?.entry]);
+
+  useEffect(() => {
+    if (videoRef.current) {
+      console.log("Setting video muted:", isMuted);
+      videoRef.current.muted = isMuted;
+    }
+  }, [isMuted]);
 
   // Send periodic updates while playing
   useEffect(() => {

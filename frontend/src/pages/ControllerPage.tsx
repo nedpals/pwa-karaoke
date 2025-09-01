@@ -1,4 +1,4 @@
-import { useState, createContext, useContext } from "react";
+import { useState, createContext, useContext, useEffect } from "react";
 import type { ReactNode } from "react";
 import type {
   KaraokeEntry,
@@ -51,6 +51,18 @@ interface ControllerProviderProps {
 
 function ControllerProvider({ children }: ControllerProviderProps) {
   const ws = useWebSocket("controller");
+
+  // Auto-play next song when current song finishes
+  useEffect(() => {
+    if (ws.playerState?.play_state === "finished") {
+      // Small delay to ensure the finished state is processed
+      const timer = setTimeout(() => {
+        ws.playNext();
+      }, 100);
+      
+      return () => clearTimeout(timer);
+    }
+  }, [ws.playerState?.play_state, ws.playNext]);
 
   const value: ControllerContextType = {
     ws,

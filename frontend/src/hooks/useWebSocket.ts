@@ -78,7 +78,7 @@ export function useWebSocket(clientType: ClientType): WebSocketReturn {
         const baseDelay = 1000;
         const maxDelay = 30000;
         const delay = Math.min(
-          baseDelay * Math.pow(2, attemptNumber - 1),
+          baseDelay * 2 ** (attemptNumber - 1),
           maxDelay,
         );
         console.log(
@@ -109,7 +109,8 @@ export function useWebSocket(clientType: ClientType): WebSocketReturn {
   const connected = readyState === 1; // WebSocket.OPEN
 
   // Send handshake when connection opens
-  useEffect(() => {
+  // biome-ignore lint/correctness/useExhaustiveDependencies: clientType is static
+    useEffect(() => {
     if (connected && !hasHandshaken) {
       console.log(`[WebSocket ${clientType}] Sending handshake`);
       sendJsonMessage(["handshake", clientType]);
@@ -125,9 +126,9 @@ export function useWebSocket(clientType: ClientType): WebSocketReturn {
       );
 
       // Send all pending commands
-      pendingCommands.forEach(({ command, payload }) => {
+      for (const { command, payload } of pendingCommands) {
         sendJsonMessage([command, payload]);
-      });
+      }
 
       // Clear the pending commands
       setPendingCommands([]);
@@ -135,7 +136,8 @@ export function useWebSocket(clientType: ClientType): WebSocketReturn {
   }, [hasHandshaken, pendingCommands, sendJsonMessage, clientType]);
 
   // Handle incoming messages
-  useEffect(() => {
+  // biome-ignore lint/correctness/useExhaustiveDependencies: playerState always changes and causes unnecessary re-renders
+    useEffect(() => {
     if (!lastJsonMessage) return;
 
     try {
@@ -219,7 +221,7 @@ export function useWebSocket(clientType: ClientType): WebSocketReturn {
         case "send_current_queue":
           // Display should send its current queue to controllers
           if (clientType === "display") {
-            console.log(`[Display] Received send_current_queue request`);
+            console.log("[Display] Received send_current_queue request");
             setLastQueueCommand({ command, data, timestamp: Date.now() });
           }
           break;
@@ -265,7 +267,7 @@ export function useWebSocket(clientType: ClientType): WebSocketReturn {
         ]);
       }
     },
-    [hasHandshaken, clientType], // eslint-disable-line react-hooks/exhaustive-deps
+    [sendJsonMessage, hasHandshaken, clientType],
   );
 
   const upNextQueue = useMemo(() => {
@@ -283,7 +285,8 @@ export function useWebSocket(clientType: ClientType): WebSocketReturn {
   }, [queue, playerState?.entry]);
 
   // Create stable action functions
-  const actions = useMemo(
+  // biome-ignore lint/correctness/useExhaustiveDependencies: sendCommand is stable
+    const actions = useMemo(
     () => ({
       queueSong: (entry: KaraokeEntry) => sendCommand("queue_song", entry),
       removeSong: (id: string) => sendCommand("remove_song", id),

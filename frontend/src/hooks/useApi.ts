@@ -30,7 +30,7 @@ export function useVideoUrl(entry: KaraokeEntry | null) {
 export function useSearchMutation() {
   return useSWRMutation(
     'search',
-    async (key: string, { arg }: { arg: string }) => {
+    async (_: string, { arg }: { arg: string }) => {
       if (!arg.trim()) throw new Error('Query cannot be empty');
       return apiClient.search(arg);
     }
@@ -40,7 +40,7 @@ export function useSearchMutation() {
 export function useVideoUrlMutation() {
   return useSWRMutation(
     'video-url',
-    async (key: string, { arg }: { arg: KaraokeEntry }) => {
+    async (_: string, { arg }: { arg: KaraokeEntry }) => {
       return apiClient.getVideoUrl(arg);
     }
   );

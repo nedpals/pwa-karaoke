@@ -23,6 +23,7 @@ import { QueueItem } from "../components/organisms/QueueItem";
 import { KaraokeEntryCard as AtomicKaraokeEntryCard } from "../components/organisms/KaraokeEntryCard";
 import { ControllerLayout } from "../components/templates/ControllerLayout";
 import { TimeDisplay } from "../components/molecules/TimeDisplay";
+import { VirtualKeyboard } from "../components/organisms/VirtualKeyboard";
 
 const CONTROLLER_TABS = [
   {
@@ -113,18 +114,23 @@ function SongSelectTab() {
         </div>
       </div>
 
-      <div className="fixed bottom-0 inset-x-0 bg-black/40 flex flex-col z-20">
+      <div className="fixed bottom-0 inset-x-0 bg-black/40 flex flex-col z-20 backdrop-blur-md">
         <IconButton
           icon={<MaterialSymbolsKeyboardAltOutlineRounded className="text-2xl" />}
           onClick={() => setShowVirtualKeyboard((v) => !v)}
           label="Show Keyboard"
           showLabel
           variant="secondary"
-          className="w-full py-4"
+          className="w-full py-4 rounded-none border-x-0"
         />
         {showVirtualKeyboard && (
-          <div className="py-8">
-            {/* TODO: virtual keyboard goes here. discourage the use of system keyboards */}
+          <div className="py-2 px-2 max-w-6xl mx-auto w-full">
+            <VirtualKeyboard
+              onKeyPress={(key) => setSearch(prev => prev + key)}
+              onBackspace={() => setSearch(prev => prev.slice(0, -1))}
+              onClear={() => setSearch("")}
+              disabled={isSearching}
+            />
           </div>
         )}
       </div>

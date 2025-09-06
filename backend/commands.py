@@ -65,6 +65,10 @@ class ControllerCommands(ClientCommands):
             # Ask display to send current queue state
             await displays[0].send_command("send_current_queue", {})
 
+    async def set_volume(self, volume: float):
+        # Relay volume command to displays
+        await self.conn_manager.broadcast_to_displays("set_volume", volume)
+
 class DisplayCommands(ClientCommands):
     async def _request_sync_from_controller(self):
         controllers = self.conn_manager.get_controllers()

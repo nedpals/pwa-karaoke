@@ -6,6 +6,7 @@ import { PlayerHeader } from "../components/organisms/PlayerHeader";
 import { QRCode } from "../components/atoms/QRCode";
 import { Button } from "../components/atoms/Button";
 import { RiMusic2Fill } from "../components/icons/RiMusic2Fill";
+import { usePlayerHeaderStatus } from "../hooks/usePlayerHeaderStatus";
 
 function FallbackBackground({ className }: {
     className?: string;
@@ -19,19 +20,28 @@ function FallbackBackground({ className }: {
 }
 
 function PlayingStateContent() {
+    const playerHeaderStatus = usePlayerHeaderStatus({
+        status: "Playing",
+        title: "Artist Name - Player Name",
+        icon: <RiMusic2Fill className="w-8 h-8 mr-2 text-blue-500" />,
+        count: 1,
+    });
+
     return (
         <div className="relative">
             <div className="absolute top-0 inset-x-0 z-20 max-w-7xl mx-auto pt-8">
                 <PlayerHeader
-                    status="Playing"
-                    title="Artist Name - Player Name"
-                    icon={<RiMusic2Fill className="w-8 h-8 mr-2 text-blue-500" />}
-                    count={1}
+                    status={playerHeaderStatus.current.status}
+                    title={playerHeaderStatus.current.title}
+                    icon={playerHeaderStatus.current.icon}
+                    count={playerHeaderStatus.current.count}
                 />
             </div>
             <OSD position="top-left" size="md">
                 Pause
             </OSD>
+            
+            {/* TODO: replace fallbackbackground with the player */}
             <FallbackBackground className="relative" />
         </div>
     );
@@ -149,7 +159,7 @@ function AwaitingInteractionStateScreen() {
 }
 
 export default function DisplayPage2() {
-    const [state] = useState<"connecting" | "connected" | "awaiting-interaction" | "ready" | "play">("awaiting-interaction");
+    const [state] = useState<"connecting" | "connected" | "awaiting-interaction" | "ready" | "play">("play");
 
     if (state === "connecting") {
         return <ConnectingStateScreen />

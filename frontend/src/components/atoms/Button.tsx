@@ -1,4 +1,4 @@
-import { forwardRef } from "react";
+import type { ElementType } from "react";
 import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "../../lib/utils";
 
@@ -7,10 +7,10 @@ const buttonVariants = cva(
   {
     variants: {
       variant: {
-        primary: "border border-white/20 bg-gradient-to-b from-gray-500/80 to-black/80 text-white text-shadow-md text-shadow-black hover:from-gray-400/80 hover:to-black/90",
-        secondary: "border border-white/20 bg-gradient-to-b from-gray-500/80 to-black/80 text-white text-shadow-md text-shadow-black hover:from-gray-400/80 hover:to-black/90", 
+        primary: "border border-white/20 bg-gradient-to-b from-gray-500/80 to-black/80 text-white text-shadow-md text-shadow-black hover:not-disabled:from-gray-400/80 hover:not-disabled:to-black/90",
+        secondary: "border border-white/20 bg-gradient-to-b from-gray-500/80 to-black/80 text-white text-shadow-md text-shadow-black hover:not-disabled:from-gray-400/80 hover:not-disabled:to-black/90",
         glass: "border border-white/80 bg-gradient-to-b from-gray-500/80 to-black/80 text-white text-shadow-md text-shadow-black",
-        danger: "border border-white/20 bg-gradient-to-b from-red-600/80 to-red-800/80 text-white text-shadow-md text-shadow-black hover:from-red-500/80 hover:to-red-800/90",
+        danger: "border border-white/20 bg-gradient-to-b from-red-600/80 to-red-800/80 text-white text-shadow-md text-shadow-black hover:not-disabled:from-red-500/80 hover:not-disabled:to-red-800/90",
       },
       size: {
         sm: "px-3 py-2 text-sm",
@@ -34,20 +34,26 @@ export interface BaseButtonProps extends VariantProps<typeof buttonVariants> {
   className?: string;
 }
 
-export interface ButtonProps extends BaseButtonProps, Omit<React.ButtonHTMLAttributes<HTMLButtonElement>, keyof BaseButtonProps> {}
+export interface ButtonProps<T extends ElementType = "button"> extends BaseButtonProps {
+  as?: T;
+}
 
-export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
-  ({ variant, size, className, children, ...rest }, ref) => {
-    return (
-      <button
-        ref={ref}
-        className={cn(buttonVariants({ variant, size }), className)}
-        {...rest}
-      >
-        {children}
-      </button>
-    );
-  }
-);
+export function Button<T extends ElementType = "button">({
+  as,
+  variant,
+  size,
+  className,
+  children,
+  ...rest
+}: ButtonProps<T> & Omit<React.ComponentPropsWithRef<T>, keyof ButtonProps<T>>) {
+  const Component = as || ("button" as ElementType);
 
-Button.displayName = "Button";
+  return (
+    <Component
+      className={cn(buttonVariants({ variant, size }), className)}
+      {...rest}
+    >
+      {children}
+    </Component>
+  );
+}

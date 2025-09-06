@@ -1,4 +1,3 @@
-import { forwardRef } from "react";
 import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "../../lib/utils";
 import { GlassPanel } from "../organisms/GlassPanel";
@@ -8,7 +7,7 @@ const osdVariants = cva("flex items-center justify-center flex-col", {
   variants: {
     size: {
       sm: "h-16 w-32 px-8 py-1",
-      md: "h-24 w-48 px-12 py-2", 
+      md: "h-24 w-48 px-12 py-2",
       lg: "h-32 w-64 px-16 py-3",
     },
     position: {
@@ -31,24 +30,19 @@ export interface OSDProps extends VariantProps<typeof osdVariants>, React.HTMLAt
   visible?: boolean;
 }
 
-export const OSD = forwardRef<HTMLDivElement, OSDProps>(
-  ({ children, icon, visible = true, size, position, className, ...props }, ref) => {
-    if (!visible) return null;
-    
-    return (
-      <div className={cn(osdVariants({ position }), className)} {...props}>
-        <GlassPanel
-          ref={ref}
-          className={cn(osdVariants({ size }), "m-4")}
-        >
-          {icon && <div className="mb-1">{icon}</div>}
-          <Text size="lg" shadow>
-            {children}
-          </Text>
-        </GlassPanel>
-      </div>
-    );
-  }
-);
+export function OSD({ children, icon, visible = true, size, position, className, ...props }: OSDProps) {
+  if (!visible) return null;
 
-OSD.displayName = "OSD";
+  return (
+    <div className={cn(osdVariants({ position }), className)} {...props}>
+      <GlassPanel
+        className={cn(osdVariants({ size }), "m-4")}
+      >
+        {icon && <div className="mb-1">{icon}</div>}
+        <Text size="lg" shadow>
+          {children}
+        </Text>
+      </GlassPanel>
+    </div>
+  );
+}

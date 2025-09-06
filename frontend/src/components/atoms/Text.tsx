@@ -1,4 +1,4 @@
-import { forwardRef } from "react";
+import type { ElementType } from "react";
 import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "../../lib/utils";
 
@@ -53,24 +53,34 @@ export type TextVariant = "heading" | "body" | "caption" | "display";
 export type TextSize = "xs" | "sm" | "base" | "lg" | "xl" | "2xl" | "3xl" | "4xl" | "5xl" | "6xl" | "7xl" | "8xl" | "9xl";
 export type TextWeight = "normal" | "medium" | "semibold" | "bold";
 
-export interface TextProps extends VariantProps<typeof textVariants>, React.HTMLAttributes<HTMLElement> {
-  as?: "p" | "span" | "div" | "h1" | "h2" | "h3" | "h4" | "h5" | "h6";
+export interface BaseTextProps extends VariantProps<typeof textVariants> {
   children: React.ReactNode;
+  className?: string;
 }
 
-export const Text = forwardRef<HTMLElement, TextProps>(
-  ({ as: Component = "p", variant, size, weight, shadow, truncate, className, children, ...props }, ref) => {
-    return (
-      <Component
-        // @ts-expect-error - polymorphic ref casting
-        ref={ref}
-        className={cn(textVariants({ variant, size, weight, shadow, truncate }), className)}
-        {...props}
-      >
-        {children}
-      </Component>
-    );
-  }
-);
+export interface TextProps<T extends ElementType = "p"> extends BaseTextProps {
+  as?: T;
+}
 
-Text.displayName = "Text";
+export function Text<T extends ElementType = "p">({
+  as,
+  variant,
+  size,
+  weight,
+  shadow,
+  truncate,
+  className,
+  children,
+  ...rest
+}: TextProps<T> & Omit<React.ComponentPropsWithRef<T>, keyof TextProps<T>>) {
+  const Component = as || ("p" as ElementType);
+
+  return (
+    <Component
+      className={cn(textVariants({ variant, size, weight, shadow, truncate }), className)}
+      {...rest}
+    >
+      {children}
+    </Component>
+  );
+}

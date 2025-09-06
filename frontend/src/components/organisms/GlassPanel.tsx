@@ -1,4 +1,3 @@
-import { forwardRef } from "react";
 
 export interface GlassPanelProps extends React.HTMLAttributes<HTMLDivElement> {
   children: React.ReactNode;
@@ -11,18 +10,13 @@ const variantStyles = {
   message: "border border-white/80 rounded-lg bg-gradient-to-b from-gray-500/80 to-black/80 text-white",
 };
 
-export const GlassPanel = forwardRef<HTMLDivElement, GlassPanelProps>(
-  ({ variant = "default", className = "", children, ...props }, ref) => {
-    return (
-      <div
-        ref={ref}
-        className={`${variantStyles[variant]} ${className}`.trim()}
-        {...props}
-      >
-        {children}
-      </div>
-    );
-  }
-);
-
-GlassPanel.displayName = "GlassPanel";
+export function GlassPanel({ variant = "default", className = "", children, ...props }: GlassPanelProps) {
+  return (
+    <div
+      className={`${variantStyles[variant]} ${className}`.trim()}
+      {...props}
+    >
+      {children}
+    </div>
+  );
+}

@@ -1,4 +1,3 @@
-import { forwardRef } from "react";
 import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "../../lib/utils";
 
@@ -23,23 +22,18 @@ export interface ProgressBarProps extends VariantProps<typeof progressVariants>,
   max: number;
 }
 
-export const ProgressBar = forwardRef<HTMLDivElement, ProgressBarProps>(
-  ({ value, max, size, className, ...props }, ref) => {
-    const percentage = max > 0 ? (value / max) * 100 : 0;
-    
-    return (
-      <div
-        ref={ref}
-        className={cn(progressVariants({ size }), className)}
-        {...props}
-      >
-        <div
-          className="relative left-0 rounded-[inherit] h-full bg-white/75 transition-all duration-300"
-          style={{ width: `${Math.min(Math.max(percentage, 0), 100)}%` }}
-        />
-      </div>
-    );
-  }
-);
+export function ProgressBar({ value, max, size, className, ...props }: ProgressBarProps) {
+  const percentage = max > 0 ? (value / max) * 100 : 0;
 
-ProgressBar.displayName = "ProgressBar";
+  return (
+    <div
+      className={cn(progressVariants({ size }), className)}
+      {...props}
+    >
+      <div
+        className="relative left-0 rounded-[inherit] h-full bg-white/75 transition-all duration-300"
+        style={{ width: `${Math.min(Math.max(percentage, 0), 100)}%` }}
+      />
+    </div>
+  );
+}

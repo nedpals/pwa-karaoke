@@ -1,4 +1,3 @@
-import { forwardRef } from "react";
 import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "../../lib/utils";
 
@@ -29,18 +28,13 @@ const spinnerVariants = cva(
 export type SpinnerSize = "sm" | "md" | "lg" | "xl";
 export type SpinnerColor = "white" | "black" | "blue" | "red";
 
-export interface LoadingSpinnerProps extends VariantProps<typeof spinnerVariants>, Omit<React.HTMLAttributes<HTMLDivElement>, "color"> {}
+export interface LoadingSpinnerProps extends VariantProps<typeof spinnerVariants>, Omit<React.HTMLAttributes<HTMLDivElement>, "color"> { }
 
-export const LoadingSpinner = forwardRef<HTMLDivElement, LoadingSpinnerProps>(
-  ({ size, color, className, ...props }, ref) => {
-    return (
-      <div
-        ref={ref}
-        className={cn(spinnerVariants({ size, color }), className)}
-        {...props}
-      />
-    );
-  }
-);
-
-LoadingSpinner.displayName = "LoadingSpinner";
+export function LoadingSpinner({ size, color, className, ...props }: LoadingSpinnerProps) {
+  return (
+    <div
+      className={cn(spinnerVariants({ size, color }), className)}
+      {...props}
+    />
+  );
+}

@@ -3,6 +3,7 @@ import { Text } from "../components/atoms/Text";
 import { Card } from "../components/organisms/Card";
 import { OSD } from "../components/molecules/OSD";
 import { StatusBar } from "../components/organisms/StatusBar";
+import { QRCode } from "../components/atoms/QRCode";
 
 export function RiMusic2Fill(props: React.SVGProps<SVGSVGElement>) {
     return (
@@ -51,7 +52,7 @@ function MainPlayerStateContent() {
     );
 }
 
-function LoadingStateScreen() {
+function ConnectingStateScreen() {
     return (
         <div className="relative">
             <div className="absolute top-0 inset-x-0 h-screen w-screen z-10 flex flex-col items-center justify-center">
@@ -61,7 +62,44 @@ function LoadingStateScreen() {
                         size="md"
                         className="w-full"
                     >
-                        <Text size="lg" shadow>No controllers connected. Please connect a controller to start playing.</Text>
+                        <Text size="lg" shadow>Connecting</Text>
+                    </Card>
+                </div>
+            </div>
+
+            <VideoPlayerMock className="relative" />
+        </div>
+    );
+}
+
+function ConnectedStateScreen() {
+    const controllerUrl = `${window.location.origin}/controller`;
+    
+    return (
+        <div className="relative">
+            <div className="absolute top-0 inset-x-0 h-screen w-screen z-10 flex flex-col items-center justify-center">
+                <div className="max-w-5xl w-full mx-auto">
+                    <Card 
+                        title="System Message"
+                        size="auto"
+                        className="w-full"
+                    >
+                        <div className="flex flex-row items-center space-x-8 py-4">
+                            <div className="flex-1 space-y-4 text-left">
+                                <Text size="lg" shadow>
+                                    To control the karaoke system, scan the QR code or visit:
+                                </Text>
+                                <Text size="xl" weight="bold" shadow className="break-all">
+                                    {controllerUrl}
+                                </Text>
+                                <Text size="base" shadow className="text-gray-300">
+                                    Open the controller page on your phone or device to start adding songs to the queue.
+                                </Text>
+                            </div>
+                            <div className="bg-white p-4 rounded-lg">
+                                <QRCode data={controllerUrl} size={200} />
+                            </div>
+                        </div>
                     </Card>
                 </div>
             </div>
@@ -84,10 +122,14 @@ function ReadyStateScreen() {
 }
 
 export default function DisplayPage2() {
-    const [state] = useState<"loading" | "ready" | "play">("loading");
+    const [state] = useState<"connecting" | "connected" | "ready" | "play">("connected");
 
-    if (state === "loading") {
-        return <LoadingStateScreen />;
+    if (state === "connecting") {
+        return <ConnectingStateScreen />
+    }
+
+    if (state === "connected") {
+        return <ConnectedStateScreen />;
     }
 
     if (state === "ready") {

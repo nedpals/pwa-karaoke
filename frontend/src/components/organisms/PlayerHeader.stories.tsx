@@ -1,4 +1,4 @@
-import type { Meta, StoryObj } from '@storybook/react';
+import type { Meta, StoryObj } from '@storybook/react-vite';
 import { PlayerHeader } from './PlayerHeader';
 import { Text } from '../atoms/Text';
 

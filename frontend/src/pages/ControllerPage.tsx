@@ -6,6 +6,7 @@ import {
   useWebSocketState,
 } from "../providers/WebSocketStateProvider";
 import { useSearchMutation } from "../hooks/useApi";
+import { useTextInput } from "../hooks/useTextInput";
 import { MaterialSymbolsFastForwardRounded } from "../components/icons/MaterialSymbolsFastForwardRounded";
 import { MaterialSymbolsKeyboardArrowUpRounded } from "../components/icons/MaterialSymbolsArrowUpRounded";
 import { MaterialSymbolsDeleteOutline } from "../components/icons/MaterialSymbolsDeleteOutline";
@@ -46,8 +47,8 @@ function KaraokeEntryCard({ entry }: { entry: KaraokeEntry }) {
 
 function SongSelectTab() {
   const { queueSong } = useWebSocketState();
-  const [search, setSearch] = useState("");
   const [showVirtualKeyboard, setShowVirtualKeyboard] = useState(false);
+  const textInput = useTextInput("");
 
   const {
     trigger: triggerSearch,
@@ -56,9 +57,9 @@ function SongSelectTab() {
   } = useSearchMutation();
 
   const handleSearch = async () => {
-    if (!search.trim()) return;
+    if (!textInput.text.trim()) return;
     try {
-      await triggerSearch(search);
+      await triggerSearch(textInput.text);
     } catch (error) {
       console.error("Search error:", error);
     }
@@ -77,12 +78,21 @@ function SongSelectTab() {
           </Text>
 
           <SearchInput
-            value={search}
-            onChange={setSearch}
+            ref={textInput.inputRef}
+            value={textInput.text}
+            onChange={textInput.updateFromInput}
             onSearch={handleSearch}
             isSearching={isSearching}
             placeholder="Search for a song..."
             size="lg"
+            onFocus={(e) => {
+              textInput.updateCursorFromInput(e);
+              setShowVirtualKeyboard(true);
+            }}
+            onClick={textInput.updateCursorFromInput}
+            onKeyUp={textInput.updateCursorFromInput}
+            onSelect={(e) => textInput.updateCursorFromInput(e)}
+            preventSystemKeyboard={true}
           />
         </div>
 
@@ -101,10 +111,10 @@ function SongSelectTab() {
                   />
                 </div>
               ))
-            : search && (
+            : textInput.text && (
                 <div className="text-center py-12">
                   <Text size="xl" className="text-white/70">
-                    No results found for "{search}"
+                    No results found for "{textInput.text}"
                   </Text>
                   <Text className="text-white/50 mt-2">
                     Try searching for a different song or artist
@@ -126,9 +136,16 @@ function SongSelectTab() {
         {showVirtualKeyboard && (
           <div className="py-2 px-2 max-w-6xl mx-auto w-full">
             <VirtualKeyboard
-              onKeyPress={(key) => setSearch(prev => prev + key)}
-              onBackspace={() => setSearch(prev => prev.slice(0, -1))}
-              onClear={() => setSearch("")}
+              onKeyPress={(key) => {
+                if (key === "\n") {
+                  handleSearch();
+                  setShowVirtualKeyboard(false);
+                } else {
+                  textInput.insertText(key);
+                }
+              }}
+              onBackspace={textInput.backspace}
+              onClear={textInput.clear}
               disabled={isSearching}
             />
           </div>

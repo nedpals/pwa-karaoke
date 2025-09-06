@@ -9,8 +9,14 @@ export interface SearchInputProps extends BaseInputProps {
   searchButtonText?: string;
   searchingText?: string;
   value?: string;
-  onChange?: (value: string) => void;
+  onChange?: (e: React.ChangeEvent<HTMLInputElement>) => void;
   placeholder?: string;
+  ref?: React.Ref<HTMLInputElement>;
+  onFocus?: (e: React.FocusEvent<HTMLInputElement>) => void;
+  onClick?: (e: React.MouseEvent<HTMLInputElement>) => void;
+  onKeyUp?: (e: React.KeyboardEvent<HTMLInputElement>) => void;
+  onSelect?: (e: React.SyntheticEvent<HTMLInputElement>) => void;
+  preventSystemKeyboard?: boolean;
 }
 
 export function SearchInput({ 
@@ -22,6 +28,12 @@ export function SearchInput({
   onChange,
   className,
   placeholder,
+  ref,
+  onFocus,
+  onClick,
+  onKeyUp,
+  onSelect,
+  preventSystemKeyboard = false,
   ...props 
 }: SearchInputProps) {
   const [internalValue, setInternalValue] = useState("");
@@ -32,7 +44,7 @@ export function SearchInput({
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const newValue = e.target.value;
     if (isControlled) {
-      onChange?.(newValue);
+      onChange?.(e);
     } else {
       setInternalValue(newValue);
     }
@@ -52,12 +64,18 @@ export function SearchInput({
   return (
     <div className={cn("relative", className)}>
       <Input
+        ref={ref}
         value={value}
         onChange={handleChange}
         onKeyDown={handleKeyDown}
+        onKeyUp={onKeyUp}
+        onFocus={onFocus}
+        onClick={onClick}
+        onSelect={onSelect}
         placeholder={placeholder}
         glass
         className="pr-16"
+        inputMode={preventSystemKeyboard ? "none" : undefined}
         {...props}
       />
       <Button

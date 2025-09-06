@@ -1,4 +1,8 @@
 import { useState } from "react";
+import { Text } from "../components/atoms/Text";
+import { Card } from "../components/organisms/Card";
+import { OSD } from "../components/molecules/OSD";
+import { StatusBar } from "../components/organisms/StatusBar";
 
 export function RiMusic2Fill(props: React.SVGProps<SVGSVGElement>) {
     return (
@@ -13,20 +17,13 @@ function PlayerHeader({ className }: {
     className?: string;
 }) {
     return (
-        <header className={`w-full border border-white/80 rounded-lg bg-gradient-to-b from-gray-500/80 to-black/80 text-white ${className}`}>
-            <div className="flex items-stretch">
-                <div className="w-[10%] py-2 border-r border-white/40 flex items-center justify-center">
-                    <p className="text-xl text-shadow-md text-shadow-black truncate">Playing</p>
-                </div>
-                <div className="flex-1 py-2 px-4 flex items-center justify-left">
-                    <p className="text-xl text-shadow-md text-shadow-black truncate">Artist Name - Player Name</p>
-                </div>
-                <div className="w-[10%] py-2 border-l border-white/40 flex items-center justify-center">
-                    <RiMusic2Fill className="w-8 h-8 mr-2 text-blue-500" />
-                    <p className="text-2xl text-shadow-md text-shadow-black">1</p>
-                </div>
-            </div>
-        </header>
+        <StatusBar
+            status="Playing"
+            title="Artist Name - Player Name"
+            icon={<RiMusic2Fill className="w-8 h-8 mr-2 text-blue-500" />}
+            count={1}
+            className={className}
+        />
     );
 }
 
@@ -46,11 +43,9 @@ function MainPlayerStateContent() {
             <div className="absolute top-0 inset-x-0 z-20 max-w-7xl mx-auto pt-8">
                 <PlayerHeader />
             </div>
-            <div className="absolute top-[10%] left-[6.5%] z-20">
-                <div className="m-4 px-12 py-2 h-24 w-48 border border-white/80 rounded-lg bg-gradient-to-b from-gray-500/80 to-black/80 text-white text-shadow-md text-shadow-black flex items-center justify-center flex-col">
-                    <p className="text-lg">Pause</p>
-                </div>
-            </div>
+            <OSD position="top-left" size="md">
+                Pause
+            </OSD>
             <VideoPlayerMock className="relative" />
         </div>
     );
@@ -61,14 +56,13 @@ function LoadingStateScreen() {
         <div className="relative">
             <div className="absolute top-0 inset-x-0 h-screen w-screen z-10 flex flex-col items-center justify-center">
                 <div className="max-w-5xl w-full mx-auto">
-                    <div className="w-full h-48 flex flex-col border border-white/80 rounded-lg bg-gradient-to-b from-gray-500/80 to-black/80 text-white">
-                        <header className="w-full py-2 px-4 border-b border-white/40 text-shadow-md text-shadow-black flex flex-row justify-center text-center">
-                            <p className="text-xl">System Message</p>
-                        </header>
-                        <div className="flex-1 px-4 py-2 text-shadow-md text-shadow-black text-lg flex items-center justify-center text-center">
-                            <p>No controllers connected. Please connect a controller to start playing.</p>
-                        </div>
-                    </div>
+                    <Card 
+                        title="System Message"
+                        size="md"
+                        className="w-full"
+                    >
+                        <Text size="lg" shadow>No controllers connected. Please connect a controller to start playing.</Text>
+                    </Card>
                 </div>
             </div>
 
@@ -81,7 +75,7 @@ function ReadyStateScreen() {
     return (
         <div className="relative">
             <div className="absolute top-0 inset-x-0 h-screen w-screen flex flex-col items-center justify-center z-10">
-                <p className="text-9xl text-white font-bold text-shadow-lg text-shadow-black">Select a Song</p>
+                <Text size="9xl" weight="bold" className="text-white text-shadow-lg text-shadow-black">Select a Song</Text>
             </div>
 
             <VideoPlayerMock className="relative" />

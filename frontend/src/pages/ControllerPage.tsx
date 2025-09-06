@@ -13,6 +13,16 @@ import { MaterialSymbolsKeyboardAltOutlineRounded } from "../components/icons/Ma
 import { MaterialSymbolsPlaylistAddRounded } from "../components/icons/MaterialSymbolsPlaylistAddRounded";
 import { MaterialSymbolsPauseRounded } from "../components/icons/MaterialSymbolsPauseRounded";
 import { MaterialSymbolsPlayArrowRounded } from "../components/icons/MaterialSymbolsPlayRounded";
+import { Text } from "../components/atoms/Text";
+import { Button } from "../components/atoms/Button";
+import { ProgressBar } from "../components/atoms/ProgressBar";
+import { SearchInput } from "../components/molecules/SearchInput";
+import { IconButton } from "../components/molecules/IconButton";
+import { TabNavigation, type Tab } from "../components/organisms/TabNavigation";
+import { QueueItem } from "../components/organisms/QueueItem";
+import { KaraokeEntryCard as AtomicKaraokeEntryCard } from "../components/organisms/KaraokeEntryCard";
+import { ControllerLayout } from "../components/templates/ControllerLayout";
+import { TimeDisplay } from "../components/molecules/TimeDisplay";
 
 const CONTROLLER_TABS = [
   {
@@ -30,12 +40,7 @@ const CONTROLLER_TABS = [
 ] as const;
 
 function KaraokeEntryCard({ entry }: { entry: KaraokeEntry }) {
-  return (
-    <div className="flex-1 p-4 bg-black/40 rounded-lg border border-white/20 text-white">
-      <p className="text-2xl font-bold">{entry.title}</p>
-      <p className="text-xl">{entry.artist}</p>
-    </div>
-  );
+  return <AtomicKaraokeEntryCard entry={entry} className="bg-black/40 border-white/20" />;
 }
 
 function SongSelectTab() {
@@ -66,32 +71,18 @@ function SongSelectTab() {
     <div className="relative h-full">
       <div className="relative max-w-3xl mx-auto px-4">
         <div className="pt-12">
-          <h1 className="text-center text-white text-7xl font-bold pb-8">
+          <Text as="h1" size="7xl" weight="bold" className="text-center text-white pb-8">
             Select a song
-          </h1>
+          </Text>
 
-          <div className="relative">
-            <input
-              type="text"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  handleSearch();
-                }
-              }}
-              className="w-full p-4 text-2xl rounded-lg bg-black/40 text-white placeholder-white/70 border border-white/20 focus:border-white focus:outline-none pr-16"
-              placeholder="Search for a song..."
-            />
-            <button
-              type="button"
-              onClick={handleSearch}
-              disabled={!search.trim() || isSearching}
-              className="absolute right-2 top-1/2 -translate-y-1/2 px-3 py-2 bg-white/20 hover:bg-white/30 disabled:bg-white/10 disabled:opacity-50 rounded text-white"
-            >
-              {isSearching ? "Searching..." : "Search"}
-            </button>
-          </div>
+          <SearchInput
+            value={search}
+            onChange={setSearch}
+            onSearch={handleSearch}
+            isSearching={isSearching}
+            placeholder="Search for a song..."
+            size="lg"
+          />
         </div>
 
         <div className="pt-12">
@@ -102,37 +93,35 @@ function SongSelectTab() {
                   className="mb-4 flex flex-row items-stretch space-x-1 text-white"
                 >
                   <KaraokeEntryCard entry={entry} />
-                  <button
-                    type="button"
+                  <IconButton
+                    icon={<MaterialSymbolsPlaylistAddRounded className="text-2xl" />}
                     onClick={() => handleAddQueueItem(entry)}
-                    className="px-3 py-2 flex items-center bg-black/40 rounded-lg border border-white/20 hover:bg-white/20"
-                  >
-                    <MaterialSymbolsPlaylistAddRounded className="text-2xl" />
-                  </button>
+                    variant="secondary"
+                  />
                 </div>
               ))
             : search && (
                 <div className="text-center py-12">
-                  <p className="text-white/70 text-xl">
+                  <Text size="xl" className="text-white/70">
                     No results found for "{search}"
-                  </p>
-                  <p className="text-white/50 mt-2">
+                  </Text>
+                  <Text className="text-white/50 mt-2">
                     Try searching for a different song or artist
-                  </p>
+                  </Text>
                 </div>
               )}
         </div>
       </div>
 
       <div className="fixed bottom-0 inset-x-0 bg-black/40 flex flex-col z-20">
-        <button
-          type="button"
+        <IconButton
+          icon={<MaterialSymbolsKeyboardAltOutlineRounded className="text-2xl" />}
           onClick={() => setShowVirtualKeyboard((v) => !v)}
-          className="flex flex-row w-full space-x-2 justify-center items-center text-white hover:bg-white/20 py-4"
-        >
-          <span>Show Keyboard</span>
-          <MaterialSymbolsKeyboardAltOutlineRounded className="text-2xl" />
-        </button>
+          label="Show Keyboard"
+          showLabel
+          variant="secondary"
+          className="w-full py-4"
+        />
         {showVirtualKeyboard && (
           <div className="py-8">
             {/* TODO: virtual keyboard goes here. discourage the use of system keyboards */}
@@ -159,67 +148,49 @@ function PlayerTab() {
     <div className="max-w-5xl mx-auto px-4 text-white pt-24">
       <div className="flex flex-col justify-center h-full">
         <div className="flex flex-col items-center text-center py-12 space-y-4">
-          <p className="text-2xl">Now Playing</p>
-          <p className="text-5xl font-bold">
+          <Text size="2xl">Now Playing</Text>
+          <Text size="5xl" weight="bold">
             {playerState?.entry ? playerState.entry.title : "No song"}
-          </p>
-          <p className="text-3xl">
+          </Text>
+          <Text size="3xl">
             {playerState?.entry ? playerState.entry.artist : "--"}
-          </p>
+          </Text>
           {playerState?.entry?.uploader && (
             <div className="flex flex-row space-x-2">
-              <p>From: {playerState.entry.source}</p>
-              <p>By: {playerState.entry.uploader}</p>
+              <Text>From: {playerState.entry.source}</Text>
+              <Text>By: {playerState.entry.uploader}</Text>
             </div>
           )}
         </div>
 
         {/* Progress bar */}
         <div className="flex flex-row items-center gap-2">
-          <p>
-            {Math.floor((playerState?.current_time || 0) / 60)}:
-            {Math.floor((playerState?.current_time || 0) % 60)
-              .toString()
-              .padStart(2, "0")}
-          </p>
-          <div className="relative bg-black/20 rounded-full h-4 flex-1">
-            <div
-              className="relative left-0 rounded-[inherit] h-full bg-white/75 transition-all duration-300"
-              style={{
-                width:
-                  playerState?.duration && playerState.duration > 0
-                    ? `${(playerState.current_time / playerState.duration) * 100}%`
-                    : "0%",
-              }}
-            />
-          </div>
-          <p>
-            {playerState?.duration && playerState.duration > 0
-              ? `${Math.floor(playerState.duration / 60)}:${Math.floor(
-                  playerState.duration % 60,
-                )
-                  .toString()
-                  .padStart(2, "0")}`
-              : "--:--"}
-          </p>
+          <TimeDisplay seconds={playerState?.current_time || 0} />
+          <ProgressBar
+            value={playerState?.current_time || 0}
+            max={playerState?.duration || 0}
+          />
+          <TimeDisplay seconds={playerState?.duration || 0} />
         </div>
 
         <div className="flex flex-row px-8 justify-center space-x-4 pt-8">
-          <button
-            type="button"
-            onClick={handlePlayerPlayback}
-            disabled={!playerState || !playerState.entry}
-            className="text-4xl rounded-full border border-white bg-black/40 px-12 py-4 hover:not-disabled:bg-white/20 disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {playerState?.play_state === "playing" ? (
+          <IconButton
+            icon={playerState?.play_state === "playing" ? (
               <MaterialSymbolsPauseRounded />
             ) : (
               <MaterialSymbolsPlayArrowRounded />
             )}
-          </button>
+            onClick={handlePlayerPlayback}
+            disabled={!playerState || !playerState.entry}
+            variant="secondary"
+            size="xl"
+            className="text-4xl rounded-full border border-white px-12 py-4"
+          />
         </div>
-        <button
-          type="button"
+        <IconButton
+          icon={<MaterialSymbolsFastForwardRounded />}
+          label="Play next song"
+          showLabel
           onClick={playNext}
           disabled={
             !playerState ||
@@ -227,11 +198,10 @@ function PlayerTab() {
             !queue ||
             queue.items.length === 0
           }
-          className="self-center flex flex-row items-center justify-center space-x-2 text-xl rounded-full border border-white bg-black/40 px-8 py-2 mt-20 hover:not-disabled:bg-white/20 disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          <MaterialSymbolsFastForwardRounded />
-          <span>Play next song</span>
-        </button>
+          variant="secondary"
+          size="lg"
+          className="self-center rounded-full border border-white px-8 py-2 mt-20"
+        />
       </div>
     </div>
   );
@@ -251,60 +221,56 @@ function QueueTab() {
   return (
     <div className="max-w-3xl mx-auto px-4 py-12 text-white">
       <div className="flex items-center justify-between mb-8">
-        <h2 className="text-4xl font-bold text-white">
+        <Text as="h2" size="4xl" weight="bold">
           {upNextQueue?.items.length || 0} Songs in Queue
-        </h2>
+        </Text>
         {queue && queue.items.length > (playerState?.entry ? 1 : 0) && (
-          <button
-            type="button"
+          <Button
             onClick={() => clearQueue()}
-            className="px-4 py-2 bg-red-600/80 hover:bg-red-600 rounded-lg text-white text-sm"
+            variant="danger"
+            size="sm"
           >
             Clear All
-          </button>
+          </Button>
         )}
       </div>
 
       {playerState?.entry && (
         <div className="mt-8 space-y-4">
-          <p>Now Playing</p>
-          <div className="flex flex-row items-stretch space-x-1">
-            <KaraokeEntryCard entry={playerState.entry} />
-            <button
-              type="button"
-              onClick={playNext}
-              className="px-3 py-2 flex items-center bg-black/40 rounded-lg border border-white/20 hover:bg-white/20"
-            >
-              <MaterialSymbolsFastForwardRounded className="text-2xl" />
-            </button>
-          </div>
+          <Text>Now Playing</Text>
+          <QueueItem
+            entry={playerState.entry}
+            actions={[
+              {
+                icon: <MaterialSymbolsFastForwardRounded className="text-2xl" />,
+                onClick: playNext,
+                variant: "secondary",
+              },
+            ]}
+          />
         </div>
       )}
 
       <div className="mt-8 space-y-4">
-        <p>Up Next</p>
+        <Text>Up Next</Text>
         <div className="space-y-2 flex flex-col">
           {upNextQueue?.items.map((item: KaraokeQueueItem) => (
-            <div
+            <QueueItem
               key={`queue_item_${item.id}`}
-              className="flex flex-row items-stretch space-x-1"
-            >
-              <KaraokeEntryCard entry={item.entry} />
-              <button
-                type="button"
-                onClick={() => queueNextSong(item.id)}
-                className="px-3 py-2 flex items-center bg-black/40 rounded-lg border border-white/20 hover:bg-white/20"
-              >
-                <MaterialSymbolsKeyboardArrowUpRounded className="text-2xl" />
-              </button>
-              <button
-                type="button"
-                onClick={() => removeSong(item.id)}
-                className="px-3 py-2 flex items-center bg-black/40 rounded-lg border border-white/20 hover:bg-white/20"
-              >
-                <MaterialSymbolsDeleteOutline className="text-2xl" />
-              </button>
-            </div>
+              entry={item.entry}
+              actions={[
+                {
+                  icon: <MaterialSymbolsKeyboardArrowUpRounded className="text-2xl" />,
+                  onClick: () => queueNextSong(item.id),
+                  variant: "secondary",
+                },
+                {
+                  icon: <MaterialSymbolsDeleteOutline className="text-2xl" />,
+                  onClick: () => removeSong(item.id),
+                  variant: "secondary",
+                },
+              ]}
+            />
           ))}
         </div>
       </div>
@@ -316,47 +282,22 @@ function ControllerPageContent() {
   const [tab, setTab] =
     useState<(typeof CONTROLLER_TABS)[number]["id"]>("song-select");
 
-  return (
-    <div className="min-h-screen min-w-screen bg-black relative">
-      <div className="flex flex-col w-full h-full bg-black/30 absolute top-0 inset-x-0 z-50">
-        <div className="flex flex-row">
-          {CONTROLLER_TABS.map((t) => (
-            <button
-              key={`tab_button_${t.id}`}
-              type="button"
-              onClick={() => setTab(t.id)}
-              className="flex-1 px-4 py-4 transition-colors text-white bg-black/40 hover:bg-white/10 cursor-pointer text-xl"
-            >
-              {t.label}
-            </button>
-          ))}
-        </div>
+  const tabs: Tab[] = CONTROLLER_TABS.map((t) => ({
+    id: t.id,
+    label: t.label,
+    content: t.id === "song-select" ? <SongSelectTab /> : 
+             t.id === "player" ? <PlayerTab /> : 
+             <QueueTab />
+  }));
 
-        <div className="flex-1 overflow-y-scroll relative">
-          <div className={`${tab === "song-select" ? "block" : "hidden"}`}>
-            <SongSelectTab />
-          </div>
-          <div className={`${tab === "player" ? "block" : "hidden"}`}>
-            <PlayerTab />
-          </div>
-          <div className={`${tab === "queue" ? "block" : "hidden"}`}>
-            <QueueTab />
-          </div>
-        </div>
-      </div>
-      <div
-        style={{
-          position: "absolute",
-          top: 0,
-          left: 0,
-          width: "100%",
-          height: "100%",
-          backgroundImage: 'url("https://images.unsplash.com/photo-1545569341-9eb8b30979d9?q=80&w=2070&auto=format&fit=crop&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D")',
-          backgroundSize: "cover",
-          backgroundPosition: "center",
-        }}
+  return (
+    <ControllerLayout>
+      <TabNavigation
+        tabs={tabs}
+        activeTab={tab}
+        onTabChange={(tabId) => setTab(tabId as (typeof CONTROLLER_TABS)[number]["id"])}
       />
-    </div>
+    </ControllerLayout>
   );
 }
 

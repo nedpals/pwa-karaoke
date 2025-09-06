@@ -4,6 +4,7 @@ import { Card } from "../components/organisms/Card";
 import { OSD } from "../components/molecules/OSD";
 import { StatusBar } from "../components/organisms/StatusBar";
 import { QRCode } from "../components/atoms/QRCode";
+import { Button } from "../components/atoms/Button";
 
 export function RiMusic2Fill(props: React.SVGProps<SVGSVGElement>) {
     return (
@@ -28,13 +29,14 @@ function PlayerHeader({ className }: {
     );
 }
 
-function VideoPlayerMock({ className }: {
+function FallbackBackground({ className }: {
     className?: string;
 }) {
     return <div className={`w-screen h-screen ${className}`} style={{
         backgroundImage: "url(https://images.unsplash.com/photo-1490750967868-88aa4486c946?q=80&w=2070&auto=format&fit=crop&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D)",
         backgroundSize: "cover",
         backgroundPosition: "center",
+        backgroundColor: "black",
     }} />;
 }
 
@@ -47,7 +49,7 @@ function MainPlayerStateContent() {
             <OSD position="top-left" size="md">
                 Pause
             </OSD>
-            <VideoPlayerMock className="relative" />
+            <FallbackBackground className="relative" />
         </div>
     );
 }
@@ -67,7 +69,7 @@ function ConnectingStateScreen() {
                 </div>
             </div>
 
-            <VideoPlayerMock className="relative" />
+            <FallbackBackground className="relative" />
         </div>
     );
 }
@@ -104,7 +106,7 @@ function ConnectedStateScreen() {
                 </div>
             </div>
 
-            <VideoPlayerMock className="relative" />
+            <FallbackBackground className="relative" />
         </div>
     );
 }
@@ -116,16 +118,62 @@ function ReadyStateScreen() {
                 <Text size="9xl" weight="bold" className="text-white text-shadow-lg text-shadow-black">Select a Song</Text>
             </div>
 
-            <VideoPlayerMock className="relative" />
+            <FallbackBackground className="relative" />
+        </div>
+    );
+}
+
+function AwaitingInteractionStateScreen() {
+    const handleInteraction = () => {
+        // This interaction will enable autoplay for future media elements
+        const audio = new Audio();
+        audio.play().catch(() => {
+            // Expected to fail, but this interaction enables autoplay
+        });
+    };
+
+    return (
+        <div className="relative">
+            <div className="absolute top-0 inset-x-0 h-screen w-screen z-10 flex flex-col items-center justify-center">
+                <div className="max-w-5xl w-full mx-auto">
+                    <Card 
+                        title="System Message"
+                        size="auto"
+                        className="w-full"
+                    >
+                        <div className="flex flex-col items-center space-y-4 py-2">
+                            <Text size="lg" shadow className="text-center">
+                                Allow Sound Permission
+                            </Text>
+                            <Text size="base" shadow className="text-center text-gray-300">
+                                Click to allow this karaoke system to play audio automatically.
+                            </Text>
+                            <Button
+                                onClick={handleInteraction}
+                                variant="primary"
+                                size="lg"
+                            >
+                                Allow Sound
+                            </Button>
+                        </div>
+                    </Card>
+                </div>
+            </div>
+
+            <FallbackBackground className="relative" />
         </div>
     );
 }
 
 export default function DisplayPage2() {
-    const [state] = useState<"connecting" | "connected" | "ready" | "play">("connected");
+    const [state] = useState<"connecting" | "connected" | "awaiting-interaction" | "ready" | "play">("awaiting-interaction");
 
     if (state === "connecting") {
         return <ConnectingStateScreen />
+    }
+
+    if (state === "awaiting-interaction") {
+        return <AwaitingInteractionStateScreen />;
     }
 
     if (state === "connected") {

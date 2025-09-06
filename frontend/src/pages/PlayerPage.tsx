@@ -2,32 +2,10 @@ import { useState } from "react";
 import { Text } from "../components/atoms/Text";
 import { Card } from "../components/organisms/Card";
 import { OSD } from "../components/molecules/OSD";
-import { StatusBar } from "../components/organisms/StatusBar";
+import { PlayerHeader } from "../components/organisms/PlayerHeader";
 import { QRCode } from "../components/atoms/QRCode";
 import { Button } from "../components/atoms/Button";
-
-export function RiMusic2Fill(props: React.SVGProps<SVGSVGElement>) {
-    return (
-        // biome-ignore lint/a11y/noSvgWithoutTitle: <explanation>
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" {...props}>
-            <path fill="currentColor" d="M20 3v14a4 4 0 1 1-2-3.465V6H9v11a4 4 0 1 1-2-3.465V3z" />
-        </svg>
-    )
-}
-
-function PlayerHeader({ className }: {
-    className?: string;
-}) {
-    return (
-        <StatusBar
-            status="Playing"
-            title="Artist Name - Player Name"
-            icon={<RiMusic2Fill className="w-8 h-8 mr-2 text-blue-500" />}
-            count={1}
-            className={className}
-        />
-    );
-}
+import { RiMusic2Fill } from "../components/icons/RiMusic2Fill";
 
 function FallbackBackground({ className }: {
     className?: string;
@@ -40,11 +18,16 @@ function FallbackBackground({ className }: {
     }} />;
 }
 
-function MainPlayerStateContent() {
+function PlayingStateContent() {
     return (
         <div className="relative">
             <div className="absolute top-0 inset-x-0 z-20 max-w-7xl mx-auto pt-8">
-                <PlayerHeader />
+                <PlayerHeader
+                    status="Playing"
+                    title="Artist Name - Player Name"
+                    icon={<RiMusic2Fill className="w-8 h-8 mr-2 text-blue-500" />}
+                    count={1}
+                />
             </div>
             <OSD position="top-left" size="md">
                 Pause
@@ -184,7 +167,5 @@ export default function DisplayPage2() {
         return <ReadyStateScreen />;
     }
 
-    return (
-        <MainPlayerStateContent />
-    );
+    return <PlayingStateContent />;
 }

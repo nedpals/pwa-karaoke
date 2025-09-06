@@ -1,19 +1,20 @@
 import type { Meta, StoryObj } from '@storybook/react';
-import { PlayerHeader } from './PlayerHeader';
+import { StatusBar } from './StatusBar';
 import { Text } from '../atoms/Text';
 
 // Simple music icon component for stories
 function MusicIcon() {
   return (
     <svg className="w-8 h-8 text-blue-500" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+      <title>Music Icon</title>
       <path fill="currentColor" d="M20 3v14a4 4 0 1 1-2-3.465V6H9v11a4 4 0 1 1-2-3.465V3z" />
     </svg>
   );
 }
 
-const meta: Meta<typeof PlayerHeader> = {
-  title: 'Organisms/PlayerHeader',
-  component: PlayerHeader,
+const meta: Meta<typeof StatusBar> = {
+  title: 'Organisms/StatusBar',
+  component: StatusBar,
   parameters: {
     layout: 'centered',
     backgrounds: { default: 'dark' },
@@ -91,7 +92,7 @@ export const WithIcon: Story = {
   },
 };
 
-export const FullPlayerHeader: Story = {
+export const FullStatusBar: Story = {
   args: {
     status: 'Playing',
     title: 'Elton John - Rocket Man',

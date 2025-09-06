@@ -1,76 +1,97 @@
-import { Text } from "../atoms/Text";
-import { MarqueeText } from "../molecules/MarqueeText";
+import { cn } from "../../lib/utils";
 import { GlassPanel } from "./GlassPanel";
+import { Text } from "../atoms/Text";
+
+export interface PlayerHeaderSection {
+  content: React.ReactNode;
+  width?: string;
+  align?: "left" | "center" | "right";
+}
 
 export interface PlayerHeaderProps extends React.HTMLAttributes<HTMLDivElement> {
+  leftSection?: PlayerHeaderSection;
+  centerSection?: PlayerHeaderSection;
+  rightSection?: PlayerHeaderSection;
+  // Convenience props for simple usage
+  status?: string;
   title?: string;
-  artist?: string;
-  queueCount?: number;
-  variant?: "playing" | "simple";
+  count?: number;
   icon?: React.ReactNode;
 }
 
 export function PlayerHeader({
+  leftSection,
+  centerSection,
+  rightSection,
+  status,
   title,
-  artist,
-  queueCount,
-  variant = "simple",
+  count,
   icon,
-  className = "",
+  className,
   ...props
 }: PlayerHeaderProps) {
-  if (variant === "playing" && title && artist) {
-    return (
-      <GlassPanel
-        variant="header"
-        className={`flex flex-row ${className}`.trim()}
-        {...props}
-      >
-        <div className="rounded-l-[inherit] bg-black/20 text-2xl font-bold px-6 py-3">
-          <Text shadow>Now Playing:</Text>
-        </div>
+  // Use convenience props if sections not provided
+  const left = leftSection || (status && {
+    content: <Text size="xl" shadow truncate>{status}</Text>,
+    width: "w-[10%]",
+    align: "center" as const
+  });
 
-        <MarqueeText
-          size="2xl"
-          className="flex flex-row py-3 px-6 flex-1"
-          shadow
-        >
-          {`${artist} - ${title}`}
-        </MarqueeText>
+  const center = centerSection || (title && {
+    content: <Text size="xl" shadow truncate>{title}</Text>,
+    width: "flex-1",
+    align: "left" as const
+  });
 
-        <div className="rounded-r-[inherit] bg-black/20 text-2xl px-6 py-3">
-          <Text shadow>
-            <span className="font-bold">On Queue:</span> {queueCount || 0}
-          </Text>
-        </div>
-      </GlassPanel>
-    );
-  }
+  const right = rightSection || ((icon || count !== undefined) && {
+    content: (
+      <>
+        {icon}
+        {count !== undefined && <Text size="2xl" shadow>{count}</Text>}
+      </>
+    ),
+    width: "w-[10%]",
+    align: "center" as const
+  });
 
-  // Simple variant
+  const alignmentClasses = {
+    left: "justify-start",
+    center: "justify-center",
+    right: "justify-end"
+  };
+
   return (
-    <GlassPanel
-      variant="default"
-      className={`w-full ${className}`.trim()}
-      {...props}
-    >
+    <GlassPanel className={cn("w-full", className)} {...props}>
       <div className="flex items-stretch">
-        <div className="w-[10%] py-2 border-r border-white/40 flex items-center justify-center">
-          <Text size="xl" shadow truncate>
-            Playing
-          </Text>
-        </div>
-        <div className="flex-1 py-2 px-4 flex items-center justify-left">
-          <Text size="xl" shadow truncate>
-            {title && artist ? `${artist} - ${title}` : "Artist Name - Player Name"}
-          </Text>
-        </div>
-        <div className="w-[10%] py-2 border-l border-white/40 flex items-center justify-center">
-          {icon}
-          <Text size="2xl" shadow>
-            {queueCount || 1}
-          </Text>
-        </div>
+        {left && (
+          <div className={cn(
+            left.width || "w-[10%]",
+            "py-2 border-r border-white/40 flex items-center",
+            alignmentClasses[left.align || "center"]
+          )}>
+            {left.content}
+          </div>
+        )}
+
+        {center && (
+          <div className={cn(
+            center.width || "flex-1",
+            "py-2 px-4 flex items-center",
+            alignmentClasses[center.align || "left"]
+          )}>
+            {center.content}
+          </div>
+        )}
+
+        {right && (
+          <div className={cn(
+            right.width || "w-[10%]",
+            "py-2 border-l border-white/40 flex items-center space-x-2",
+            alignmentClasses[right.align || "center"]
+          )}>
+            {right.content}
+          </div>
+        )}
       </div>
     </GlassPanel>
   );

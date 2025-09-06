@@ -32,6 +32,7 @@ function VideoPlayerComponent({
         play_state: "paused" as const,
         current_time: 0,
         duration: 0,
+        volume: playerState?.volume ?? 0.5,
         version: Date.now(),
         timestamp: Date.now(),
         ...partialState,
@@ -79,6 +80,19 @@ function VideoPlayerComponent({
       }
     }
   }, [playerState?.entry?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Handle volume changes from controller
+  useEffect(() => {
+    if (!videoRef.current || !playerState) return;
+
+    const video = videoRef.current;
+    const targetVolume = playerState.volume ?? 0.5;
+
+    // Don't change volume if video is still initially muted
+    if (isInitiallyMutedRef.current) return;
+
+    video.volume = targetVolume;
+  }, [playerState?.volume]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Send periodic updates while playing
   useEffect(() => {
@@ -420,6 +434,7 @@ function DisplayPageContent() {
         play_state: "playing",
         current_time: 0,
         duration: 0,
+        volume: playerState?.volume ?? 0.5,
         version: Date.now(),
         timestamp: Date.now(),
       });
@@ -438,6 +453,7 @@ function DisplayPageContent() {
         play_state: "paused",
         current_time: 0,
         duration: 0,
+        volume: playerState?.volume ?? 0.5,
         version: Date.now(),
         timestamp: Date.now(),
       });
@@ -456,6 +472,7 @@ function DisplayPageContent() {
       play_state: newQueue.length > 0 ? "playing" : "finished",
       current_time: 0,
       duration: 0,
+      volume: playerState?.volume ?? 0.5,
       version: Date.now(),
       timestamp: Date.now(),
     });
@@ -471,6 +488,7 @@ function DisplayPageContent() {
       play_state: "paused",
       current_time: 0,
       duration: 0,
+      volume: playerState?.volume ?? 0.5,
       version: Date.now(),
       timestamp: Date.now(),
     });
@@ -532,6 +550,17 @@ function DisplayPageContent() {
       case "queue_next_song":
         console.log("[DisplayPage] Executing queueNextSong with:", data);
         queueNextSong(data as string);
+        break;
+      case "set_volume":
+        console.log("[DisplayPage] Executing setVolume with:", data);
+        if (playerState) {
+          updatePlayerState({
+            ...playerState,
+            volume: data as number,
+            version: Date.now(),
+            timestamp: Date.now(),
+          });
+        }
         break;
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps

@@ -11,6 +11,7 @@ export function MaterialSymbolsKeyboardArrowUpRounded(
       viewBox="0 0 24 24"
       {...props}
     >
+      <title>Arrow Up</title>
       {/* Icon from Material Symbols by Google - https://github.com/google/material-design-icons/blob/master/LICENSE */}
       <path
         fill="currentColor"

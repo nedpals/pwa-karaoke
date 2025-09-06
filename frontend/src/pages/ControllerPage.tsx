@@ -14,6 +14,8 @@ import { MaterialSymbolsKeyboardAltOutlineRounded } from "../components/icons/Ma
 import { MaterialSymbolsPlaylistAddRounded } from "../components/icons/MaterialSymbolsPlaylistAddRounded";
 import { MaterialSymbolsPauseRounded } from "../components/icons/MaterialSymbolsPauseRounded";
 import { MaterialSymbolsPlayArrowRounded } from "../components/icons/MaterialSymbolsPlayRounded";
+import { MaterialSymbolsVolumeUpRounded } from "../components/icons/MaterialSymbolsVolumeUpRounded";
+import { MaterialSymbolsVolumeDownRounded } from "../components/icons/MaterialSymbolsVolumeDownRounded";
 import { Text } from "../components/atoms/Text";
 import { Button } from "../components/atoms/Button";
 import { ProgressBar } from "../components/atoms/ProgressBar";
@@ -156,7 +158,7 @@ function SongSelectTab() {
 }
 
 function PlayerTab() {
-  const { playerState, queue, playSong, pauseSong, playNext } =
+  const { playerState, queue, playSong, pauseSong, playNext, setVolume } =
     useWebSocketState();
 
   const handlePlayerPlayback = () => {
@@ -166,6 +168,19 @@ function PlayerTab() {
       playSong();
     }
   };
+
+  const handleVolumeUp = () => {
+    const currentVolume = playerState?.volume ?? 0.5;
+    const newVolume = Math.min(1.0, currentVolume + 0.1);
+    setVolume(newVolume);
+  };
+
+  const handleVolumeDown = () => {
+    const currentVolume = playerState?.volume ?? 0.5;
+    const newVolume = Math.max(0.0, currentVolume - 0.1);
+    setVolume(newVolume);
+  };
+
 
   return (
     <div className="max-w-5xl mx-auto px-4 text-white pt-24">
@@ -208,6 +223,30 @@ function PlayerTab() {
             variant="secondary"
             size="xl"
             className="text-4xl rounded-full border border-white px-12 py-4"
+          />
+        </div>
+
+        <div className="flex flex-row self-center items-center space-x-4 bg-black/50 p-2 rounded-full mt-8">
+          <IconButton
+            icon={<MaterialSymbolsVolumeDownRounded />}
+            onClick={handleVolumeDown}
+            disabled={!playerState || !playerState.entry || (playerState?.volume ?? 0.5) <= 0}
+            variant="secondary"
+            size="lg"
+            className="text-2xl rounded-full border border-white/50 px-4 py-2"
+            label="Volume Down"
+          />
+          <Text size="lg" className="text-white min-w-16 text-center font-medium">
+            {Math.round((playerState?.volume ?? 0.5) * 100)}%
+          </Text>
+          <IconButton
+            icon={<MaterialSymbolsVolumeUpRounded />}
+            onClick={handleVolumeUp}
+            disabled={!playerState || !playerState.entry || (playerState?.volume ?? 0.5) >= 1}
+            variant="secondary"
+            size="lg"
+            className="text-2xl rounded-full border border-white/50 px-4 py-2"
+            label="Volume Up"
           />
         </div>
         <IconButton

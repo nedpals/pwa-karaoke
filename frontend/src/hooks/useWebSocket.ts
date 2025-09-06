@@ -30,6 +30,7 @@ export interface WebSocketActions {
   playNext: () => void;
   queueNextSong: (entryId: string) => void;
   clearQueue: () => void;
+  setVolume: (volume: number) => void;
 
   // Display commands
   updatePlayerState: (state: DisplayPlayerState) => void;
@@ -208,6 +209,11 @@ export function useWebSocket(clientType: ClientType): WebSocketReturn {
             prev ? { ...prev, play_state: "paused" } : null,
           );
           break;
+        case "set_volume":
+          setPlayerState((prev) =>
+            prev ? { ...prev, volume: data as number } : null,
+          );
+          break;
         case "request_player_state":
           if (clientType === "controller" && playerState) {
             sendJsonMessage(["player_state", playerState]);
@@ -296,6 +302,7 @@ export function useWebSocket(clientType: ClientType): WebSocketReturn {
       queueNextSong: (entryId: string) =>
         sendCommand("queue_next_song", entryId),
       clearQueue: () => sendCommand("clear_queue"),
+      setVolume: (volume: number) => sendCommand("set_volume", volume),
       updatePlayerState: (state: DisplayPlayerState) =>
         sendCommand("update_player_state", state),
       requestQueueUpdate: () => sendCommand("request_queue_update"),

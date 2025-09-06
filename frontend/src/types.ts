@@ -21,6 +21,7 @@ export interface DisplayPlayerState {
   play_state: "playing" | "paused" | "finished" | "buffering";
   current_time: number;
   duration: number;
+  volume: number;
   version: number;
   timestamp: number;
 }

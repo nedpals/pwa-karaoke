@@ -1,6 +1,6 @@
 import { createContext, useContext } from "react";
 import type { ReactNode } from "react";
-import { type WebSocketReturn } from "../hooks/useWebSocket";
+import type { WebSocketReturn } from "../hooks/useWebSocket";
 
 const WebSocketStateContext = createContext<WebSocketReturn | undefined>(
   undefined,

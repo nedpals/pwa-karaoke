@@ -426,7 +426,7 @@ function PlayingStateContent() {
           status={playerHeaderStatus.status}
           title={playerHeaderStatus.title}
           icon={playerHeaderStatus.icon}
-          count={playerHeaderStatus.count}
+          count={Math.max(playerHeaderStatus.count ?? 0, 0)}
         />
       </div>
 

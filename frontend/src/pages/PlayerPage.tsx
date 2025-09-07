@@ -15,8 +15,6 @@ import {
 import { useTempState, type TempStateSetterOptions } from "../hooks/useTempState";
 import { useVideoUrl, useVideoUrlMutation } from "../hooks/useApi";
 import type {
-  KaraokeQueueItem,
-  KaraokeEntry,
   DisplayPlayerState,
 } from "../types";
 
@@ -39,11 +37,6 @@ interface PlayerContextType {
   appState: AppState;
   hasInteracted: boolean;
   setHasInteracted: (value: boolean) => void;
-
-  // Queue management
-  localQueue: KaraokeQueueItem[];
-  queueSong: (entry: KaraokeEntry) => void;
-  playNextSong: () => void;
 
   // PlayerHeader status
   playerHeaderStatus: PlayerHeaderStatus;
@@ -86,7 +79,8 @@ function VideoPlayerComponent({
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const { playerState, updatePlayerState } = useWebSocketState();
-  const { osd, playNextSong } = usePlayerState();
+  const { osd } = usePlayerState();
+  const { playNext } = useWebSocketState();
   const isBufferingRef = useRef(false);
   const hasNearingEndFiredRef = useRef(false);
 
@@ -106,7 +100,7 @@ function VideoPlayerComponent({
 
       updatePlayerState(versionedState);
     };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [playerState, updatePlayerState]);
 
   // Handle play/pause state changes from controller commands
   useEffect(() => {
@@ -212,6 +206,7 @@ function VideoPlayerComponent({
           play_state: video.paused ? "paused" : "playing",
           current_time: video.currentTime,
           duration: video.duration || 0,
+          volume: video.volume,
         });
       }
     };
@@ -306,6 +301,7 @@ function VideoPlayerComponent({
             play_state: "buffering",
             current_time: video.currentTime || 0,
             duration: video.duration || 0,
+            volume: video.volume,
           });
 
           isBufferingRef.current = true;
@@ -360,9 +356,8 @@ function VideoPlayerComponent({
             duration: video.duration || 0,
             volume: video.volume,
           });
-          
           // Automatically play next song
-          playNextSong();
+          playNext();
         }}
       >
         <track kind="captions" />
@@ -379,7 +374,6 @@ function PlayingStateContent() {
   const { playerState, upNextQueue } = useWebSocketState();
   const { playerHeaderStatus, setPlayerHeaderStatus } = usePlayerState();
   const { trigger: triggerVideoUrl } = useVideoUrlMutation();
-  
   const { data: videoUrlData, isLoading: isLoadingVideoUrl } = useVideoUrl(
     playerState?.entry && !playerState.entry.video_url
       ? playerState.entry
@@ -388,32 +382,32 @@ function PlayingStateContent() {
 
   const videoUrl = useMemo(() => {
     if (!playerState?.entry) return null;
-    
+
     // Check if the entry already has a video URL
     if (playerState.entry.video_url) {
       return playerState.entry.video_url;
     }
-    
+
     // Check if we fetched it via the API (including prefetched via SWR cache)
     if (videoUrlData?.video_url) {
       return videoUrlData.video_url;
     }
-    
+
     return null;
   }, [playerState, videoUrlData]);
 
   const handleNearingEnd = useCallback(() => {
     if (!upNextQueue || upNextQueue.items.length === 0) return;
-    
+
     const nextSong = upNextQueue.items[0];
-    
+
     setPlayerHeaderStatus({
       status: "Up Next",
       title: `${nextSong.entry.artist} - ${nextSong.entry.title}`,
       icon: <RiMusic2Fill className="w-8 h-8 mr-2 text-yellow-500" />,
       count: upNextQueue.items.length,
     }, { duration: 3000 });
-    
+
     if (!nextSong.entry.video_url) {
       triggerVideoUrl(nextSong.entry)
         .then(() => {
@@ -568,16 +562,15 @@ function AwaitingInteractionStateScreen() {
 
 function PlayerStateProviderInternal({ children }: { children: React.ReactNode }) {
   const hasRequestedInitialQueue = useRef(false);
-  const [localQueue, setLocalQueue] = useState<KaraokeQueueItem[]>([]);
   const [hasInteracted, setHasInteracted] = useState(false);
 
   const {
     connected,
     playerState,
     clientCount,
+    queue,
     requestQueueUpdate,
     updatePlayerState,
-    sendCommand,
     lastQueueCommand,
   } = useWebSocketState();
 
@@ -605,75 +598,6 @@ function PlayerStateProviderInternal({ children }: { children: React.ReactNode }
     return "connecting";
   }, [hasInteracted, connected, playerState?.entry, clientCount]);
 
-  // Broadcast queue updates to all controllers
-  const broadcastQueueUpdate = useMemo(() => {
-    return (queue: KaraokeQueueItem[]) => {
-      sendCommand("queue_update", {
-        items: queue,
-        version: Date.now(),
-        timestamp: Date.now(),
-      });
-    };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Queue management functions
-  const generateQueueItemId = () =>
-    `queue_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
-
-  const queueSong = useCallback((entry: KaraokeEntry) => {
-    console.log("[PlayerState] queueSong called with:", entry.title);
-    const wasEmpty = localQueue.length === 0;
-
-    const newItem: KaraokeQueueItem = {
-      id: generateQueueItemId(),
-      entry,
-    };
-
-    const newQueue = [...localQueue, newItem];
-    setLocalQueue(newQueue);
-    broadcastQueueUpdate(newQueue);
-
-    // Show temporary status for song queued
-    if (!wasEmpty) {
-      setPlayerHeaderStatus({
-        status: "Queued",
-        title: `${entry.artist} - ${entry.title}`,
-        icon: <RiMusic2Fill className="w-8 h-8 mr-2 text-green-500" />,
-        count: newQueue.length - 1,
-      }, { duration: 3000 });
-    }
-
-    // Auto-play if queue was empty before adding this song
-    if (wasEmpty) {
-      console.log("[PlayerState] Auto-playing first song:", newItem.entry.title);
-      updatePlayerState({
-        entry: newItem.entry,
-        play_state: "playing",
-        current_time: 0,
-        duration: 0,
-        volume: playerState?.volume ?? 0.5,
-        version: Date.now(),
-        timestamp: Date.now(),
-      });
-    }
-  }, [localQueue, broadcastQueueUpdate, setPlayerHeaderStatus, updatePlayerState, playerState?.volume]);
-
-  const playNextSong = useCallback(() => {
-    const nextQueue = localQueue.slice(1);
-    
-    setLocalQueue(nextQueue);
-    broadcastQueueUpdate(nextQueue);
-
-    updatePlayerState({
-      entry: nextQueue.length > 0 ? nextQueue[0].entry : null,
-      play_state: nextQueue.length > 0 ? "playing" : "finished",
-      current_time: 0,
-      duration: 0,
-      volume: playerState?.volume ?? 0.5,
-      version: Date.now(),
-      timestamp: Date.now(),
-    });
-  }, [localQueue, broadcastQueueUpdate, updatePlayerState, playerState?.volume]);
 
   // Update PlayerHeader status based on player state
   useEffect(() => {
@@ -682,10 +606,10 @@ function PlayerStateProviderInternal({ children }: { children: React.ReactNode }
         status: "Playing",
         title: `${playerState.entry.artist} - ${playerState.entry.title}`,
         icon: <RiMusic2Fill className="w-8 h-8 mr-2 text-blue-500" />,
-        count: localQueue.length - 1,
+        count: queue ? queue.items.length : 0,
       });
     }
-  }, [playerState, localQueue.length]); // Removed setPlayerHeaderStatus to prevent infinite loop
+  }, [playerState, queue]); // Removed setPlayerHeaderStatus to prevent infinite loop
 
   // Handle OSD updates based on player state - use refs to track last states to avoid conflicts
   const lastPlayStateRef = useRef<string | null>(null);
@@ -694,10 +618,10 @@ function PlayerStateProviderInternal({ children }: { children: React.ReactNode }
   // Handle play/pause/buffering state changes (priority over volume)
   useEffect(() => {
     if (!playerState?.entry || playerState.play_state === lastPlayStateRef.current) return;
-    
+
     lastPlayStateRef.current = playerState.play_state;
     console.log("[OSD] Player state changed to:", playerState.play_state);
-    
+
     if (playerState.play_state === "playing") {
       setOSD({ message: "", visible: false }, { clearTemporary: true }); // Clear any existing OSD
       setOSD({ message: "Play", visible: true }, { duration: 2000 });
@@ -706,21 +630,21 @@ function PlayerStateProviderInternal({ children }: { children: React.ReactNode }
     } else if (playerState.play_state === "buffering") {
       setOSD({ message: "Buffering...", visible: true }); // No duration - shows until buffering ends
     }
-  }, [playerState?.play_state]);
+  }, [playerState?.play_state, playerState?.entry, setOSD]);
 
   // Handle volume changes (lower priority - only show if not in play/pause/buffering state)
   useEffect(() => {
     if (!playerState?.entry) return;
-    
+
     const volume = playerState.volume ?? 0.5;
     const volumePercent = Math.round(volume * 100);
-    
+
     // Only show volume OSD if we're not currently showing a critical state message and volume actually changed
     if (volume !== lastVolumeRef.current && playerState.play_state === "playing") {
       lastVolumeRef.current = volume;
       setOSD({ message: `Volume: ${volumePercent}%`, visible: true }, { duration: 2000 });
     }
-  }, [playerState?.volume, playerState?.play_state]);
+  }, [playerState?.volume, playerState?.play_state, playerState?.entry, setOSD]);
 
   // Handle initial queue request
   useEffect(() => {
@@ -732,44 +656,67 @@ function PlayerStateProviderInternal({ children }: { children: React.ReactNode }
     }
   }, [connected]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Handle queue commands from controllers
+  // Auto-play first song when queue goes from empty to having songs (only when no player state exists)
+  useEffect(() => {
+    if (
+      queue &&
+      queue.items.length > 0 &&
+      (!playerState || (!playerState.entry && playerState.play_state !== "playing")) // No current song and not actively playing
+    ) {
+      const firstSong = queue.items[0];
+      console.log("[PlayerState] Auto-playing first song:", firstSong.entry.title);
+
+      updatePlayerState({
+        entry: firstSong.entry,
+        play_state: "playing",
+        current_time: 0,
+        duration: 0,
+        volume: playerState?.volume ?? 0.5,
+        version: Date.now(),
+        timestamp: Date.now(),
+      });
+    }
+  }, [queue, playerState, updatePlayerState]);
+
+  const previousQueueLengthRef = useRef(0);
+  useEffect(() => {
+    if (queue && queue.items.length > previousQueueLengthRef.current) {
+      const newSong = queue.items[queue.items.length - 1];
+      const isFirstSong = previousQueueLengthRef.current === 0;
+      
+      if (!isFirstSong) {
+        setPlayerHeaderStatus({
+          status: "Queued",
+          title: `${newSong.entry.artist} - ${newSong.entry.title}`,
+          icon: <RiMusic2Fill className="w-8 h-8 mr-2 text-green-500" />,
+          count: queue.items.length - 1,
+        }, { duration: 3000 });
+      }
+    }
+    
+    previousQueueLengthRef.current = queue?.items.length || 0;
+  }, [queue, setPlayerHeaderStatus]);
+
   useEffect(() => {
     if (!lastQueueCommand) return;
 
     const { command, data } = lastQueueCommand;
 
-    switch (command) {
-      case "send_current_queue":
-        broadcastQueueUpdate(localQueue);
-        break;
-      case "queue_song":
-        queueSong(data as KaraokeEntry);
-        break;
-      case "play_next":
-        playNextSong();
-        break;
-      case "set_volume":
-        if (playerState) {
-          const newVolume = data as number;
-          updatePlayerState({
-            ...playerState,
-            volume: newVolume,
-            version: Date.now(),
-            timestamp: Date.now(),
-          });
-        }
-        break;
+    if (command === "set_volume" && playerState) {
+      const newVolume = data as number;
+      updatePlayerState({
+        ...playerState,
+        volume: newVolume,
+        version: Date.now(),
+        timestamp: Date.now(),
+      });
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lastQueueCommand]);
+  }, [lastQueueCommand, playerState, updatePlayerState]);
 
   const contextValue: PlayerContextType = {
     appState,
     hasInteracted,
     setHasInteracted,
-    localQueue,
-    queueSong,
-    playNextSong,
     playerHeaderStatus,
     setPlayerHeaderStatus,
     osd,

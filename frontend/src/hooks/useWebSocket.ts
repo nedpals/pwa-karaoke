@@ -231,11 +231,6 @@ export function useWebSocket(clientType: ClientType): WebSocketReturn {
             prev ? { ...prev, play_state: "paused" } : null,
           );
           break;
-        case "set_volume":
-          setPlayerState((prev) =>
-            prev ? { ...prev, volume: data as number } : null,
-          );
-          break;
         case "request_player_state":
           if (clientType === "controller" && playerState) {
             sendJsonMessage(["player_state", playerState]);
@@ -272,15 +267,11 @@ export function useWebSocket(clientType: ClientType): WebSocketReturn {
             setLastQueueCommand({ command, data, timestamp: Date.now() });
           }
           break;
-        case "queue_song":
-        case "remove_song":
-        case "play_next":
-        case "clear_queue":
-        case "queue_next_song":
-          // Store the last queue command for displays to handle
+        case "set_volume":
+          // Store volume commands for displays to handle (still needed)
           if (clientType === "display") {
             console.log(
-              `[${clientType}] Received queue command: ${command}`,
+              `[${clientType}] Received volume command: ${command}`,
               data,
             );
             setLastQueueCommand({ command, data, timestamp: Date.now() });

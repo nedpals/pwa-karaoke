@@ -11,6 +11,7 @@ from client_manager import ClientManager
 from commands import ControllerCommands, DisplayCommands
 from websocket_errors import WebSocketErrorType, create_error_response
 from websocket_models import validate_websocket_message
+from room import RoomManager
 
 app = FastAPI()
 
@@ -24,6 +25,7 @@ app.add_middleware(
 )
 
 manager = ClientManager()
+room_manager = RoomManager()
 
 @app.get("/search")
 async def search(query: str, service: Annotated[KaraokeService, Depends()]) -> KaraokeSearchResult:
@@ -46,9 +48,9 @@ async def websocket_endpoint(websocket: WebSocket, service: Annotated[KaraokeSer
         return
 
     try:
-        commands = ControllerCommands(client, manager, service)
+        commands = ControllerCommands(client, manager, service, room_manager)
         if client.client_type == "display":
-            commands = DisplayCommands(client, manager, service)
+            commands = DisplayCommands(client, manager, service, room_manager)
 
         while True:
             command, payload = await client.receive()

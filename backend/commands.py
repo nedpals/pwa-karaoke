@@ -2,15 +2,19 @@ import random
 import time
 from typing_extensions import Literal
 
+from core.search import KaraokeEntry
 from core.player import DisplayPlayerState
 from services.karaoke_service import KaraokeService
 from client_manager import ConnectionClient, ClientManager
+from room import RoomManager
 
 class ClientCommands:
-    def __init__(self, client: ConnectionClient, conn_manager: ClientManager, service: KaraokeService) -> None:
+    def __init__(self, client: ConnectionClient, conn_manager: ClientManager, service: KaraokeService, room_manager: RoomManager) -> None:
         self.service = service
         self.client = client
         self.conn_manager = conn_manager
+        self.room_manager = room_manager
+        self.room = room_manager.get_default_room()  # All clients join default room for now
 
     async def pong(self, data):
         """Handle pong response from client"""
@@ -64,22 +68,67 @@ class ClientCommands:
         command = "play_song" if playback_state == "play" else "pause_song"
         await self.conn_manager.broadcast_command(command, {})
 
+    async def _broadcast_room_state(self):
+        # Broadcast queue update to all clients
+        queue_payload = self.room.get_queue_update_payload()
+        await self.conn_manager.broadcast_command("queue_update", queue_payload)
+        
+        if self.room.player_state:
+            await self.conn_manager.broadcast_command("player_state", self.room.player_state.model_dump())
+
 class ControllerCommands(ClientCommands):
     async def remove_song(self, payload):
-        await self.conn_manager.broadcast_to_displays("remove_song", payload["entry_id"])
+        # Remove song from room queue and broadcast update
+        removed = self.room.remove_song(payload["entry_id"])
+        if removed:
+            await self._broadcast_room_state()
 
     async def play_next(self, _: None):
-        await self.conn_manager.broadcast_to_displays("play_next", None)
+        next_song = self.room.play_next()
+        if next_song:
+            new_player_state = DisplayPlayerState(
+                entry=next_song.entry,
+                play_state="playing",
+                current_time=0.0,
+                duration=0.0,
+                volume=self.room.player_state.volume if self.room.player_state else 0.5,
+                version=int(time.time() * 1000),
+                timestamp=time.time()
+            )
+        else:
+            new_player_state = DisplayPlayerState(
+                entry=None,
+                play_state="finished",
+                current_time=0.0,
+                duration=0.0,
+                volume=self.room.player_state.volume if self.room.player_state else 1,
+                version=int(time.time() * 1000),
+                timestamp=time.time()
+            )
+        
+        if "new_player_state" in locals():
+            self.room.update_player_state(new_player_state)
+        await self._broadcast_room_state()
 
     async def queue_song(self, payload):
-        print(f"[DEBUG] Controller queue_song received: {payload['title']} by {payload['artist']}")
-        await self.conn_manager.broadcast_to_displays("queue_song", payload)
+        
+        entry = KaraokeEntry.parse_obj(payload)
+        print(f"[DEBUG] Controller queue_song received: {entry.title} by {entry.artist}")
+        
+        # Add song to room queue and broadcast update
+        self.room.add_song(entry)
+        await self._broadcast_room_state()
 
     async def queue_next_song(self, payload):
-        await self.conn_manager.broadcast_to_displays("queue_next_song", payload["entry_id"])
+        # Move song to next position in room queue and broadcast update
+        moved = self.room.move_to_next(payload["entry_id"])
+        if moved:
+            await self._broadcast_room_state()
 
     async def clear_queue(self, _: None):
-        await self.conn_manager.broadcast_to_displays("clear_queue", None)
+        # Clear room queue and broadcast update
+        self.room.clear_queue()
+        await self._broadcast_room_state()
 
     async def play_song(self, _: None):
         await self._toggle_playback_state("play")

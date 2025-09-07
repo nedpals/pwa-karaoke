@@ -1,7 +1,7 @@
 from pydantic import BaseModel
 
 from core.search import KaraokeSearchResult, KaraokeEntry
-from source_providers.youtube import YTKaraokeSearchProvider
+from source_providers.youtube import YTKaraokeSourceProvider
 
 class VideoURLResponse(BaseModel):
     video_url: str | None
@@ -9,7 +9,7 @@ class VideoURLResponse(BaseModel):
 class KaraokeService:
     def __init__(self):
         self.source_providers = [
-            YTKaraokeSearchProvider()
+            YTKaraokeSourceProvider()
         ]
 
     async def search(self, query: str):

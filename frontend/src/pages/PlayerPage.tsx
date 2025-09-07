@@ -166,6 +166,7 @@ function VideoPlayerComponent({
         play_state: "playing",
         current_time: video.currentTime,
         duration: video.duration || 0,
+        volume: video.volume, // ✅ FIX: Preserve actual video volume
       });
     }, 1000);
     return () => clearInterval(interval);
@@ -252,6 +253,7 @@ function VideoPlayerComponent({
               play_state: "playing",
               current_time: video.currentTime,
               duration: video.duration || 0,
+              volume: video.volume,
             });
           }
         }}
@@ -263,6 +265,7 @@ function VideoPlayerComponent({
               play_state: "paused",
               current_time: video.currentTime,
               duration: video.duration || 0,
+              volume: video.volume,
             });
           }
         }}
@@ -289,6 +292,7 @@ function VideoPlayerComponent({
               play_state: "playing",
               current_time: video.currentTime || 0,
               duration: video.duration || 0,
+              volume: video.volume,
             });
           }
         }}
@@ -691,9 +695,10 @@ function PlayerStateProviderInternal({ children }: { children: React.ReactNode }
         break;
       case "set_volume":
         if (playerState) {
+          const newVolume = data as number;
           updatePlayerState({
             ...playerState,
-            volume: data as number,
+            volume: newVolume,
             version: Date.now(),
             timestamp: Date.now(),
           });

@@ -280,16 +280,42 @@ function PlayerTab() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [optimisticVolume, setOptimisticVolume] = useState<number | null>(null);
 
+
+  // Clear optimistic volume when server state matches our optimistic value
+  useEffect(() => {
+    console.log('[Volume Debug] PlayerState volume changed:', playerState?.volume);
+    
+    if (optimisticVolume !== null && playerState?.volume !== undefined) {
+      const serverVolume = Math.round(playerState.volume * 10) / 10; // Round to 1 decimal
+      const optimisticRounded = Math.round(optimisticVolume * 10) / 10;
+      
+      console.log('[Volume Debug] Server:', serverVolume, 'Optimistic:', optimisticRounded);
+      
+      if (Math.abs(serverVolume - optimisticRounded) < 0.05) {
+        // Server state matches optimistic state, clear optimistic
+        console.log('[Volume Debug] Server state matches, clearing optimistic');
+        setOptimisticVolume(null);
+      } else {
+        console.log('[Volume Debug] Server state mismatch, keeping optimistic');
+      }
+    }
+  }, [playerState?.volume, optimisticVolume]);
+
   const handlePlayerPlayback = async () => {
     if (isPlaybackLoading) return;
+    
+    console.log('[Playback Debug] Current playerState volume:', playerState?.volume);
+    console.log('[Playback Debug] Optimistic volume:', optimisticVolume);
     
     setIsPlaybackLoading(true);
     setErrorMessage(null);
     
     try {
       if (playerState?.play_state === "playing") {
+        console.log('[Playback Debug] Pausing...');
         await pauseSong();
       } else {
+        console.log('[Playback Debug] Playing...');
         await playSong();
       }
     } catch (error) {
@@ -307,6 +333,7 @@ function PlayerTab() {
     const currentVolume = optimisticVolume ?? playerState?.volume ?? 0.5;
     const newVolume = Math.min(1.0, currentVolume + 0.1);
     
+    
     // Optimistic update
     setOptimisticVolume(newVolume);
     setIsVolumeLoading(true);
@@ -314,11 +341,9 @@ function PlayerTab() {
     
     try {
       await setVolume(newVolume);
-      // Success - clear optimistic state (real state will update)
-      setOptimisticVolume(null);
     } catch (error) {
       console.error("Failed to set volume:", error);
-      // Rollback optimistic update
+      // Rollback optimistic update immediately on error
       setOptimisticVolume(null);
       setErrorMessage("Failed to adjust volume. Please try again.");
       setTimeout(() => setErrorMessage(null), 3000);
@@ -333,6 +358,7 @@ function PlayerTab() {
     const currentVolume = optimisticVolume ?? playerState?.volume ?? 0.5;
     const newVolume = Math.max(0.0, currentVolume - 0.1);
     
+  
     // Optimistic update
     setOptimisticVolume(newVolume);
     setIsVolumeLoading(true);
@@ -340,11 +366,9 @@ function PlayerTab() {
     
     try {
       await setVolume(newVolume);
-      // Success - clear optimistic state (real state will update)
-      setOptimisticVolume(null);
     } catch (error) {
       console.error("Failed to set volume:", error);
-      // Rollback optimistic update
+      // Rollback optimistic update immediately on error
       setOptimisticVolume(null);
       setErrorMessage("Failed to adjust volume. Please try again.");
       setTimeout(() => setErrorMessage(null), 3000);
@@ -431,7 +455,11 @@ function PlayerTab() {
             label="Volume Down"
           />
           <Text size="lg" className="text-white min-w-16 text-center font-medium">
-            {Math.round((optimisticVolume ?? playerState?.volume ?? 0.5) * 100)}%
+            {(() => {
+              const displayVolume = optimisticVolume ?? playerState?.volume ?? 0.5;
+              console.log('[Volume Display Debug] Optimistic:', optimisticVolume, 'PlayerState:', playerState?.volume, 'Final:', displayVolume);
+              return Math.round(displayVolume * 100);
+            })()}%
           </Text>
           <IconButton
             icon={<MaterialSymbolsVolumeUpRounded />}

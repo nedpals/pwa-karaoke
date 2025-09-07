@@ -4,7 +4,7 @@ A web-based karaoke application that transforms any device into a karaoke system
 
 ![PWA Karaoke Screenshot](./screenshot.png)
 
-*My Way, Philippines' most sang karaoke song, performed using PWA Karaoke.*
+*My Way, Philippines' most deadly karaoke song, playing in PWA Karaoke.*
 
 ## Features
 

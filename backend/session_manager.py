@@ -14,30 +14,32 @@ class SessionManager:
     # Client connection management
     async def connect_client(self, websocket: WebSocket) -> Optional[ConnectionClient]:
         client = await self.client_manager.connect(websocket)
-        # Client starts without being in any room - frontend must call join_room
+        # Client starts without being in any room - must call join_room explicitly
         return client
     
     async def disconnect_client(self, client: ConnectionClient):
-        room_id = getattr(client, 'room_id', 'default')
-        was_leader = self.room_leaders.get(room_id) == client
+        room_id = client.room_id
         
         await self.client_manager.disconnect(client)
         
-        if was_leader:
-            # Elect new leader if the disconnected client was the leader
-            await self.ensure_room_controller_leader(room_id)
-        
-        await self.broadcast_room_client_count(room_id)
+        # Only handle room-specific cleanup if client was in a room
+        if room_id:
+            was_leader = self.room_leaders.get(room_id) == client
+            
+            if was_leader:
+                # Elect new leader if the disconnected client was the leader
+                await self.ensure_room_controller_leader(room_id)
+            
+            await self.broadcast_room_client_count(room_id)
     
     # Room management
-    def get_room(self, room_id: str = "default") -> Room:
+    def get_room(self, room_id: str) -> Room:
         return self.room_manager.get_room(room_id)
-    
     
     # Room-aware client operations
     def get_room_clients(self, room_id: str) -> List[ConnectionClient]:
         return [client for client in self.client_manager.active_connections 
-                if getattr(client, 'room_id', 'default') == room_id]
+                if client.room_id == room_id]
     
     def get_room_controllers(self, room_id: str) -> List[ConnectionClient]:
         return [client for client in self.get_room_clients(room_id) 
@@ -83,8 +85,9 @@ class SessionManager:
     
     # Room-scoped controller leadership
     def is_controller_leader(self, client: ConnectionClient) -> bool:
-        room_id = getattr(client, 'room_id', 'default')
-        return self.room_leaders.get(room_id) == client
+        if not client.room_id:
+            return False  # Client not in any room
+        return self.room_leaders.get(client.room_id) == client
     
     async def ensure_room_controller_leader(self, room_id: str):
         controllers = self.get_room_controllers(room_id)

@@ -7,6 +7,7 @@ type WebSocketMessage = [string, unknown];
 
 export interface WebSocketState {
   connected: boolean;
+  hasJoinedRoom: boolean;
   clientCount: number;
   queue: KaraokeQueue | null;
   upNextQueue: KaraokeQueue | null;
@@ -22,6 +23,9 @@ export interface WebSocketState {
 export interface WebSocketActions {
   sendCommand: (command: string, payload?: unknown) => void;
   sendCommandWithAck: (command: string, payload?: unknown, timeout?: number) => Promise<unknown>;
+
+  // Room management
+  joinRoom: (roomId: string) => Promise<unknown>;
 
   // Controller commands
   queueSong: (entry: KaraokeEntry) => Promise<unknown>;
@@ -60,6 +64,7 @@ export function useWebSocket(clientType: ClientType): WebSocketReturn {
     null,
   );
   const [hasHandshaken, setHasHandshaken] = useState(false);
+  const [hasJoinedRoom, setHasJoinedRoom] = useState(false);
   const [isLeader, setIsLeader] = useState(false);
   const [lastQueueCommand, setLastQueueCommand] = useState<{
     command: string;
@@ -71,7 +76,7 @@ export function useWebSocket(clientType: ClientType): WebSocketReturn {
 
   // Generate request ID
   const generateRequestId = useCallback(() => {
-    return `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    return `${Date.now()}-${Math.random().toString(36).substring(2, 11)}`;
   }, []);
 
   // Generate WebSocket URL
@@ -113,6 +118,7 @@ export function useWebSocket(clientType: ClientType): WebSocketReturn {
       onClose: () => {
         console.log(`[WebSocket ${clientType}] Connection closed`);
         setHasHandshaken(false);
+        setHasJoinedRoom(false);
         setPendingCommands([]); // Clear pending commands on disconnect
       },
       onError: (error) => {
@@ -121,25 +127,55 @@ export function useWebSocket(clientType: ClientType): WebSocketReturn {
     },
   );
 
-  const connected = readyState === 1; // WebSocket.OPEN
+  const connected = readyState === 1 && hasHandshaken;
 
   // Send handshake when connection opens
   // biome-ignore lint/correctness/useExhaustiveDependencies: clientType is static
     useEffect(() => {
-    if (connected && !hasHandshaken) {
+    if (readyState === 1 && !hasHandshaken) {
       console.log(`[WebSocket ${clientType}] Sending handshake`);
       sendJsonMessage(["handshake", clientType]);
       setHasHandshaken(true);
     }
-  }, [connected, hasHandshaken, clientType]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [readyState, hasHandshaken, clientType, sendJsonMessage]);
 
-  // Request full state sync after handshake completion
+  // Internal room joining function
+  const joinRoomInternal = useCallback(async (roomId: string): Promise<void> => {
+    // Must be handshaken before joining room
+    if (!hasHandshaken) {
+      throw new Error("Must complete handshake before joining room");
+    }
+
+    return new Promise((resolve, reject) => {
+      const requestId = generateRequestId();
+      const joinRoomRequest = {
+        resolve: () => {
+          console.log(`[WebSocket ${clientType}] Successfully joined room: ${roomId}`);
+          setHasJoinedRoom(true);
+          resolve();
+        },
+        reject: (error: Error) => {
+          console.error(`[WebSocket ${clientType}] Failed to join room:`, error);
+          reject(error);
+        },
+        timestamp: Date.now(),
+        command: "join_room",
+      };
+      
+      pendingRequests.set(requestId, joinRoomRequest);
+      sendJsonMessage(["join_room", { room_id: roomId, request_id: requestId }]);
+    });
+  }, [hasHandshaken, generateRequestId, clientType, pendingRequests, sendJsonMessage]);
+
+  // Room joining is now handled explicitly by pages
+
+  // Request full state sync after joining room
   useEffect(() => {
-    if (hasHandshaken && connected) {
+    if (hasJoinedRoom && readyState === 1) {
       console.log(`[WebSocket ${clientType}] Requesting full state synchronization`);
       sendJsonMessage(["request_full_state", {}]);
     }
-  }, [hasHandshaken, connected, sendJsonMessage, clientType]);
+  }, [hasJoinedRoom, readyState, sendJsonMessage, clientType]);
 
   // Flush pending commands after handshake completion
   useEffect(() => {
@@ -248,7 +284,7 @@ export function useWebSocket(clientType: ClientType): WebSocketReturn {
           break;
         case "ack": {
           // Handle acknowledgment of a request
-          const ackData = data as { request_id: string; success: boolean; error?: string };
+          const ackData = data as { request_id: string; success: boolean; error?: string; result?: { room_id?: string } };
           const pendingRequest = pendingRequests.get(ackData.request_id);
           if (pendingRequest) {
             if (ackData.success) {
@@ -370,6 +406,7 @@ export function useWebSocket(clientType: ClientType): WebSocketReturn {
   // biome-ignore lint/correctness/useExhaustiveDependencies: sendCommand is stable
     const actions = useMemo(
     () => ({
+      joinRoom: joinRoomInternal, // Use internal function for future migration
       queueSong: (entry: KaraokeEntry) => sendCommandWithAck("queue_song", entry),
       removeSong: (id: string) => sendCommandWithAck("remove_song", { entry_id: id }),
       playSong: () => sendCommandWithAck("play_song"),
@@ -383,12 +420,13 @@ export function useWebSocket(clientType: ClientType): WebSocketReturn {
         sendCommand("update_player_state", state),
       requestQueueUpdate: () => sendCommand("request_queue_update"),
     }),
-    [], // eslint-disable-line react-hooks/exhaustive-deps
+    [joinRoomInternal], // eslint-disable-line react-hooks/exhaustive-deps
   );
 
   return {
     // State
     connected,
+    hasJoinedRoom,
     clientCount,
     queue,
     upNextQueue,

@@ -12,7 +12,11 @@ class ClientCommands:
         self.service = service
         self.client = client
         self.session_manager = session_manager
-        self.room = session_manager.get_room(self.client.room_id)  # Get room for this client
+        self.room = None
+    
+    def _ensure_in_room(self):
+        if not self.client.room_id or not self.room:
+            raise ValueError("Client must join a room before performing this action")
 
     async def pong(self, data):
         """Handle pong response from client"""
@@ -23,7 +27,11 @@ class ClientCommands:
         """Handle request for full state synchronization"""
         print(f"[DEBUG] {self.client.client_type} requesting full state sync")
         
-        # Send current client count
+        if not self.client.room_id:
+            await self.client.send_command("client_count", 0)
+            return
+        
+        # Send current client count for room
         await self.client.send_command("client_count", self.session_manager.get_room_client_count(self.client.room_id))
         
         # Send leader status if controller
@@ -32,6 +40,9 @@ class ClientCommands:
             await self.client.send_command("leader_status", {"is_leader": is_leader})
         
         # Request queue and player state from displays
+        if not self.client.room_id:
+            return
+            
         display_clients = self.session_manager.get_room_displays(self.client.room_id)
         if display_clients:
             # Ask display to send current states
@@ -67,6 +78,8 @@ class ClientCommands:
         await self.session_manager.broadcast_to_room_displays(self.client.room_id, command, {})
 
     async def _broadcast_room_state(self):
+        self._ensure_in_room()
+        
         # Broadcast queue update to all clients
         queue_payload = self.room.get_queue_update_payload()
         await self.session_manager.broadcast_to_room(self.client.room_id, "queue_update", queue_payload)
@@ -74,14 +87,20 @@ class ClientCommands:
         if self.room.player_state:
             await self.session_manager.broadcast_to_room_displays(self.client.room_id, "player_state", self.room.player_state.model_dump())
 
+    async def join_room(self, payload):
+        room_id = payload.get("room_id", "default")
+        self.room = await self.session_manager.join_room(self.client, room_id)
+        return {"room_id": room_id, "success": True}
+
 class ControllerCommands(ClientCommands):
     async def remove_song(self, payload):
-        # Remove song from room queue and broadcast update
+        self._ensure_in_room()
         removed = self.room.remove_song(payload["entry_id"])
         if removed:
             await self._broadcast_room_state()
 
     async def play_next(self, _: None):
+        self._ensure_in_room()
         next_song = self.room.play_next()
         if next_song:
             new_player_state = DisplayPlayerState(
@@ -109,6 +128,7 @@ class ControllerCommands(ClientCommands):
         await self._broadcast_room_state()
 
     async def queue_song(self, payload):
+        self._ensure_in_room()
         
         entry = KaraokeEntry.parse_obj(payload)
         print(f"[DEBUG] Controller queue_song received: {entry.title} by {entry.artist}")

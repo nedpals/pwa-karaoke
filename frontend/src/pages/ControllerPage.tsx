@@ -633,7 +633,16 @@ function ControllerPageContent() {
 
 export default function ControllerPage() {
   const ws = useWebSocket("controller");
-  const { connected, requestQueueUpdate } = ws;
+  const { connected, joinRoom, requestQueueUpdate } = ws;
+
+  useEffect(() => {
+    if (connected) {
+      console.log("[ControllerPage] Attempting to join default room");
+      joinRoom("default").catch((error) => {
+        console.error("[ControllerPage] Failed to join default room:", error);
+      });
+    }
+  }, [connected, joinRoom]);
 
   // Request queue and player state on connect/reconnect
   // biome-ignore lint/correctness/useExhaustiveDependencies: requestQueueUpdate is stable

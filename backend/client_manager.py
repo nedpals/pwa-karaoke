@@ -1,6 +1,6 @@
 import asyncio
 import time
-from typing import Literal
+from typing import Literal, Optional
 from fastapi import WebSocket, WebSocketDisconnect
 from fastapi.websockets import WebSocketState
 
@@ -11,11 +11,11 @@ class ConnectionClient:
     id: str
     websocket: WebSocket
     client_type: Literal["controller", "display"]
-    room_id: str
+    room_id: Optional[str]
     last_pong: float
     heartbeat_task: asyncio.Task | None
 
-    def __init__(self, websocket: WebSocket, client_type: Literal["controller", "display"], room_id: str = "default"):
+    def __init__(self, websocket: WebSocket, client_type: Literal["controller", "display"], room_id: Optional[str]):
         self.id = generate_nanoid()
         self.websocket = websocket
         self.client_type = client_type
@@ -149,7 +149,8 @@ class ClientManager:
             # TODO: Add custom error message for this
             # raise WebSocketDisconnect()
 
-        client = ConnectionClient(websocket, client_type)
+        # Client starts without being in any room
+        client = ConnectionClient(websocket, client_type, room_id=None)
         if client_type == "display":
             self.has_display_client = True
 

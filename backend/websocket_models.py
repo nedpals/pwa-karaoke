@@ -50,9 +50,14 @@ class AckPayload(BaseModel):
     result: Optional[Any] = None
     error: Optional[str] = None
 
+class JoinRoomPayload(BaseModel):
+    """Join room command payload"""
+    room_id: str
+
 # Mapping of commands to their expected payload types
 COMMAND_PAYLOAD_MAP = {
     "handshake": HandshakePayload,
+    "join_room": JoinRoomPayload,
     "ping": PingPongPayload,
     "pong": PingPongPayload,
     "request_full_state": dict,

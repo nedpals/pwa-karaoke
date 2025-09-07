@@ -756,6 +756,16 @@ function PlayerPageContent() {
 
 export default function PlayerPage() {
   const ws = useWebSocket("display");
+  const { connected, joinRoom } = ws;
+
+  useEffect(() => {
+    if (connected) {
+      console.log("[PlayerPage] Attempting to join default room");
+      joinRoom("default").catch((error) => {
+        console.error("[PlayerPage] Failed to join default room:", error);
+      });
+    }
+  }, [connected, joinRoom]);
 
   return (
     <WebSocketStateProvider data={ws}>

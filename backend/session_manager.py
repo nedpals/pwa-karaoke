@@ -2,8 +2,7 @@ from typing import Optional, List, Dict
 from fastapi import WebSocket
 
 from client_manager import ClientManager, ConnectionClient
-from room import RoomManager, Room
-
+from core.room import RoomManager, Room
 
 class SessionManager:
     def __init__(self):

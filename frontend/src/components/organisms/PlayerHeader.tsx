@@ -76,7 +76,7 @@ export function PlayerHeader({
         {center && (
           <div className={cn(
             center.width || "flex-1",
-            "py-2 px-4 flex items-center",
+            "py-2 px-4 flex items-center truncate",
             alignmentClasses[center.align || "left"]
           )}>
             {center.content}

@@ -5,16 +5,14 @@ from typing_extensions import Literal
 from core.search import KaraokeEntry
 from core.player import DisplayPlayerState
 from services.karaoke_service import KaraokeService
-from client_manager import ConnectionClient, ClientManager
-from room import RoomManager
+from client_manager import ConnectionClient
 
 class ClientCommands:
-    def __init__(self, client: ConnectionClient, conn_manager: ClientManager, service: KaraokeService, room_manager: RoomManager) -> None:
+    def __init__(self, client: ConnectionClient, session_manager, service: KaraokeService) -> None:
         self.service = service
         self.client = client
-        self.conn_manager = conn_manager
-        self.room_manager = room_manager
-        self.room = room_manager.get_default_room()  # All clients join default room for now
+        self.session_manager = session_manager
+        self.room = session_manager.get_room(self.client.room_id)  # Get room for this client
 
     async def pong(self, data):
         """Handle pong response from client"""
@@ -26,15 +24,15 @@ class ClientCommands:
         print(f"[DEBUG] {self.client.client_type} requesting full state sync")
         
         # Send current client count
-        await self.client.send_command("client_count", len(self.conn_manager.active_connections))
+        await self.client.send_command("client_count", self.session_manager.get_room_client_count(self.client.room_id))
         
         # Send leader status if controller
         if self.client.client_type == "controller":
-            is_leader = self.conn_manager.is_controller_leader(self.client)
+            is_leader = self.session_manager.is_controller_leader(self.client)
             await self.client.send_command("leader_status", {"is_leader": is_leader})
         
         # Request queue and player state from displays
-        display_clients = self.conn_manager.get_display_clients()
+        display_clients = self.session_manager.get_room_displays(self.client.room_id)
         if display_clients:
             # Ask display to send current states
             await display_clients[0].send_command("send_full_state", {})
@@ -62,19 +60,19 @@ class ClientCommands:
             payload = state_data.model_dump()
         else:
             payload = state_data
-        await self.conn_manager.broadcast_command("player_state", payload)
+        await self.session_manager.broadcast_to_room_displays(self.client.room_id, "player_state", payload)
 
     async def _toggle_playback_state(self, playback_state: Literal["play", "pause"]):
         command = "play_song" if playback_state == "play" else "pause_song"
-        await self.conn_manager.broadcast_command(command, {})
+        await self.session_manager.broadcast_to_room_displays(self.client.room_id, command, {})
 
     async def _broadcast_room_state(self):
         # Broadcast queue update to all clients
         queue_payload = self.room.get_queue_update_payload()
-        await self.conn_manager.broadcast_command("queue_update", queue_payload)
+        await self.session_manager.broadcast_to_room(self.client.room_id, "queue_update", queue_payload)
         
         if self.room.player_state:
-            await self.conn_manager.broadcast_command("player_state", self.room.player_state.model_dump())
+            await self.session_manager.broadcast_to_room_displays(self.client.room_id, "player_state", self.room.player_state.model_dump())
 
 class ControllerCommands(ClientCommands):
     async def remove_song(self, payload):
@@ -141,17 +139,17 @@ class ControllerCommands(ClientCommands):
 
     async def request_queue_update(self, _: None):
         # Controller requests current queue state from display
-        displays = self.conn_manager.get_display_clients()
+        displays = self.session_manager.get_room_displays(self.client.room_id)
         if displays:
             # Ask display to send current queue state
             await displays[0].send_command("send_current_queue", {})
 
     async def set_volume(self, payload):
-        await self.conn_manager.broadcast_to_displays("set_volume", payload["volume"])
+        await self.session_manager.broadcast_to_room_displays(self.client.room_id, "set_volume", payload["volume"])
 
 class DisplayCommands(ClientCommands):
     async def _request_sync_from_controller(self):
-        controllers = self.conn_manager.get_controllers()
+        controllers = self.session_manager.get_room_controllers(self.client.room_id)
         if not controllers:
             return None
 
@@ -162,7 +160,7 @@ class DisplayCommands(ClientCommands):
             return random_controller
         except Exception:
             # Controller disconnected, remove it
-            await self.conn_manager.disconnect(random_controller)
+            await self.session_manager.disconnect_client(random_controller)
             return None
 
     async def update_player_state(self, _state):
@@ -189,10 +187,10 @@ class DisplayCommands(ClientCommands):
             ))
 
     async def queue_update(self, queue_data):
-        await self.conn_manager.broadcast_to_controllers("queue_update", queue_data)
+        await self.session_manager.broadcast_to_room_controllers(self.client.room_id, "queue_update", queue_data)
 
     async def video_loaded(self, payload):
-        await self.conn_manager.broadcast_to_controllers("player_state", payload)
+        await self.session_manager.broadcast_to_room_controllers(self.client.room_id, "player_state", payload)
 
     async def send_full_state(self, data):
         """Send full queue and player state to controllers"""

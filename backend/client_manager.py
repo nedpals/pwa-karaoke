@@ -11,13 +11,15 @@ class ConnectionClient:
     id: str
     websocket: WebSocket
     client_type: Literal["controller", "display"]
+    room_id: str
     last_pong: float
     heartbeat_task: asyncio.Task | None
 
-    def __init__(self, websocket: WebSocket, client_type: Literal["controller", "display"]):
+    def __init__(self, websocket: WebSocket, client_type: Literal["controller", "display"], room_id: str = "default"):
         self.id = generate_nanoid()
         self.websocket = websocket
         self.client_type = client_type
+        self.room_id = room_id
         self.last_pong = time.time()
         self.heartbeat_task = None
 
@@ -85,7 +87,6 @@ class ClientManager:
     def __init__(self):
         self.active_connections: list[ConnectionClient] = []
         self.has_display_client = False
-        self.controller_leader: ConnectionClient | None = None
         
         # Connection health metrics
         self.connection_metrics = {
@@ -112,7 +113,6 @@ class ClientManager:
             
             print(f"[DEBUG] Client connected: {client.client_type} ({client.id})")
             print(f"[DEBUG] Total active connections: {len(self.active_connections)}")
-            await self.broadcast_client_count()
             return client
         except WebSocketDisconnect:
             # Client disconnected during handshake
@@ -152,8 +152,6 @@ class ClientManager:
         client = ConnectionClient(websocket, client_type)
         if client_type == "display":
             self.has_display_client = True
-        elif client_type == "controller":
-            await self._ensure_controller_leader()
 
         return client
 
@@ -168,10 +166,6 @@ class ClientManager:
             self.active_connections.remove(client)
         if client.client_type == "display":
             self.has_display_client = False
-        elif client.client_type == "controller" and self.controller_leader == client:
-            # Leader disconnected, elect new leader
-            await self._ensure_controller_leader()
-        await self.broadcast_client_count()
 
     async def broadcast_command(self, command: str, data, clients=None):
         # Use provided clients list or all active connections
@@ -195,50 +189,7 @@ class ClientManager:
             for client in disconnected_clients:
                 await self.disconnect(client)
 
-    async def broadcast_client_count(self):
-        return await self.broadcast_command("client_count", len(self.active_connections))
 
-    def get_controllers(self):
-        return [client for client in self.active_connections if client.client_type == "controller"]
-
-    def get_display_clients(self):
-        return [client for client in self.active_connections if client.client_type == "display"]
-
-    async def broadcast_to_displays(self, command: str, data):
-        display_clients = self.get_display_clients()
-        controller_clients = self.get_controllers()
-        print(f"[DEBUG] Connected clients: {len(controller_clients)} controllers, {len(display_clients)} displays")
-        print(f"[DEBUG] Broadcasting {command} to {len(display_clients)} display clients")
-        await self.broadcast_command(command, data, clients=display_clients)
-
-    async def broadcast_to_controllers(self, command: str, data):
-        await self.broadcast_command(command, data, clients=self.get_controllers())
-
-    def is_controller_leader(self, client: ConnectionClient) -> bool:
-        return self.controller_leader == client
-
-    async def _ensure_controller_leader(self):
-        controllers = self.get_controllers()
-
-        if not controllers:
-            self.controller_leader = None
-            return
-
-        # If current leader is still connected, keep it
-        if self.controller_leader and self.controller_leader in controllers:
-            return
-
-        # Elect first controller as leader (simple but effective)
-        self.controller_leader = controllers[0]
-
-        # Notify all controllers about their leadership status
-        for controller in controllers:
-            is_leader = (controller == self.controller_leader)
-            try:
-                await controller.send_command("leader_status", {"is_leader": is_leader})
-            except Exception:
-                # Controller disconnected, will be cleaned up later
-                pass
 
     def get_health_metrics(self):
         """Get current connection health metrics"""
@@ -248,9 +199,8 @@ class ClientManager:
         return {
             **self.connection_metrics,
             "active_connections": len(self.active_connections),
-            "controllers_count": len(self.get_controllers()),
-            "displays_count": len(self.get_display_clients()),
+            "controllers_count": len([c for c in self.active_connections if c.client_type == "controller"]),
+            "displays_count": len([c for c in self.active_connections if c.client_type == "display"]),
             "uptime_seconds": uptime,
-            "has_leader": self.controller_leader is not None,
             "timestamp": current_time
         }

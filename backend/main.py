@@ -7,11 +7,10 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from core.search import KaraokeEntry
 from services.karaoke_service import KaraokeService, KaraokeSearchResult, VideoURLResponse
-from client_manager import ClientManager
 from commands import ControllerCommands, DisplayCommands
 from websocket_errors import WebSocketErrorType, create_error_response
 from websocket_models import validate_websocket_message
-from room import RoomManager
+from session_manager import SessionManager
 
 app = FastAPI()
 
@@ -24,8 +23,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-manager = ClientManager()
-room_manager = RoomManager()
+session_manager = SessionManager()
 
 @app.get("/search")
 async def search(query: str, service: Annotated[KaraokeService, Depends()]) -> KaraokeSearchResult:
@@ -38,19 +36,19 @@ async def get_video_url(entry: KaraokeEntry, service: Annotated[KaraokeService, 
 @app.get("/health")
 async def get_health():
     """Get WebSocket connection health metrics"""
-    return manager.get_health_metrics()
+    return session_manager.get_health_metrics()
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket, service: Annotated[KaraokeService, Depends()]):
-    client = await manager.connect(websocket)
+    client = await session_manager.connect_client(websocket)
     if not client:
         # Manager already disconnected the websocket
         return
 
     try:
-        commands = ControllerCommands(client, manager, service, room_manager)
+        commands = ControllerCommands(client, session_manager, service)
         if client.client_type == "display":
-            commands = DisplayCommands(client, manager, service, room_manager)
+            commands = DisplayCommands(client, session_manager, service)
 
         while True:
             command, payload = await client.receive()
@@ -122,7 +120,7 @@ async def websocket_endpoint(websocket: WebSocket, service: Annotated[KaraokeSer
     except (WebSocketDisconnect, Exception) as e:
         print(f"[ERROR] {e}")
         # Handle all disconnection scenarios
-        await manager.disconnect(client)
+        await session_manager.disconnect_client(client)
 
 if __name__ == "__main__":
     import uvicorn

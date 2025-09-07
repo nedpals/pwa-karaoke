@@ -84,6 +84,3 @@ class RoomManager:
             self.rooms[room_id] = Room(id=room_id)
         return self.rooms[room_id]
     
-    def get_default_room(self) -> Room:
-        """Get the default room"""
-        return self.get_room("default")

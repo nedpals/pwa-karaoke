@@ -27,6 +27,7 @@ import { KaraokeEntryCard as AtomicKaraokeEntryCard } from "../components/organi
 import { ControllerLayout } from "../components/templates/ControllerLayout";
 import { TimeDisplay } from "../components/molecules/TimeDisplay";
 import { VirtualKeyboard } from "../components/organisms/VirtualKeyboard";
+import { LoadingSpinner } from "../components/atoms/LoadingSpinner";
 import { usePhysicalKeyboard } from "../hooks/usePhysicalKeyboard";
 
 const CONTROLLER_TABS = [
@@ -48,12 +49,107 @@ function KaraokeEntryCard({ entry }: { entry: KaraokeEntry }) {
   return <AtomicKaraokeEntryCard entry={entry} className="bg-black/40 border-white/20" />;
 }
 
+function SearchResults({
+  searchResults,
+  isSearching,
+  hasSearched,
+  searchError,
+  searchQuery,
+  queueingStates,
+  onAddToQueue,
+  queueCount
+}: {
+  searchResults: { entries: KaraokeEntry[] } | undefined;
+  isSearching: boolean;
+  hasSearched: boolean;
+  searchError: string | null;
+  searchQuery: string;
+  queueingStates: Record<string, boolean>;
+  queueCount?: number;
+  onAddToQueue: (entry: KaraokeEntry) => void;
+}) {
+  // Loading state
+  if (isSearching) {
+    return (
+      <div className="text-center py-16 flex flex-col items-center space-y-4">
+        <LoadingSpinner size="xl" />
+        <Text size="xl" className="text-white/70">
+          Searching for "{searchQuery}"...
+        </Text>
+      </div>
+    );
+  }
+
+  // Error state
+  if (searchError) {
+    return (
+      <div className="text-center py-16">
+        <div className="text-6xl mb-4">⚠️</div>
+        <Text size="xl" className="text-red-400 mb-2">
+          Search Failed
+        </Text>
+        <Text className="text-white/70">
+          {searchError}
+        </Text>
+      </div>
+    );
+  }
+
+  // Results available
+  if (searchResults && searchResults.entries.length > 0) {
+    return (
+      <div className="space-y-4">
+        <Text className="text-white/70 text-center">
+          Found {searchResults.entries.length} result{searchResults.entries.length !== 1 ? 's' : ''} for "{searchQuery}"
+        </Text>
+        {searchResults.entries.map((entry, i) => {
+          const isQueueing = queueingStates[entry.id];
+          return (
+            <div
+              key={`search_result_${entry.id}_${i}`}
+              className="mb-4 flex flex-row items-stretch space-x-1 text-white"
+            >
+              <KaraokeEntryCard entry={entry} />
+              <IconButton
+                icon={queueCount && queueCount > 0 ? <MaterialSymbolsPlaylistAddRounded className="text-2xl" /> : <MaterialSymbolsPlayArrowRounded className="text-2xl" />}
+                onClick={() => onAddToQueue(entry)}
+                variant="secondary"
+                disabled={isQueueing}
+              />
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
+
+  // Empty results (only show if search was performed)
+  if (hasSearched && searchQuery.trim()) {
+    return (
+      <div className="text-center py-16">
+        <div className="text-6xl mb-4">🔍</div>
+        <Text size="xl" className="text-white/70 mb-2">
+          No results found for "{searchQuery}"
+        </Text>
+        <Text className="text-white/50">
+          Try searching for a different song or artist
+        </Text>
+      </div>
+    );
+  }
+
+  // Initial state (no search performed yet)
+  return null;
+}
+
 function SongSelectTab() {
-  const { queueSong } = useWebSocketState();
+  const { queueSong, queue } = useWebSocketState();
   const { hasPhysicalKeyboard } = usePhysicalKeyboard();
   const [showVirtualKeyboard, setShowVirtualKeyboard] = useState(false);
   const [queueingStates, setQueueingStates] = useState<Record<string, boolean>>({});
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [hasSearched, setHasSearched] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
   const textInput = useTextInput("");
 
   const {
@@ -64,11 +160,16 @@ function SongSelectTab() {
 
   const handleSearch = async () => {
     if (!textInput.text.trim()) return;
+    
+    setSearchError(null);
+    setHasSearched(true);
+    
     try {
       await triggerSearch(textInput.text);
       setShowVirtualKeyboard(false);
     } catch (error) {
       console.error("Search error:", error);
+      setSearchError("Failed to search. Please check your connection and try again.");
     }
   };
 
@@ -126,34 +227,16 @@ function SongSelectTab() {
         )}
 
         <div className="pt-12">
-          {searchResults && searchResults.entries.length > 0
-            ? searchResults.entries.map((entry, i) => {
-                const isQueueing = queueingStates[entry.id];
-                return (
-                  <div
-                    key={`search_result_${entry.id}_${i}`}
-                    className="mb-4 flex flex-row items-stretch space-x-1 text-white"
-                  >
-                    <KaraokeEntryCard entry={entry} />
-                    <IconButton
-                      icon={<MaterialSymbolsPlaylistAddRounded className="text-2xl" />}
-                      onClick={() => handleAddQueueItem(entry)}
-                      variant="secondary"
-                      disabled={isQueueing}
-                    />
-                  </div>
-                );
-              })
-            : textInput.text && (
-                <div className="text-center py-12">
-                  <Text size="xl" className="text-white/70">
-                    No results found for "{textInput.text}"
-                  </Text>
-                  <Text className="text-white/50 mt-2">
-                    Try searching for a different song or artist
-                  </Text>
-                </div>
-              )}
+          <SearchResults
+            searchResults={searchResults}
+            isSearching={isSearching}
+            hasSearched={hasSearched}
+            searchError={searchError}
+            searchQuery={textInput.text}
+            queueingStates={queueingStates}
+            queueCount={queue?.items.length ?? 0}
+            onAddToQueue={handleAddQueueItem}
+          />
         </div>
       </div>
 

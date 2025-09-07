@@ -377,7 +377,7 @@ function VideoPlayerComponent({
 
 function PlayingStateContent() {
   const { playerState, upNextQueue } = useWebSocketState();
-  const { playerHeaderStatus } = usePlayerState();
+  const { playerHeaderStatus, setPlayerHeaderStatus } = usePlayerState();
   const { trigger: triggerVideoUrl } = useVideoUrlMutation();
   
   const { data: videoUrlData, isLoading: isLoadingVideoUrl } = useVideoUrl(
@@ -404,9 +404,17 @@ function PlayingStateContent() {
 
   const handleNearingEnd = useCallback(() => {
     if (!upNextQueue || upNextQueue.items.length === 0) return;
+    
     const nextSong = upNextQueue.items[0];
+    
+    setPlayerHeaderStatus({
+      status: "Up Next",
+      title: `${nextSong.entry.artist} - ${nextSong.entry.title}`,
+      icon: <RiMusic2Fill className="w-8 h-8 mr-2 text-yellow-500" />,
+      count: upNextQueue.items.length,
+    }, { duration: 3000 });
+    
     if (!nextSong.entry.video_url) {
-      // Prefetch the next song's video URL - SWR will cache it automatically
       triggerVideoUrl(nextSong.entry)
         .then(() => {
           console.log('[Prefetch] Successfully prefetched URL for:', nextSong.entry.title);
@@ -415,7 +423,7 @@ function PlayingStateContent() {
           console.error('[Prefetch] Failed to prefetch URL for:', nextSong.entry.title, error);
         });
     }
-  }, [upNextQueue, triggerVideoUrl]);
+  }, [upNextQueue, triggerVideoUrl, setPlayerHeaderStatus]);
 
   if (!playerState?.entry) return null;
 
@@ -651,33 +659,21 @@ function PlayerStateProviderInternal({ children }: { children: React.ReactNode }
   }, [localQueue, broadcastQueueUpdate, setPlayerHeaderStatus, updatePlayerState, playerState?.volume]);
 
   const playNextSong = useCallback(() => {
-    // Show "Up Next" before transitioning
     const nextQueue = localQueue.slice(1);
-    if (nextQueue.length > 0) {
-      setPlayerHeaderStatus({
-        status: "Up Next",
-        title: `${nextQueue[0].entry.artist} - ${nextQueue[0].entry.title}`,
-        icon: <RiMusic2Fill className="w-8 h-8 mr-2 text-yellow-500" />,
-        count: nextQueue.length - 1,
-      }, { duration: 2000 });
-    }
+    
+    setLocalQueue(nextQueue);
+    broadcastQueueUpdate(nextQueue);
 
-    // Delay the actual transition to allow "Up Next" to show
-    setTimeout(() => {
-      setLocalQueue(nextQueue);
-      broadcastQueueUpdate(nextQueue);
-
-      updatePlayerState({
-        entry: nextQueue.length > 0 ? nextQueue[0].entry : null,
-        play_state: nextQueue.length > 0 ? "playing" : "finished",
-        current_time: 0,
-        duration: 0,
-        volume: playerState?.volume ?? 0.5,
-        version: Date.now(),
-        timestamp: Date.now(),
-      });
-    }, 2000);
-  }, [localQueue, setPlayerHeaderStatus, broadcastQueueUpdate, updatePlayerState, playerState?.volume]);
+    updatePlayerState({
+      entry: nextQueue.length > 0 ? nextQueue[0].entry : null,
+      play_state: nextQueue.length > 0 ? "playing" : "finished",
+      current_time: 0,
+      duration: 0,
+      volume: playerState?.volume ?? 0.5,
+      version: Date.now(),
+      timestamp: Date.now(),
+    });
+  }, [localQueue, broadcastQueueUpdate, updatePlayerState, playerState?.volume]);
 
   // Update PlayerHeader status based on player state
   useEffect(() => {

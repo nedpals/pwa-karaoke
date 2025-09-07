@@ -27,6 +27,7 @@ import { KaraokeEntryCard as AtomicKaraokeEntryCard } from "../components/organi
 import { ControllerLayout } from "../components/templates/ControllerLayout";
 import { TimeDisplay } from "../components/molecules/TimeDisplay";
 import { VirtualKeyboard } from "../components/organisms/VirtualKeyboard";
+import { usePhysicalKeyboard } from "../hooks/usePhysicalKeyboard";
 
 const CONTROLLER_TABS = [
   {
@@ -49,6 +50,7 @@ function KaraokeEntryCard({ entry }: { entry: KaraokeEntry }) {
 
 function SongSelectTab() {
   const { queueSong } = useWebSocketState();
+  const { hasPhysicalKeyboard } = usePhysicalKeyboard();
   const [showVirtualKeyboard, setShowVirtualKeyboard] = useState(false);
   const [queueingStates, setQueueingStates] = useState<Record<string, boolean>>({});
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -64,6 +66,7 @@ function SongSelectTab() {
     if (!textInput.text.trim()) return;
     try {
       await triggerSearch(textInput.text);
+      setShowVirtualKeyboard(false);
     } catch (error) {
       console.error("Search error:", error);
     }
@@ -104,7 +107,10 @@ function SongSelectTab() {
             size="lg"
             onFocus={(e) => {
               textInput.updateCursorFromInput(e);
-              setShowVirtualKeyboard(true);
+              // Only show virtual keyboard if no physical keyboard is detected
+              if (!hasPhysicalKeyboard) {
+                setShowVirtualKeyboard(true);
+              }
             }}
             onClick={textInput.updateCursorFromInput}
             onKeyUp={textInput.updateCursorFromInput}
@@ -155,7 +161,7 @@ function SongSelectTab() {
         <IconButton
           icon={<MaterialSymbolsKeyboardAltOutlineRounded className="text-2xl" />}
           onClick={() => setShowVirtualKeyboard((v) => !v)}
-          label="Show Keyboard"
+          label={showVirtualKeyboard ? "Hide Keyboard" : "Show Keyboard"}
           showLabel
           variant="secondary"
           className="w-full py-4 rounded-none border-x-0"

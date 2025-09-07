@@ -179,7 +179,7 @@ export function useWebSocket(clientType: ClientType): WebSocketReturn {
 
   // Flush pending commands after handshake completion
   useEffect(() => {
-    if (hasHandshaken && pendingCommands.length > 0) {
+    if (hasHandshaken && hasJoinedRoom && pendingCommands.length > 0) {
       console.log(
         `[WebSocket ${clientType}] Flushing ${pendingCommands.length} pending commands`,
       );
@@ -192,7 +192,7 @@ export function useWebSocket(clientType: ClientType): WebSocketReturn {
       // Clear the pending commands
       setPendingCommands([]);
     }
-  }, [hasHandshaken, pendingCommands, sendJsonMessage, clientType]);
+  }, [hasHandshaken, hasJoinedRoom, pendingCommands, sendJsonMessage, clientType]);
 
   // Handle incoming messages
   // biome-ignore lint/correctness/useExhaustiveDependencies: playerState always changes and causes unnecessary re-renders
@@ -324,7 +324,7 @@ export function useWebSocket(clientType: ClientType): WebSocketReturn {
 
   const sendCommand = useCallback(
     (command: string, payload: unknown = null) => {
-      if (hasHandshaken) {
+      if (hasHandshaken && hasJoinedRoom) {
         sendJsonMessage([command, payload]);
       } else {
         // Queue the command to be sent after handshake
@@ -341,7 +341,7 @@ export function useWebSocket(clientType: ClientType): WebSocketReturn {
         ]);
       }
     },
-    [sendJsonMessage, hasHandshaken, clientType],
+    [sendJsonMessage, hasHandshaken, hasJoinedRoom, clientType],
   );
 
   const sendCommandWithAck = useCallback(

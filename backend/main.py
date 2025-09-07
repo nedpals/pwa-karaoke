@@ -1,6 +1,6 @@
-import time
 from typing_extensions import Annotated
 from pathlib import Path
+from os import environ
 
 from fastapi import FastAPI, WebSocket, Depends, HTTPException
 from fastapi.websockets import WebSocketDisconnect
@@ -142,4 +142,4 @@ async def serve_frontend(full_path: str):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="0.0.0.0", port=int(environ.get("PORT", "8000")))

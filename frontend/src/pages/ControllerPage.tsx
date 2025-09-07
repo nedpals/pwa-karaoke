@@ -633,7 +633,7 @@ function ControllerPageContent() {
 
 export default function ControllerPage() {
   const ws = useWebSocket("controller");
-  const { connected, playerState, isLeader, playNext, requestQueueUpdate } = ws;
+  const { connected, requestQueueUpdate } = ws;
 
   // Request queue and player state on connect/reconnect
   // biome-ignore lint/correctness/useExhaustiveDependencies: requestQueueUpdate is stable
@@ -644,22 +644,6 @@ export default function ControllerPage() {
     }
   }, [connected]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Auto-play next song when current song finishes (only leader controller does this)
-  // biome-ignore lint/correctness/useExhaustiveDependencies: isLeader and playNext are stable
-  useEffect(() => {
-    if (playerState?.play_state === "finished" && isLeader) {
-      // Small delay to ensure the finished state is processed
-      const timer = setTimeout(async () => {
-        try {
-          await playNext();
-        } catch (error) {
-          console.error("Failed to auto-play next song:", error);
-        }
-      }, 100);
-
-      return () => clearTimeout(timer);
-    }
-  }, [playerState?.play_state, isLeader]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <WebSocketStateProvider data={ws}>

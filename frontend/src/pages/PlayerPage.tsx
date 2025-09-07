@@ -84,7 +84,7 @@ function VideoPlayerComponent({
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const { playerState, updatePlayerState } = useWebSocketState();
-  const { osd } = usePlayerState();
+  const { osd, playNextSong } = usePlayerState();
   const isBufferingRef = useRef(false);
 
 
@@ -330,7 +330,11 @@ function VideoPlayerComponent({
             play_state: "finished" as const,
             current_time: video.currentTime || 0,
             duration: video.duration || 0,
+            volume: video.volume,
           });
+          
+          // Automatically play next song
+          playNextSong();
         }}
       >
         <track kind="captions" />

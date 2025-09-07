@@ -1,18 +1,25 @@
+import asyncio
+import time
 from typing import Literal
 from fastapi import WebSocket, WebSocketDisconnect
 from fastapi.websockets import WebSocketState
 
 from nanoid import generate as generate_nanoid
+from websocket_errors import WebSocketErrorType, create_error_response
 
 class ConnectionClient:
     id: str
     websocket: WebSocket
     client_type: Literal["controller", "display"]
+    last_pong: float
+    heartbeat_task: asyncio.Task | None
 
     def __init__(self, websocket: WebSocket, client_type: Literal["controller", "display"]):
         self.id = generate_nanoid()
         self.websocket = websocket
         self.client_type = client_type
+        self.last_pong = time.time()
+        self.heartbeat_task = None
 
     async def send_command(self, command: str, data):
         if self.websocket.client_state != WebSocketState.CONNECTED:
@@ -35,29 +42,92 @@ class ConnectionClient:
             # Connection is closed or invalid, re-raise to trigger cleanup
             raise WebSocketDisconnect()
 
+    async def start_heartbeat(self, manager: 'ClientManager'):
+        """Start heartbeat monitoring for this client"""
+        async def heartbeat_monitor():
+            while True:
+                try:
+                    await asyncio.sleep(30)  # Send ping every 30 seconds
+                    if self.websocket.client_state != WebSocketState.CONNECTED:
+                        break
+                    
+                    await self.send_command("ping", {"timestamp": time.time()})
+                    
+                    # Check if client responded to previous ping
+                    if time.time() - self.last_pong > 90:  # 90 second timeout
+                        print(f"[DEBUG] Client {self.id} heartbeat timeout")
+                        manager.connection_metrics["heartbeat_timeouts"] += 1
+                        await manager.disconnect(self)
+                        break
+                        
+                except Exception:
+                    # Connection failed, clean up
+                    await manager.disconnect(self)
+                    break
+        
+        self.heartbeat_task = asyncio.create_task(heartbeat_monitor())
+
+    def update_pong(self):
+        """Update last pong timestamp"""
+        self.last_pong = time.time()
+
+    async def stop_heartbeat(self):
+        """Stop heartbeat monitoring"""
+        if self.heartbeat_task and not self.heartbeat_task.done():
+            self.heartbeat_task.cancel()
+            try:
+                await self.heartbeat_task
+            except asyncio.CancelledError:
+                pass
+
 
 class ClientManager:
     def __init__(self):
         self.active_connections: list[ConnectionClient] = []
         self.has_display_client = False
         self.controller_leader: ConnectionClient | None = None
+        
+        # Connection health metrics
+        self.connection_metrics = {
+            "total_connections": 0,
+            "successful_handshakes": 0,
+            "failed_handshakes": 0,
+            "disconnections": 0,
+            "heartbeat_timeouts": 0,
+            "current_uptime": time.time()
+        }
 
     async def connect(self, websocket: WebSocket):
+        self.connection_metrics["total_connections"] += 1
+        
         try:
             await websocket.accept()
             client = await self.handshake(websocket)
             self.active_connections.append(client)
+            
+            # Start heartbeat monitoring for this client
+            await client.start_heartbeat(self)
+            
+            self.connection_metrics["successful_handshakes"] += 1
+            
             print(f"[DEBUG] Client connected: {client.client_type} ({client.id})")
             print(f"[DEBUG] Total active connections: {len(self.active_connections)}")
             await self.broadcast_client_count()
             return client
         except WebSocketDisconnect:
             # Client disconnected during handshake
+            self.connection_metrics["failed_handshakes"] += 1
             return None
-        except Exception:
+        except Exception as e:
             # Other handshake errors
+            self.connection_metrics["failed_handshakes"] += 1
             try:
-                await websocket.send_json(["error", "Invalid handshake"])
+                error_response = create_error_response(
+                    WebSocketErrorType.HANDSHAKE_FAILED,
+                    f"Handshake failed: {str(e)}",
+                    details={"error": str(e)}
+                )
+                await websocket.send_json(["error", error_response])
                 await websocket.close()
             except Exception:
                 # Connection already closed
@@ -88,6 +158,12 @@ class ClientManager:
         return client
 
     async def disconnect(self, client: ConnectionClient):
+        # Stop heartbeat monitoring
+        await client.stop_heartbeat()
+        
+        # Track disconnection
+        self.connection_metrics["disconnections"] += 1
+        
         if client in self.active_connections:
             self.active_connections.remove(client)
         if client.client_type == "display":
@@ -163,3 +239,18 @@ class ClientManager:
             except Exception:
                 # Controller disconnected, will be cleaned up later
                 pass
+
+    def get_health_metrics(self):
+        """Get current connection health metrics"""
+        current_time = time.time()
+        uptime = current_time - self.connection_metrics["current_uptime"]
+        
+        return {
+            **self.connection_metrics,
+            "active_connections": len(self.active_connections),
+            "controllers_count": len(self.get_controllers()),
+            "displays_count": len(self.get_display_clients()),
+            "uptime_seconds": uptime,
+            "has_leader": self.controller_leader is not None,
+            "timestamp": current_time
+        }

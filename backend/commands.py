@@ -1,20 +1,10 @@
 import random
 import time
-
 from typing_extensions import Literal
-from core.search import KaraokeEntry
+
+from core.player import DisplayPlayerState
 from services.karaoke_service import KaraokeService
 from client_manager import ConnectionClient, ClientManager
-
-from pydantic import BaseModel
-
-class DisplayPlayerState(BaseModel):
-    entry: KaraokeEntry | None
-    play_state: Literal["playing", "paused", "finished", "buffering"]
-    current_time: float = 0.0
-    duration: float = 0.0
-    version: int = 1
-    timestamp: float
 
 class ClientCommands:
     def __init__(self, client: ConnectionClient, conn_manager: ClientManager, service: KaraokeService) -> None:
@@ -22,29 +12,71 @@ class ClientCommands:
         self.client = client
         self.conn_manager = conn_manager
 
-    async def _update_player_state(self, _state):
-        state = DisplayPlayerState(**_state) if not isinstance(_state, DisplayPlayerState) else _state
-        await self.conn_manager.broadcast_command("player_state", state.model_dump())
+    async def pong(self, data):
+        """Handle pong response from client"""
+        self.client.update_pong()
+        print(f"[DEBUG] Received pong from {self.client.client_type} ({self.client.id})")
+
+    async def request_full_state(self, data):
+        """Handle request for full state synchronization"""
+        print(f"[DEBUG] {self.client.client_type} requesting full state sync")
+        
+        # Send current client count
+        await self.client.send_command("client_count", len(self.conn_manager.active_connections))
+        
+        # Send leader status if controller
+        if self.client.client_type == "controller":
+            is_leader = self.conn_manager.is_controller_leader(self.client)
+            await self.client.send_command("leader_status", {"is_leader": is_leader})
+        
+        # Request queue and player state from displays
+        display_clients = self.conn_manager.get_display_clients()
+        if display_clients:
+            # Ask display to send current states
+            await display_clients[0].send_command("send_full_state", {})
+        else:
+            # No displays available, send empty states
+            await self.client.send_command("queue_update", {
+                "items": [],
+                "version": 1,
+                "timestamp": time.time()
+            })
+            # Create DisplayPlayerState and send as dict
+            empty_state = DisplayPlayerState(
+                entry=None,
+                play_state="paused",
+                current_time=0.0,
+                duration=0.0,
+                volume=1.0,
+                version=1,
+                timestamp=time.time()
+            )
+            await self.client.send_command("player_state", empty_state.model_dump())
+
+    async def _update_player_state(self, state_data):
+        if isinstance(state_data, DisplayPlayerState):
+            payload = state_data.model_dump()
+        else:
+            payload = state_data
+        await self.conn_manager.broadcast_command("player_state", payload)
 
     async def _toggle_playback_state(self, playback_state: Literal["play", "pause"]):
         command = "play_song" if playback_state == "play" else "pause_song"
         await self.conn_manager.broadcast_command(command, {})
 
 class ControllerCommands(ClientCommands):
-    async def remove_song(self, id_to_delete: str):
-        # Relay remove command to displays
-        await self.conn_manager.broadcast_to_displays("remove_song", id_to_delete)
+    async def remove_song(self, payload):
+        await self.conn_manager.broadcast_to_displays("remove_song", payload["entry_id"])
 
     async def play_next(self, _: None):
         await self.conn_manager.broadcast_to_displays("play_next", None)
 
-    async def queue_song(self, _entry_data):
-        entry = KaraokeEntry(**_entry_data) if not isinstance(_entry_data, KaraokeEntry) else _entry_data
-        print(f"[DEBUG] Controller queue_song received: {entry.title} by {entry.artist}")
-        await self.conn_manager.broadcast_to_displays("queue_song", entry.model_dump())
+    async def queue_song(self, payload):
+        print(f"[DEBUG] Controller queue_song received: {payload['title']} by {payload['artist']}")
+        await self.conn_manager.broadcast_to_displays("queue_song", payload)
 
-    async def queue_next_song(self, entry_id: str):
-        await self.conn_manager.broadcast_to_displays("queue_next_song", entry_id)
+    async def queue_next_song(self, payload):
+        await self.conn_manager.broadcast_to_displays("queue_next_song", payload["entry_id"])
 
     async def clear_queue(self, _: None):
         await self.conn_manager.broadcast_to_displays("clear_queue", None)
@@ -65,9 +97,8 @@ class ControllerCommands(ClientCommands):
             # Ask display to send current queue state
             await displays[0].send_command("send_current_queue", {})
 
-    async def set_volume(self, volume: float):
-        # Relay volume command to displays
-        await self.conn_manager.broadcast_to_displays("set_volume", volume)
+    async def set_volume(self, payload):
+        await self.conn_manager.broadcast_to_displays("set_volume", payload["volume"])
 
 class DisplayCommands(ClientCommands):
     async def _request_sync_from_controller(self):
@@ -88,12 +119,11 @@ class DisplayCommands(ClientCommands):
     async def update_player_state(self, _state):
         # Broadcast the updated player state to all clients
         #
-         # TIP: When the song is finished, the display client should send a "finished" state
+        # TIP: When the song is finished, the display client should send a "finished" state
         # so that the controller clients will be the ones to request to play the next song
         await self._update_player_state(_state)
 
     async def request_queue_update(self, _: None):
-        # Display requests sync - original logic
         # Request current player state from a random controller
         requested_controller = await self._request_sync_from_controller()
 
@@ -104,14 +134,22 @@ class DisplayCommands(ClientCommands):
                 play_state="paused",
                 current_time=0.0,
                 duration=0.0,
+                volume=1.0,
                 version=1,
                 timestamp=time.time()
             ))
 
     async def queue_update(self, queue_data):
-        # Display is updating controllers with new queue state
         await self.conn_manager.broadcast_to_controllers("queue_update", queue_data)
 
-    async def video_loaded(self, state: DisplayPlayerState):
-        # Sync this state back to all controllers using the standard player_state command
-        await self.conn_manager.broadcast_to_controllers("player_state", state.model_dump())
+    async def video_loaded(self, payload):
+        await self.conn_manager.broadcast_to_controllers("player_state", payload)
+
+    async def send_full_state(self, data):
+        """Send full queue and player state to controllers"""
+        print("[DEBUG] Display sending full state to controllers")
+        
+        # This command is typically sent from the display client to synchronize
+        # the current queue and player state with all controllers
+        # The display should respond by sending queue_update and player_state
+        # commands with its current state

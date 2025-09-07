@@ -21,6 +21,7 @@ export interface WebSocketState {
 
 export interface WebSocketActions {
   sendCommand: (command: string, payload?: unknown) => void;
+  sendCommandWithAck: (command: string, payload?: unknown, timeout?: number) => Promise<unknown>;
 
   // Controller commands
   queueSong: (entry: KaraokeEntry) => void;
@@ -45,6 +46,13 @@ type PendingCommand = {
   timestamp: number;
 };
 
+type PendingRequest = {
+  resolve: (value: unknown) => void;
+  reject: (error: Error) => void;
+  timestamp: number;
+  command: string;
+};
+
 export function useWebSocket(clientType: ClientType): WebSocketReturn {
   const [clientCount, setClientCount] = useState(0);
   const [queue, setQueue] = useState<KaraokeQueue | null>(null);
@@ -59,6 +67,12 @@ export function useWebSocket(clientType: ClientType): WebSocketReturn {
     timestamp: number;
   } | null>(null);
   const [pendingCommands, setPendingCommands] = useState<PendingCommand[]>([]);
+  const [pendingRequests] = useState<Map<string, PendingRequest>>(new Map());
+
+  // Generate request ID
+  const generateRequestId = useCallback(() => {
+    return `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+  }, []);
 
   // Generate WebSocket URL
   const socketUrl = useMemo(() => {
@@ -118,6 +132,14 @@ export function useWebSocket(clientType: ClientType): WebSocketReturn {
       setHasHandshaken(true);
     }
   }, [connected, hasHandshaken, clientType]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Request full state sync after handshake completion
+  useEffect(() => {
+    if (hasHandshaken && connected) {
+      console.log(`[WebSocket ${clientType}] Requesting full state synchronization`);
+      sendJsonMessage(["request_full_state", {}]);
+    }
+  }, [hasHandshaken, connected, sendJsonMessage, clientType]);
 
   // Flush pending commands after handshake completion
   useEffect(() => {
@@ -224,6 +246,25 @@ export function useWebSocket(clientType: ClientType): WebSocketReturn {
             setIsLeader((data as { is_leader: boolean }).is_leader);
           }
           break;
+        case "ping":
+          // Respond to server ping with pong
+          console.log(`[WebSocket ${clientType}] Received ping, sending pong`);
+          sendJsonMessage(["pong", { timestamp: Date.now() }]);
+          break;
+        case "ack": {
+          // Handle acknowledgment of a request
+          const ackData = data as { request_id: string; success: boolean; error?: string };
+          const pendingRequest = pendingRequests.get(ackData.request_id);
+          if (pendingRequest) {
+            if (ackData.success) {
+              pendingRequest.resolve(ackData);
+            } else {
+              pendingRequest.reject(new Error(ackData.error || "Request failed"));
+            }
+            pendingRequests.delete(ackData.request_id);
+          }
+          break;
+        }
         case "send_current_queue":
           // Display should send its current queue to controllers
           if (clientType === "display") {
@@ -276,6 +317,50 @@ export function useWebSocket(clientType: ClientType): WebSocketReturn {
     [sendJsonMessage, hasHandshaken, clientType],
   );
 
+  const sendCommandWithAck = useCallback(
+    (command: string, payload: unknown = null, timeout = 10000): Promise<unknown> => {
+      return new Promise((resolve, reject) => {
+        const requestId = generateRequestId();
+        const timeoutId = setTimeout(() => {
+          pendingRequests.delete(requestId);
+          reject(new Error(`Command '${command}' timed out after ${timeout}ms`));
+        }, timeout);
+
+        pendingRequests.set(requestId, {
+          resolve: (value) => {
+            clearTimeout(timeoutId);
+            resolve(value);
+          },
+          reject: (error) => {
+            clearTimeout(timeoutId);
+            reject(error);
+          },
+          timestamp: Date.now(),
+          command,
+        });
+
+        const messageWithId = [command, { ...(payload as object || {}), request_id: requestId }];
+        
+        if (hasHandshaken) {
+          sendJsonMessage(messageWithId);
+        } else {
+          console.log(
+            `[WebSocket ${clientType}] Queueing acknowledged command '${command}' - handshake not completed`,
+          );
+          setPendingCommands((prev) => [
+            ...prev,
+            {
+              command: messageWithId[0] as string,
+              payload: messageWithId[1],
+              timestamp: Date.now(),
+            },
+          ]);
+        }
+      });
+    },
+    [generateRequestId, hasHandshaken, sendJsonMessage, clientType, pendingRequests],
+  );
+
   const upNextQueue = useMemo(() => {
     if (!queue || !queue.items.length) {
       return { items: [], version: 1, timestamp: Date.now() };
@@ -295,14 +380,14 @@ export function useWebSocket(clientType: ClientType): WebSocketReturn {
     const actions = useMemo(
     () => ({
       queueSong: (entry: KaraokeEntry) => sendCommand("queue_song", entry),
-      removeSong: (id: string) => sendCommand("remove_song", id),
+      removeSong: (id: string) => sendCommand("remove_song", { entry_id: id }),
       playSong: () => sendCommand("play_song"),
       pauseSong: () => sendCommand("pause_song"),
       playNext: () => sendCommand("play_next"),
       queueNextSong: (entryId: string) =>
-        sendCommand("queue_next_song", entryId),
+        sendCommand("queue_next_song", { entry_id: entryId }),
       clearQueue: () => sendCommand("clear_queue"),
-      setVolume: (volume: number) => sendCommand("set_volume", volume),
+      setVolume: (volume: number) => sendCommand("set_volume", { volume }),
       updatePlayerState: (state: DisplayPlayerState) =>
         sendCommand("update_player_state", state),
       requestQueueUpdate: () => sendCommand("request_queue_update"),
@@ -322,6 +407,7 @@ export function useWebSocket(clientType: ClientType): WebSocketReturn {
 
     // Actions
     sendCommand,
+    sendCommandWithAck,
     ...actions,
   };
 }

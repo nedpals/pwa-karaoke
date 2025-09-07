@@ -8,7 +8,7 @@ class KaraokeEntry(BaseModel):
     video_url: Optional[str] = None  # Now optional for lazy loading
     source: str
     uploader: str
-    duration: Optional[int]
+    duration: Optional[float]
 
 class KaraokeSearchResult(BaseModel):
     entries: list[KaraokeEntry]

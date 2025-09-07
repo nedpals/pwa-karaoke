@@ -88,15 +88,11 @@ class ClientCommands:
         room_id = payload.get("room_id", "default")
         self.room = await self.session_manager.join_room(self.client, room_id)
         return {"room_id": room_id, "success": True}
-
-class ControllerCommands(ClientCommands):
-    async def remove_song(self, payload):
-        removed = self.room.remove_song(payload["entry_id"])
-        if removed:
-            await self._broadcast_room_state()
-
+    
     async def play_next(self, _: None):
         next_song = self.room.play_next()
+        print(f"[DEBUG] Playing next song: {next_song.entry.title if next_song else 'None'}")
+
         if next_song:
             new_player_state = DisplayPlayerState(
                 entry=next_song.entry,
@@ -117,10 +113,15 @@ class ControllerCommands(ClientCommands):
                 version=int(time.time() * 1000),
                 timestamp=time.time()
             )
-        
-        if "new_player_state" in locals():
-            self._update_player_state(new_player_state)
+
+        await self._update_player_state(new_player_state)
         await self._broadcast_room_state()
+
+class ControllerCommands(ClientCommands):
+    async def remove_song(self, payload):
+        removed = self.room.remove_song(payload["entry_id"])
+        if removed:
+            await self._broadcast_room_state()
 
     async def queue_song(self, payload):
         entry = KaraokeEntry.parse_obj(payload)

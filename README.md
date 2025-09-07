@@ -62,4 +62,4 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ---
 
-© 2024 Ned Palacios
+© 2025 Ned Palacios

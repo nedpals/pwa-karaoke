@@ -3,9 +3,9 @@ from urllib.parse import quote
 from typing import Optional
 from playwright.async_api import async_playwright, Browser
 from pytube import YouTube
-from core.search import KaraokeSearchProvider, KaraokeSearchResult, KaraokeEntry
+from core.search import KaraokeSourceProvider, KaraokeSearchResult, KaraokeEntry
 
-class YTKaraokeSearchProvider(KaraokeSearchProvider):
+class YTKaraokeSourceProvider(KaraokeSourceProvider):
     def __init__(self, allowed_channels: list[str] = None, karaoke_keywords: list[str] = None):
         super().__init__()
         self.browser: Browser = None

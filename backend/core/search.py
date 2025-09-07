@@ -13,7 +13,7 @@ class KaraokeEntry(BaseModel):
 class KaraokeSearchResult(BaseModel):
     entries: list[KaraokeEntry]
 
-class KaraokeSearchProvider:
+class KaraokeSourceProvider:
     def __init__(self) -> None:
         pass
     

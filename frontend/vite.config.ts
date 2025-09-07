@@ -2,6 +2,7 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
+import { VitePWA } from 'vite-plugin-pwa';
 
 // https://vite.dev/config/
 import path from 'node:path';
@@ -11,7 +12,33 @@ const dirname = typeof __dirname !== 'undefined' ? __dirname : path.dirname(file
 
 // More info at: https://storybook.js.org/docs/next/writing-tests/integrations/vitest-addon
 export default defineConfig({
-  plugins: [react(), tailwindcss()],
+  plugins: [
+    react(), 
+    tailwindcss(),
+    VitePWA({
+      registerType: 'autoUpdate',
+      workbox: {
+        globPatterns: ['**/*.{js,css,html,ico,png,svg}']
+      },
+      manifest: {
+        name: 'PWA Karaoke',
+        short_name: 'Karaoke',
+        description: 'A Progressive Web App for Karaoke',
+        theme_color: '#000000',
+        background_color: '#ffffff',
+        display: 'standalone',
+        orientation: 'portrait',
+        start_url: '/',
+        icons: [
+          {
+            src: '/vite.svg',
+            sizes: 'any',
+            type: 'image/svg+xml'
+          }
+        ]
+      }
+    })
+  ],
   test: {
     projects: [{
       extends: true,

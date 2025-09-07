@@ -50,6 +50,8 @@ function KaraokeEntryCard({ entry }: { entry: KaraokeEntry }) {
 function SongSelectTab() {
   const { queueSong } = useWebSocketState();
   const [showVirtualKeyboard, setShowVirtualKeyboard] = useState(false);
+  const [queueingStates, setQueueingStates] = useState<Record<string, boolean>>({});
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const textInput = useTextInput("");
 
   const {
@@ -67,8 +69,21 @@ function SongSelectTab() {
     }
   };
 
-  const handleAddQueueItem = (entry: KaraokeEntry) => {
-    queueSong(entry);
+  const handleAddQueueItem = async (entry: KaraokeEntry) => {
+    if (queueingStates[entry.id]) return; // Prevent duplicate requests
+    
+    setQueueingStates(prev => ({ ...prev, [entry.id]: true }));
+    setErrorMessage(null);
+    
+    try {
+      await queueSong(entry);
+    } catch (error) {
+      console.error("Failed to queue song:", error);
+      setErrorMessage(`Failed to queue "${entry.title}". Please try again.`);
+      setTimeout(() => setErrorMessage(null), 5000); // Clear error after 5 seconds
+    } finally {
+      setQueueingStates(prev => ({ ...prev, [entry.id]: false }));
+    }
   };
 
   return (
@@ -98,21 +113,31 @@ function SongSelectTab() {
           />
         </div>
 
+        {errorMessage && (
+          <div className="mb-4 p-4 bg-red-500/20 border border-red-500/50 rounded-lg">
+            <Text className="text-red-200">{errorMessage}</Text>
+          </div>
+        )}
+
         <div className="pt-12">
           {searchResults && searchResults.entries.length > 0
-            ? searchResults.entries.map((entry, i) => (
-                <div
-                  key={`search_result_${entry.id}_${i}`}
-                  className="mb-4 flex flex-row items-stretch space-x-1 text-white"
-                >
-                  <KaraokeEntryCard entry={entry} />
-                  <IconButton
-                    icon={<MaterialSymbolsPlaylistAddRounded className="text-2xl" />}
-                    onClick={() => handleAddQueueItem(entry)}
-                    variant="secondary"
-                  />
-                </div>
-              ))
+            ? searchResults.entries.map((entry, i) => {
+                const isQueueing = queueingStates[entry.id];
+                return (
+                  <div
+                    key={`search_result_${entry.id}_${i}`}
+                    className="mb-4 flex flex-row items-stretch space-x-1 text-white"
+                  >
+                    <KaraokeEntryCard entry={entry} />
+                    <IconButton
+                      icon={<MaterialSymbolsPlaylistAddRounded className="text-2xl" />}
+                      onClick={() => handleAddQueueItem(entry)}
+                      variant="secondary"
+                      disabled={isQueueing}
+                    />
+                  </div>
+                );
+              })
             : textInput.text && (
                 <div className="text-center py-12">
                   <Text size="xl" className="text-white/70">
@@ -160,30 +185,110 @@ function SongSelectTab() {
 function PlayerTab() {
   const { playerState, queue, playSong, pauseSong, playNext, setVolume } =
     useWebSocketState();
+  const [isPlaybackLoading, setIsPlaybackLoading] = useState(false);
+  const [isVolumeLoading, setIsVolumeLoading] = useState(false);
+  const [isPlayNextLoading, setIsPlayNextLoading] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [optimisticVolume, setOptimisticVolume] = useState<number | null>(null);
 
-  const handlePlayerPlayback = () => {
-    if (playerState?.play_state === "playing") {
-      pauseSong();
-    } else {
-      playSong();
+  const handlePlayerPlayback = async () => {
+    if (isPlaybackLoading) return;
+    
+    setIsPlaybackLoading(true);
+    setErrorMessage(null);
+    
+    try {
+      if (playerState?.play_state === "playing") {
+        await pauseSong();
+      } else {
+        await playSong();
+      }
+    } catch (error) {
+      console.error("Failed to control playback:", error);
+      setErrorMessage("Failed to control playback. Please try again.");
+      setTimeout(() => setErrorMessage(null), 3000);
+    } finally {
+      setIsPlaybackLoading(false);
     }
   };
 
-  const handleVolumeUp = () => {
-    const currentVolume = playerState?.volume ?? 0.5;
+  const handleVolumeUp = async () => {
+    if (isVolumeLoading) return;
+    
+    const currentVolume = optimisticVolume ?? playerState?.volume ?? 0.5;
     const newVolume = Math.min(1.0, currentVolume + 0.1);
-    setVolume(newVolume);
+    
+    // Optimistic update
+    setOptimisticVolume(newVolume);
+    setIsVolumeLoading(true);
+    setErrorMessage(null);
+    
+    try {
+      await setVolume(newVolume);
+      // Success - clear optimistic state (real state will update)
+      setOptimisticVolume(null);
+    } catch (error) {
+      console.error("Failed to set volume:", error);
+      // Rollback optimistic update
+      setOptimisticVolume(null);
+      setErrorMessage("Failed to adjust volume. Please try again.");
+      setTimeout(() => setErrorMessage(null), 3000);
+    } finally {
+      setIsVolumeLoading(false);
+    }
   };
 
-  const handleVolumeDown = () => {
-    const currentVolume = playerState?.volume ?? 0.5;
+  const handleVolumeDown = async () => {
+    if (isVolumeLoading) return;
+    
+    const currentVolume = optimisticVolume ?? playerState?.volume ?? 0.5;
     const newVolume = Math.max(0.0, currentVolume - 0.1);
-    setVolume(newVolume);
+    
+    // Optimistic update
+    setOptimisticVolume(newVolume);
+    setIsVolumeLoading(true);
+    setErrorMessage(null);
+    
+    try {
+      await setVolume(newVolume);
+      // Success - clear optimistic state (real state will update)
+      setOptimisticVolume(null);
+    } catch (error) {
+      console.error("Failed to set volume:", error);
+      // Rollback optimistic update
+      setOptimisticVolume(null);
+      setErrorMessage("Failed to adjust volume. Please try again.");
+      setTimeout(() => setErrorMessage(null), 3000);
+    } finally {
+      setIsVolumeLoading(false);
+    }
   };
 
+
+  const handlePlayNext = async () => {
+    if (isPlayNextLoading) return;
+    
+    setIsPlayNextLoading(true);
+    setErrorMessage(null);
+    
+    try {
+      await playNext();
+    } catch (error) {
+      console.error("Failed to play next:", error);
+      setErrorMessage("Failed to play next song. Please try again.");
+      setTimeout(() => setErrorMessage(null), 3000);
+    } finally {
+      setIsPlayNextLoading(false);
+    }
+  };
 
   return (
     <div className="max-w-5xl mx-auto px-4 text-white pt-24">
+      {errorMessage && (
+        <div className="mb-4 p-3 bg-red-500/20 border border-red-500/50 rounded-lg text-center">
+          <Text className="text-red-200">{errorMessage}</Text>
+        </div>
+      )}
       <div className="flex flex-col justify-center h-full">
         <div className="flex flex-col items-center text-center py-12 space-y-4">
           <Text size="2xl">Now Playing</Text>
@@ -219,7 +324,7 @@ function PlayerTab() {
               <MaterialSymbolsPlayArrowRounded />
             )}
             onClick={handlePlayerPlayback}
-            disabled={!playerState || !playerState.entry}
+            disabled={!playerState || !playerState.entry || isPlaybackLoading}
             variant="secondary"
             size="xl"
             className="text-4xl rounded-full border border-white px-12 py-4"
@@ -230,19 +335,19 @@ function PlayerTab() {
           <IconButton
             icon={<MaterialSymbolsVolumeDownRounded />}
             onClick={handleVolumeDown}
-            disabled={!playerState || !playerState.entry || (playerState?.volume ?? 0.5) <= 0}
+            disabled={!playerState || !playerState.entry || (optimisticVolume ?? playerState?.volume ?? 0.5) <= 0 || isVolumeLoading}
             variant="secondary"
             size="lg"
             className="text-2xl rounded-full border border-white/50 px-4 py-2"
             label="Volume Down"
           />
           <Text size="lg" className="text-white min-w-16 text-center font-medium">
-            {Math.round((playerState?.volume ?? 0.5) * 100)}%
+            {Math.round((optimisticVolume ?? playerState?.volume ?? 0.5) * 100)}%
           </Text>
           <IconButton
             icon={<MaterialSymbolsVolumeUpRounded />}
             onClick={handleVolumeUp}
-            disabled={!playerState || !playerState.entry || (playerState?.volume ?? 0.5) >= 1}
+            disabled={!playerState || !playerState.entry || (optimisticVolume ?? playerState?.volume ?? 0.5) >= 1 || isVolumeLoading}
             variant="secondary"
             size="lg"
             className="text-2xl rounded-full border border-white/50 px-4 py-2"
@@ -253,12 +358,13 @@ function PlayerTab() {
           icon={<MaterialSymbolsFastForwardRounded />}
           label="Play next song"
           showLabel
-          onClick={playNext}
+          onClick={handlePlayNext}
           disabled={
             !playerState ||
             !playerState.entry ||
             !queue ||
-            queue.items.length === 0
+            queue.items.length === 0 ||
+            isPlayNextLoading
           }
           variant="secondary"
           size="lg"
@@ -279,18 +385,42 @@ function QueueTab() {
     queueNextSong,
     removeSong,
   } = useWebSocketState();
+  const [isClearingQueue, setIsClearingQueue] = useState(false);
+  const [removingStates, setRemovingStates] = useState<Record<string, boolean>>({});
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   return (
     <div className="max-w-3xl mx-auto px-4 py-12 text-white">
+      {errorMessage && (
+        <div className="mb-4 p-3 bg-red-500/20 border border-red-500/50 rounded-lg text-center">
+          <Text className="text-red-200">{errorMessage}</Text>
+        </div>
+      )}
       <div className="flex items-center justify-between mb-8">
         <Text as="h2" size="4xl" weight="bold">
           {upNextQueue?.items.length || 0} Songs in Queue
         </Text>
         {queue && queue.items.length > (playerState?.entry ? 1 : 0) && (
           <Button
-            onClick={() => clearQueue()}
+            onClick={async () => {
+              if (isClearingQueue) return;
+              
+              setIsClearingQueue(true);
+              setErrorMessage(null);
+              
+              try {
+                await clearQueue();
+              } catch (error) {
+                console.error("Failed to clear queue:", error);
+                setErrorMessage("Failed to clear queue. Please try again.");
+                setTimeout(() => setErrorMessage(null), 3000);
+              } finally {
+                setIsClearingQueue(false);
+              }
+            }}
             variant="danger"
             size="sm"
+            disabled={isClearingQueue}
           >
             Clear All
           </Button>
@@ -305,7 +435,13 @@ function QueueTab() {
             actions={[
               {
                 icon: <MaterialSymbolsFastForwardRounded className="text-2xl" />,
-                onClick: playNext,
+                onClick: async () => {
+                  try {
+                    await playNext();
+                  } catch (error) {
+                    console.error("Failed to play next:", error);
+                  }
+                },
                 variant: "secondary",
               },
             ]}
@@ -328,7 +464,22 @@ function QueueTab() {
                 },
                 {
                   icon: <MaterialSymbolsDeleteOutline className="text-2xl" />,
-                  onClick: () => removeSong(item.id),
+                  onClick: async () => {
+                    if (removingStates[item.id]) return;
+                    
+                    setRemovingStates(prev => ({ ...prev, [item.id]: true }));
+                    setErrorMessage(null);
+                    
+                    try {
+                      await removeSong(item.id);
+                    } catch (error) {
+                      console.error("Failed to remove song:", error);
+                      setErrorMessage(`Failed to remove "${item.entry.title}". Please try again.`);
+                      setTimeout(() => setErrorMessage(null), 3000);
+                    } finally {
+                      setRemovingStates(prev => ({ ...prev, [item.id]: false }));
+                    }
+                  },
                   variant: "secondary",
                 },
               ]}
@@ -381,8 +532,12 @@ export default function ControllerPage() {
   useEffect(() => {
     if (playerState?.play_state === "finished" && isLeader) {
       // Small delay to ensure the finished state is processed
-      const timer = setTimeout(() => {
-        playNext();
+      const timer = setTimeout(async () => {
+        try {
+          await playNext();
+        } catch (error) {
+          console.error("Failed to auto-play next song:", error);
+        }
       }, 100);
 
       return () => clearTimeout(timer);

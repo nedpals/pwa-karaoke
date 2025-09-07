@@ -24,14 +24,14 @@ export interface WebSocketActions {
   sendCommandWithAck: (command: string, payload?: unknown, timeout?: number) => Promise<unknown>;
 
   // Controller commands
-  queueSong: (entry: KaraokeEntry) => void;
-  removeSong: (id: string) => void;
-  playSong: () => void;
-  pauseSong: () => void;
-  playNext: () => void;
+  queueSong: (entry: KaraokeEntry) => Promise<unknown>;
+  removeSong: (id: string) => Promise<unknown>;
+  playSong: () => Promise<unknown>;
+  pauseSong: () => Promise<unknown>;
+  playNext: () => Promise<unknown>;
   queueNextSong: (entryId: string) => void;
-  clearQueue: () => void;
-  setVolume: (volume: number) => void;
+  clearQueue: () => Promise<unknown>;
+  setVolume: (volume: number) => Promise<unknown>;
 
   // Display commands
   updatePlayerState: (state: DisplayPlayerState) => void;
@@ -379,15 +379,15 @@ export function useWebSocket(clientType: ClientType): WebSocketReturn {
   // biome-ignore lint/correctness/useExhaustiveDependencies: sendCommand is stable
     const actions = useMemo(
     () => ({
-      queueSong: (entry: KaraokeEntry) => sendCommand("queue_song", entry),
-      removeSong: (id: string) => sendCommand("remove_song", { entry_id: id }),
-      playSong: () => sendCommand("play_song"),
-      pauseSong: () => sendCommand("pause_song"),
-      playNext: () => sendCommand("play_next"),
+      queueSong: (entry: KaraokeEntry) => sendCommandWithAck("queue_song", entry),
+      removeSong: (id: string) => sendCommandWithAck("remove_song", { entry_id: id }),
+      playSong: () => sendCommandWithAck("play_song"),
+      pauseSong: () => sendCommandWithAck("pause_song"),
+      playNext: () => sendCommandWithAck("play_next"),
       queueNextSong: (entryId: string) =>
         sendCommand("queue_next_song", { entry_id: entryId }),
-      clearQueue: () => sendCommand("clear_queue"),
-      setVolume: (volume: number) => sendCommand("set_volume", { volume }),
+      clearQueue: () => sendCommandWithAck("clear_queue"),
+      setVolume: (volume: number) => sendCommandWithAck("set_volume", { volume }),
       updatePlayerState: (state: DisplayPlayerState) =>
         sendCommand("update_player_state", state),
       requestQueueUpdate: () => sendCommand("request_queue_update"),

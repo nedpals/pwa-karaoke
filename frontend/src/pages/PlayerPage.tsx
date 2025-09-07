@@ -13,7 +13,7 @@ import {
   useWebSocketState,
 } from "../providers/WebSocketStateProvider";
 import { useTempState, type TempStateSetterOptions } from "../hooks/useTempState";
-import { useVideoUrl } from "../hooks/useApi";
+import { useVideoUrl, useVideoUrlMutation } from "../hooks/useApi";
 import type {
   KaraokeQueueItem,
   KaraokeEntry,
@@ -78,15 +78,17 @@ function FallbackBackground({ className }: {
 function VideoPlayerComponent({
   videoUrl,
   isLoadingVideoUrl,
+  onNearingEnd,
 }: {
   videoUrl: string | null;
   isLoadingVideoUrl: boolean;
+  onNearingEnd: () => void;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const { playerState, updatePlayerState } = useWebSocketState();
   const { osd, playNextSong } = usePlayerState();
   const isBufferingRef = useRef(false);
-
+  const hasNearingEndFiredRef = useRef(false);
 
   // Versioned player state update
   const updateVersionedPlayerState = useMemo(() => {
@@ -166,11 +168,37 @@ function VideoPlayerComponent({
         play_state: "playing",
         current_time: video.currentTime,
         duration: video.duration || 0,
-        volume: video.volume, // ✅ FIX: Preserve actual video volume
+        volume: video.volume,
       });
     }, 1000);
     return () => clearInterval(interval);
   }, [playerState]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Add timeupdate listener to detect when video is nearing end
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video || !playerState?.entry) return;
+
+    const handleTimeUpdate = () => {
+      if (!hasNearingEndFiredRef.current && video.duration > 0) {
+        const timeRemaining = video.duration - video.currentTime;
+        const shouldFireNearingEnd = (timeRemaining <= 15 && timeRemaining > 0); // Fire when 15 seconds or less remain
+
+        if (shouldFireNearingEnd) {
+          hasNearingEndFiredRef.current = true;
+          onNearingEnd();
+        }
+      }
+    };
+
+    video.addEventListener('timeupdate', handleTimeUpdate);
+    return () => video.removeEventListener('timeupdate', handleTimeUpdate);
+  }, [playerState?.entry, onNearingEnd]);
+
+  // Reset nearing end flag when song changes
+  useEffect(() => {
+    hasNearingEndFiredRef.current = false;
+  }, [playerState?.entry?.id]);
 
 
   // Handle page unload/reload - save current video state
@@ -348,8 +376,10 @@ function VideoPlayerComponent({
 }
 
 function PlayingStateContent() {
-  const { playerState } = useWebSocketState();
+  const { playerState, upNextQueue } = useWebSocketState();
   const { playerHeaderStatus } = usePlayerState();
+  const { trigger: triggerVideoUrl } = useVideoUrlMutation();
+  
   const { data: videoUrlData, isLoading: isLoadingVideoUrl } = useVideoUrl(
     playerState?.entry && !playerState.entry.video_url
       ? playerState.entry
@@ -357,11 +387,35 @@ function PlayingStateContent() {
   );
 
   const videoUrl = useMemo(() => {
+    if (!playerState?.entry) return null;
+    
+    // Check if the entry already has a video URL
+    if (playerState.entry.video_url) {
+      return playerState.entry.video_url;
+    }
+    
+    // Check if we fetched it via the API (including prefetched via SWR cache)
     if (videoUrlData?.video_url) {
       return videoUrlData.video_url;
     }
-    return playerState?.entry?.video_url || null;
+    
+    return null;
   }, [playerState, videoUrlData]);
+
+  const handleNearingEnd = useCallback(() => {
+    if (!upNextQueue || upNextQueue.items.length === 0) return;
+    const nextSong = upNextQueue.items[0];
+    if (!nextSong.entry.video_url) {
+      // Prefetch the next song's video URL - SWR will cache it automatically
+      triggerVideoUrl(nextSong.entry)
+        .then(() => {
+          console.log('[Prefetch] Successfully prefetched URL for:', nextSong.entry.title);
+        })
+        .catch(error => {
+          console.error('[Prefetch] Failed to prefetch URL for:', nextSong.entry.title, error);
+        });
+    }
+  }, [upNextQueue, triggerVideoUrl]);
 
   if (!playerState?.entry) return null;
 
@@ -381,6 +435,7 @@ function PlayingStateContent() {
         <VideoPlayerComponent
           videoUrl={videoUrl}
           isLoadingVideoUrl={isLoadingVideoUrl}
+          onNearingEnd={handleNearingEnd}
         />
       </div>
     </div>
@@ -576,7 +631,7 @@ function PlayerStateProviderInternal({ children }: { children: React.ReactNode }
         status: "Queued",
         title: `${entry.artist} - ${entry.title}`,
         icon: <RiMusic2Fill className="w-8 h-8 mr-2 text-green-500" />,
-        count: newQueue.length,
+        count: newQueue.length - 1,
       }, { duration: 3000 });
     }
 
@@ -603,7 +658,7 @@ function PlayerStateProviderInternal({ children }: { children: React.ReactNode }
         status: "Up Next",
         title: `${nextQueue[0].entry.artist} - ${nextQueue[0].entry.title}`,
         icon: <RiMusic2Fill className="w-8 h-8 mr-2 text-yellow-500" />,
-        count: nextQueue.length,
+        count: nextQueue.length - 1,
       }, { duration: 2000 });
     }
 
@@ -631,7 +686,7 @@ function PlayerStateProviderInternal({ children }: { children: React.ReactNode }
         status: "Playing",
         title: `${playerState.entry.artist} - ${playerState.entry.title}`,
         icon: <RiMusic2Fill className="w-8 h-8 mr-2 text-blue-500" />,
-        count: localQueue.length,
+        count: localQueue.length - 1,
       });
     }
   }, [playerState, localQueue.length]); // Removed setPlayerHeaderStatus to prevent infinite loop

@@ -1,9 +1,12 @@
 import time
 from typing_extensions import Annotated
+from pathlib import Path
 
-from fastapi import FastAPI, WebSocket, Depends
+from fastapi import FastAPI, WebSocket, Depends, HTTPException
 from fastapi.websockets import WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 
 from core.search import KaraokeEntry
 from services.karaoke_service import KaraokeService, KaraokeSearchResult, VideoURLResponse
@@ -17,13 +20,17 @@ app = FastAPI()
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],  # Vite dev server
+    allow_origins=["*"],  # Allow all origins for production hosting
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 session_manager = SessionManager()
+
+# Mount static files from frontend build
+static_dir = Path(__file__).parent / "static"
+app.mount("/assets", StaticFiles(directory=static_dir / "assets"), name="assets")
 
 @app.get("/search")
 async def search(query: str, service: Annotated[KaraokeService, Depends()]) -> KaraokeSearchResult:
@@ -121,6 +128,17 @@ async def websocket_endpoint(websocket: WebSocket, service: Annotated[KaraokeSer
         print(f"[ERROR] {e}")
         # Handle all disconnection scenarios
         await session_manager.disconnect_client(client)
+
+# Serve other static files
+@app.get("/vite.svg")
+async def vite_svg():
+    return FileResponse(static_dir / "vite.svg")
+
+# Serve the main HTML for all frontend routes (must be last!)
+@app.get("/{full_path:path}")
+async def serve_frontend(full_path: str):
+    # Serve index.html for all frontend routes (SPA routing)
+    return FileResponse(static_dir / "index.html")
 
 if __name__ == "__main__":
     import uvicorn

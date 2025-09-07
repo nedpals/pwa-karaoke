@@ -14,10 +14,6 @@ class ClientCommands:
         self.session_manager = session_manager
         self.room = None
     
-    def _ensure_in_room(self):
-        if not self.client.room_id or not self.room:
-            raise ValueError("Client must join a room before performing this action")
-
     async def pong(self, data):
         """Handle pong response from client"""
         self.client.update_pong()
@@ -68,18 +64,19 @@ class ClientCommands:
 
     async def _update_player_state(self, state_data):
         if isinstance(state_data, DisplayPlayerState):
+            self.room.update_player_state(state_data)
             payload = state_data.model_dump()
         else:
+            state = DisplayPlayerState.parse_obj(state_data)
+            self.room.update_player_state(state)
             payload = state_data
-        await self.session_manager.broadcast_to_room_displays(self.client.room_id, "player_state", payload)
+        await self.session_manager.broadcast_to_room(self.client.room_id, "player_state", payload)
 
     async def _toggle_playback_state(self, playback_state: Literal["play", "pause"]):
         command = "play_song" if playback_state == "play" else "pause_song"
         await self.session_manager.broadcast_to_room_displays(self.client.room_id, command, {})
 
     async def _broadcast_room_state(self):
-        self._ensure_in_room()
-        
         # Broadcast queue update to all clients
         queue_payload = self.room.get_queue_update_payload()
         await self.session_manager.broadcast_to_room(self.client.room_id, "queue_update", queue_payload)
@@ -94,13 +91,11 @@ class ClientCommands:
 
 class ControllerCommands(ClientCommands):
     async def remove_song(self, payload):
-        self._ensure_in_room()
         removed = self.room.remove_song(payload["entry_id"])
         if removed:
             await self._broadcast_room_state()
 
     async def play_next(self, _: None):
-        self._ensure_in_room()
         next_song = self.room.play_next()
         if next_song:
             new_player_state = DisplayPlayerState(
@@ -124,12 +119,10 @@ class ControllerCommands(ClientCommands):
             )
         
         if "new_player_state" in locals():
-            self.room.update_player_state(new_player_state)
+            self._update_player_state(new_player_state)
         await self._broadcast_room_state()
 
     async def queue_song(self, payload):
-        self._ensure_in_room()
-        
         entry = KaraokeEntry.parse_obj(payload)
         print(f"[DEBUG] Controller queue_song received: {entry.title} by {entry.artist}")
         

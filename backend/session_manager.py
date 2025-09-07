@@ -54,15 +54,24 @@ class SessionManager:
     
     # Room-specific broadcasting
     async def broadcast_to_room(self, room_id: str, command: str, data):
+        if not room_id:
+            raise ValueError("Room ID is required for broadcasting")
         room_clients = self.get_room_clients(room_id)
+        print(f"[DEBUG] Broadcasting {command} to room {room_id} with {len(room_clients)} clients")
         await self.client_manager.broadcast_command(command, data, clients=room_clients)
     
     async def broadcast_to_room_controllers(self, room_id: str, command: str, data):
+        if not room_id:
+            raise ValueError("Room ID is required for broadcasting")
         controllers = self.get_room_controllers(room_id)
+        print(f"[DEBUG] Broadcasting {command} to room {room_id} controllers with {len(controllers)} clients")
         await self.client_manager.broadcast_command(command, data, clients=controllers)
     
     async def broadcast_to_room_displays(self, room_id: str, command: str, data):
+        if not room_id:
+            raise ValueError("Room ID is required for broadcasting")
         displays = self.get_room_displays(room_id)
+        print(f"[DEBUG] Broadcasting {command} to room {room_id} displays with {len(displays)} clients")
         await self.client_manager.broadcast_command(command, data, clients=displays)
     
     # Client room management

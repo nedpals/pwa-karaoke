@@ -1,4 +1,4 @@
-import type { Meta, StoryObj } from '@storybook/react';
+import type { Meta, StoryObj } from '@storybook/react-vite';
 import { TabButton } from './TabButton';
 
 const meta: Meta<typeof TabButton> = {
@@ -19,10 +19,7 @@ const meta: Meta<typeof TabButton> = {
     },
     children: {
       control: { type: 'text' },
-    },
-    disabled: {
-      control: { type: 'boolean' },
-    },
+    }
   },
   decorators: [
     (Story) => (

@@ -3,7 +3,7 @@ import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "../../lib/utils";
 
 const inputVariants = cva(
-  "w-full rounded-lg border focus:outline-none transition-colors",
+  "w-full rounded-lg border focus:outline-none transition-colors disabled:opacity-50 disabled:cursor-not-allowed",
   {
     variants: {
       size: {

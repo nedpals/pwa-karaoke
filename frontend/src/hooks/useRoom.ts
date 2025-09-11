@@ -228,7 +228,8 @@ export function useRoom(clientType: ClientType, initialRoomId?: string | null): 
         }
         break;
     }
-  }, [ws.lastMessage, clientType, playerState, ws]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ws.lastMessage, clientType, playerState]);
   
   useEffect(() => {
     if (!ws.connected) {

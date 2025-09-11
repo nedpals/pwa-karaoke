@@ -1,10 +1,11 @@
 import { useState, useEffect } from "react";
+import { useSearchParams, Navigate } from "react-router";
 import type { KaraokeEntry, KaraokeQueueItem } from "../types";
-import { useWebSocket } from "../hooks/useWebSocket";
+import { useRoom } from "../hooks/useRoom";
 import {
-  WebSocketStateProvider,
-  useWebSocketState,
-} from "../providers/WebSocketStateProvider";
+  RoomProvider,
+  useRoomContext,
+} from "../providers/RoomProvider";
 import { useSearchMutation } from "../hooks/useApi";
 import { useTextInput } from "../hooks/useTextInput";
 import { MaterialSymbolsFastForwardRounded } from "../components/icons/MaterialSymbolsFastForwardRounded";
@@ -25,6 +26,8 @@ import { TabNavigation, type Tab } from "../components/organisms/TabNavigation";
 import { QueueItem } from "../components/organisms/QueueItem";
 import { KaraokeEntryCard as AtomicKaraokeEntryCard } from "../components/organisms/KaraokeEntryCard";
 import { ControllerLayout } from "../components/templates/ControllerLayout";
+import { FullScreenLayout } from "../components/templates/FullScreenLayout";
+import { MessageTemplate } from "../components/templates/MessageTemplate";
 import { TimeDisplay } from "../components/molecules/TimeDisplay";
 import { VirtualKeyboard } from "../components/organisms/VirtualKeyboard";
 import { LoadingSpinner } from "../components/atoms/LoadingSpinner";
@@ -44,6 +47,26 @@ const CONTROLLER_TABS = [
     label: "Queue",
   },
 ] as const;
+
+function ControllerMessageScreen({ title, children }: { title?: string; children: React.ReactNode }) {
+  const backgroundImage = "https://images.unsplash.com/photo-1545569341-9eb8b30979d9?q=80&w=2070&auto=format&fit=crop&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D";
+  
+  return (
+    <MessageTemplate
+      title={title}
+      background={
+        <FullScreenLayout
+          background="image"
+          backgroundImage={backgroundImage}
+        >
+          <div className="flex flex-col w-full h-full bg-black/30" />
+        </FullScreenLayout>
+      }
+    >
+      {children}
+    </MessageTemplate>
+  );
+}
 
 function KaraokeEntryCard({ entry }: { entry: KaraokeEntry }) {
   return <AtomicKaraokeEntryCard entry={entry} className="bg-black/40 border-white/20" />;
@@ -143,7 +166,7 @@ function SearchResults({
 }
 
 function SongSelectTab() {
-  const { queueSong, queue } = useWebSocketState();
+  const { queueSong, queue } = useRoomContext();
   const { hasPhysicalKeyboard } = usePhysicalKeyboard();
   const [showVirtualKeyboard, setShowVirtualKeyboard] = useState(false);
   const [queueingStates, setQueueingStates] = useState<Record<string, boolean>>({});
@@ -273,7 +296,7 @@ function SongSelectTab() {
 
 function PlayerTab() {
   const { playerState, queue, playSong, pauseSong, playNext, setVolume } =
-    useWebSocketState();
+    useRoomContext();
   const [isPlaybackLoading, setIsPlaybackLoading] = useState(false);
   const [isVolumeLoading, setIsVolumeLoading] = useState(false);
   const [isPlayNextLoading, setIsPlayNextLoading] = useState(false);
@@ -501,7 +524,7 @@ function QueueTab() {
     clearQueue,
     queueNextSong,
     removeSong,
-  } = useWebSocketState();
+  } = useRoomContext();
   const [isClearingQueue, setIsClearingQueue] = useState(false);
   const [removingStates, setRemovingStates] = useState<Record<string, boolean>>({});
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -632,31 +655,63 @@ function ControllerPageContent() {
 }
 
 export default function ControllerPage() {
-  const ws = useWebSocket("controller");
-  const { connected, joinRoom, requestQueueUpdate } = ws;
+  const [searchParams] = useSearchParams();
+  const roomId = searchParams.get("room");
+  const room = useRoom("controller", roomId);
 
+  // Auto-verify and join room when roomId is available
   useEffect(() => {
-    if (connected) {
-      console.log("[ControllerPage] Attempting to join default room");
-      joinRoom("default").catch((error) => {
-        console.error("[ControllerPage] Failed to join default room:", error);
-      });
+    if (roomId && !room.isVerified && !room.isVerifying) {
+      room.verifyAndJoinRoom(roomId);
     }
-  }, [connected, joinRoom]);
+  }, [roomId, room.isVerified, room.isVerifying, room.verifyAndJoinRoom]);
 
-  // Request queue and player state on connect/reconnect
-  // biome-ignore lint/correctness/useExhaustiveDependencies: requestQueueUpdate is stable
-  useEffect(() => {
-    if (connected) {
-      console.log("[Controller] Requesting queue update on connect");
-      requestQueueUpdate();
-    }
-  }, [connected]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Redirect to home if no room specified
+  if (!roomId) {
+    return <Navigate to="/" replace />;
+  }
 
+  // Show verification states
+  if (room.isVerifying) {
+    return (
+      <ControllerMessageScreen>
+        <div className="flex flex-col items-center space-y-4">
+          <Text size="lg" shadow>Verifying room access...</Text>
+          <LoadingSpinner size="xl" />
+        </div>
+      </ControllerMessageScreen>
+    );
+  }
+
+  if (room.verificationError) {
+    return (
+      <ControllerMessageScreen title="Access Denied">
+        <div className="flex flex-col items-center space-y-4 max-w-md">
+          <Text size="base" className="text-red-400">
+            {room.verificationError}
+          </Text>
+          <Text size="sm" className="text-white/60">
+            You may need the correct password to access this room
+          </Text>
+        </div>
+      </ControllerMessageScreen>
+    );
+  }
+
+  if (!room.isVerified || !room.hasJoinedRoom) {
+    return (
+      <ControllerMessageScreen>
+        <div className="flex flex-col items-center space-y-4">
+          <Text size="lg" shadow>{!room.isVerified ? "Loading..." : "Joining room..."}</Text>
+          <LoadingSpinner size="xl" />
+        </div>
+      </ControllerMessageScreen>
+    );
+  }
 
   return (
-    <WebSocketStateProvider data={ws}>
+    <RoomProvider data={room}>
       <ControllerPageContent />
-    </WebSocketStateProvider>
+    </RoomProvider>
   );
 }

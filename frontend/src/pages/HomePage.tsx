@@ -1,4 +1,4 @@
-import { Link } from "react-router";
+import { useNavigate } from "react-router";
 import { FullScreenLayout } from "../components/templates/FullScreenLayout";
 import { Text } from "../components/atoms/Text";
 import { Button } from "../components/atoms/Button";
@@ -6,6 +6,16 @@ import { Button } from "../components/atoms/Button";
 const backgroundImage = "https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?q=80&w=2070&auto=format&fit=crop&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D";
 
 export default function HomePage() {
+  const navigate = useNavigate();
+
+  const handleJoinRoom = () => {
+    navigate("/join");
+  };
+
+  const handleCreateRoom = () => {
+    navigate("/create");
+  };
+
   return (
     <FullScreenLayout
       background="image"
@@ -25,38 +35,36 @@ export default function HomePage() {
 
           {/* Main Options */}
           <div className="grid md:grid-cols-2 gap-8 mt-16">
-            {/* Player Button */}
+            {/* Join Room Button */}
             <Button
-              as={Link}
-              to="/player"
+              onClick={handleJoinRoom}
               variant="glass"
               className="h-64 flex flex-col items-center justify-center space-y-6 text-center hover:scale-[1.02] transition-transform p-8"
             >
-              <div className="text-8xl">🖥️</div>
+              <div className="text-8xl">🚪</div>
               <div className="space-y-2">
                 <Text size="2xl" weight="bold" shadow className="text-white">
-                  Display Mode
+                  Join Room
                 </Text>
                 <Text size="lg" shadow className="text-white/80">
-                  Connect to TV or projector
+                  Enter an existing karaoke session
                 </Text>
               </div>
             </Button>
 
-            {/* Controller Button */}
+            {/* Create Room Button */}
             <Button
-              as={Link}
-              to="/controller"
+              onClick={handleCreateRoom}
               variant="glass"
               className="h-64 flex flex-col items-center justify-center space-y-6 text-center hover:scale-[1.02] transition-transform p-8"
             >
-              <div className="text-8xl">📱</div>
+              <div className="text-8xl">🎤</div>
               <div className="space-y-2">
                 <Text size="2xl" weight="bold" shadow className="text-white">
-                  Controller Mode
+                  Create Room
                 </Text>
                 <Text size="lg" shadow className="text-white/80">
-                  Search songs and control playback
+                  Start a new karaoke session
                 </Text>
               </div>
             </Button>

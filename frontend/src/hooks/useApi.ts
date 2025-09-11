@@ -1,7 +1,7 @@
 import useSWR from 'swr';
 import useSWRMutation from 'swr/mutation';
 import { apiClient } from '../api/client';
-import type { KaraokeEntry } from '../types';
+import type { KaraokeEntry, CreateRoomRequest, VerifyRoomRequest } from '../types';
 
 export function useSearch(query: string) {
   return useSWR(
@@ -42,6 +42,56 @@ export function useVideoUrlMutation() {
     'video-url',
     async (_: string, { arg }: { arg: KaraokeEntry }) => {
       return apiClient.getVideoUrl(arg);
+    }
+  );
+}
+
+export function useRooms() {
+  const { data, error, mutate, isLoading } = useSWR(
+    'rooms',
+    () => apiClient.getRooms(),
+    {
+      refreshInterval: 5000, // Refresh every 5 seconds
+      revalidateOnFocus: true,
+      revalidateOnReconnect: true,
+    }
+  );
+
+  return {
+    rooms: data?.rooms || [],
+    timestamp: data?.timestamp,
+    error,
+    isLoading,
+    mutate,
+  };
+}
+
+export function useCreateRoomMutation() {
+  return useSWRMutation(
+    'create-room',
+    async (_: string, { arg }: { arg: CreateRoomRequest }) => {
+      return apiClient.createRoom(arg);
+    }
+  );
+}
+
+export function useRoomDetails(roomId: string | null) {
+  return useSWR(
+    roomId ? ['room-details', roomId] : null,
+    ([, id]) => apiClient.getRoomDetails(id),
+    {
+      revalidateOnFocus: false,
+      revalidateOnReconnect: false,
+      shouldRetryOnError: false,
+    }
+  );
+}
+
+export function useVerifyRoomMutation() {
+  return useSWRMutation(
+    'verify-room',
+    async (_: string, { arg }: { arg: VerifyRoomRequest }) => {
+      return apiClient.verifyRoomAccess(arg);
     }
   );
 }

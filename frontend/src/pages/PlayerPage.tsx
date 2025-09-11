@@ -1,17 +1,19 @@
 import { useState, useEffect, useRef, useMemo, createContext, useContext, useCallback } from "react";
+import { useSearchParams, Navigate } from "react-router";
 import { Text } from "../components/atoms/Text";
-import { Card } from "../components/organisms/Card";
+import { useRoom } from "../hooks/useRoom";
+import { GlassPanel } from "../components/organisms/GlassPanel";
 import { OSD } from "../components/molecules/OSD";
 import { PlayerHeader } from "../components/organisms/PlayerHeader";
 import { QRCode } from "../components/atoms/QRCode";
 import { Button } from "../components/atoms/Button";
 import { RiMusic2Fill } from "../components/icons/RiMusic2Fill";
 import { LoadingSpinner } from "../components/atoms/LoadingSpinner";
-import { useWebSocket } from "../hooks/useWebSocket";
+import { MessageTemplate } from "../components/templates/MessageTemplate";
 import {
-  WebSocketStateProvider,
-  useWebSocketState,
-} from "../providers/WebSocketStateProvider";
+  RoomProvider,
+  useRoomContext,
+} from "../providers/RoomProvider";
 import { useTempState, type TempStateSetterOptions } from "../hooks/useTempState";
 import { useVideoUrl, useVideoUrlMutation } from "../hooks/useApi";
 import type {
@@ -78,9 +80,9 @@ function VideoPlayerComponent({
   onNearingEnd: () => void;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
-  const { playerState, updatePlayerState } = useWebSocketState();
+  const { playerState, updatePlayerState } = useRoomContext();
   const { osd } = usePlayerState();
-  const { playNext } = useWebSocketState();
+  const { playNext } = useRoomContext();
   const isBufferingRef = useRef(false);
   const hasNearingEndFiredRef = useRef(false);
 
@@ -370,8 +372,20 @@ function VideoPlayerComponent({
   );
 }
 
+function ClientCountDisplay() {
+  const { clientCount } = useRoomContext();
+  
+  return (
+    <GlassPanel className="px-3 py-2">
+      <Text size="sm" className="text-white/80">
+        {clientCount} {clientCount === 1 ? 'client' : 'clients'} connected
+      </Text>
+    </GlassPanel>
+  );
+}
+
 function PlayingStateContent() {
-  const { playerState, upNextQueue } = useWebSocketState();
+  const { playerState, upNextQueue } = useRoomContext();
   const { playerHeaderStatus, setPlayerHeaderStatus } = usePlayerState();
   const { trigger: triggerVideoUrl } = useVideoUrlMutation();
   const { data: videoUrlData, isLoading: isLoadingVideoUrl } = useVideoUrl(
@@ -440,64 +454,69 @@ function PlayingStateContent() {
           onNearingEnd={handleNearingEnd}
         />
       </div>
+
     </div>
   );
 }
 
-function ConnectingStateScreen() {
+function ConnectingStateScreen({ 
+  title = "Connecting", 
+  subtitle
+}: {
+  title?: string;
+  subtitle?: string;
+}) {
   return (
-    <div className="relative">
-      <div className="absolute top-0 inset-x-0 h-screen w-screen z-10 flex flex-col items-center justify-center">
-        <div className="max-w-5xl w-full mx-auto">
-          <Card
-            title="System Message"
-            size="md"
-            className="w-full"
-          >
-            <Text size="lg" shadow>Connecting</Text>
-          </Card>
-        </div>
+    <MessageTemplate background={<FallbackBackground className="relative" />}>
+      <div className="flex flex-col items-center space-y-4">
+        <Text size="lg" shadow>
+          {title}
+        </Text>
+        {subtitle && (
+          <Text size="base" shadow className="text-gray-300">
+            {subtitle}
+          </Text>
+        )}
       </div>
-
-      <FallbackBackground className="relative" />
-    </div>
+    </MessageTemplate>
   );
 }
 
 function ConnectedStateScreen() {
-  const controllerUrl = `${window.location.origin}/controller`;
+  const [searchParams] = useSearchParams();
+  const roomId = searchParams.get("room");
+  
+  if (!roomId) {
+    return <Navigate to="/" replace />;
+  }
+
+  const controllerUrl = `${window.location.origin}/controller?room=${encodeURIComponent(roomId)}`;
 
   return (
-    <div className="relative">
-      <div className="absolute top-0 inset-x-0 h-screen w-screen z-10 flex flex-col items-center justify-center">
-        <div className="max-w-5xl w-full mx-auto">
-          <Card
-            title="System Message"
-            size="auto"
-            className="w-full"
-          >
-            <div className="flex flex-row items-center space-x-8 py-4">
-              <div className="flex-1 space-y-4 text-left">
-                <Text size="lg" shadow>
-                  To control the karaoke system, scan the QR code or visit:
-                </Text>
-                <Text size="xl" weight="bold" shadow className="break-all">
-                  {controllerUrl}
-                </Text>
-                <Text size="base" shadow className="text-gray-300">
-                  Open the controller page on your phone or device to start adding songs to the queue.
-                </Text>
-              </div>
-              <div className="bg-white p-4 rounded-lg">
-                <QRCode data={controllerUrl} size={200} />
-              </div>
-            </div>
-          </Card>
+    <MessageTemplate 
+      size="auto"
+      background={<FallbackBackground className="relative" />}
+    >
+      <div className="flex flex-row items-center space-x-8 py-4">
+        <div className="flex-1 space-y-4 text-left">
+          <Text size="lg" shadow>
+            To control the karaoke system, scan the QR code or visit:
+          </Text>
+          <Text size="xl" weight="bold" shadow className="break-all">
+            {controllerUrl}
+          </Text>
+          <Text size="base" shadow className="text-gray-300">
+            Open the controller page on your phone or device to start adding songs to the queue.
+          </Text>
+          <Text size="base" shadow className="text-yellow-200">
+            Room: {roomId}
+          </Text>
+        </div>
+        <div className="bg-white p-4 rounded-lg">
+          <QRCode data={controllerUrl} size={200} />
         </div>
       </div>
-
-      <FallbackBackground className="relative" />
-    </div>
+    </MessageTemplate>
   );
 }
 
@@ -528,35 +547,26 @@ function AwaitingInteractionStateScreen() {
   };
 
   return (
-    <div className="relative">
-      <div className="absolute top-0 inset-x-0 h-screen w-screen z-10 flex flex-col items-center justify-center">
-        <div className="max-w-5xl w-full mx-auto">
-          <Card
-            title="System Message"
-            size="auto"
-            className="w-full"
-          >
-            <div className="flex flex-col items-center space-y-4 py-2">
-              <Text size="lg" shadow className="text-center">
-                Allow Sound Permission
-              </Text>
-              <Text size="base" shadow className="text-center text-gray-300">
-                Click to allow this karaoke system to play audio automatically.
-              </Text>
-              <Button
-                onClick={handleInteraction}
-                variant="primary"
-                size="lg"
-              >
-                Allow Sound
-              </Button>
-            </div>
-          </Card>
-        </div>
+    <MessageTemplate 
+      size="auto"
+      background={<FallbackBackground className="relative" />}
+    >
+      <div className="flex flex-col items-center space-y-4 py-2">
+        <Text size="lg" shadow className="text-center">
+          Allow Sound Permission
+        </Text>
+        <Text size="base" shadow className="text-center text-gray-300">
+          Click to allow this karaoke system to play audio automatically.
+        </Text>
+        <Button
+          onClick={handleInteraction}
+          variant="primary"
+          size="lg"
+        >
+          Allow Sound
+        </Button>
       </div>
-
-      <FallbackBackground className="relative" />
-    </div>
+    </MessageTemplate>
   );
 }
 
@@ -572,7 +582,7 @@ function PlayerStateProviderInternal({ children }: { children: React.ReactNode }
     requestQueueUpdate,
     updatePlayerState,
     lastQueueCommand,
-  } = useWebSocketState();
+  } = useRoomContext();
 
   // PlayerHeader status management
   const [playerHeaderStatus, setPlayerHeaderStatus] = useTempState<PlayerHeaderStatus>({
@@ -755,23 +765,60 @@ function PlayerPageContent() {
 }
 
 export default function PlayerPage() {
-  const ws = useWebSocket("display");
-  const { connected, joinRoom } = ws;
+  const [searchParams] = useSearchParams();
+  const roomId = searchParams.get("room");
+  const room = useRoom("display", roomId);
 
+  // Auto-verify and join room when roomId is available
   useEffect(() => {
-    if (connected) {
-      console.log("[PlayerPage] Attempting to join default room");
-      joinRoom("default").catch((error) => {
-        console.error("[PlayerPage] Failed to join default room:", error);
-      });
+    if (roomId && !room.isVerified && !room.isVerifying) {
+      room.verifyAndJoinRoom(roomId);
     }
-  }, [connected, joinRoom]);
+  }, [roomId, room.isVerified, room.isVerifying, room.verifyAndJoinRoom]);
+
+  // Redirect to home if no room specified
+  if (!roomId) {
+    return <Navigate to="/" replace />;
+  }
+
+  // Show verification states
+  if (room.isVerifying) {
+    return (
+      <ConnectingStateScreen 
+        title="Verifying Room Access"
+        subtitle="Please wait while we check your permissions..."
+      />
+    );
+  }
+
+  if (room.verificationError) {
+    return (
+      <ConnectingStateScreen 
+        title="Access Denied"
+        subtitle={`${room.verificationError}. This room may be private or require a password. Please check with the room creator.`}
+      />
+    );
+  }
+
+  if (!room.isVerified || !room.hasJoinedRoom) {
+    return (
+      <ConnectingStateScreen 
+        title={!room.isVerified ? "Loading..." : "Joining room..."}
+      />
+    );
+  }
 
   return (
-    <WebSocketStateProvider data={ws}>
+    <RoomProvider data={room}>
       <PlayerStateProviderInternal>
-        <PlayerPageContent />
+        <div className="relative">
+          <PlayerPageContent />
+          {/* Client count display - bottom left, visible across all player states */}
+          <div className="absolute bottom-4 left-4 z-30">
+            <ClientCountDisplay />
+          </div>
+        </div>
       </PlayerStateProviderInternal>
-    </WebSocketStateProvider>
+    </RoomProvider>
   );
 }

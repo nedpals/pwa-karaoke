@@ -1,4 +1,5 @@
 import time
+import hashlib
 from typing import Optional, Dict, Any
 
 from pydantic import BaseModel
@@ -13,6 +14,30 @@ class Room(BaseModel):
     player_state: Optional[DisplayPlayerState] = None
     queue_version: int = 1
     player_version: int = 1
+    is_public: bool = True
+    password_hash: Optional[str] = None
+    created_at: float = time.time()
+    
+    def set_password(self, password: str) -> None:
+        if password:
+            self.password_hash = hashlib.sha256(password.encode()).hexdigest()
+            self.is_public = False
+        else:
+            self.password_hash = None
+            self.is_public = True
+    
+    def verify_password(self, password: str) -> bool:
+        if not self.password_hash:
+            return True
+        
+        if not password:
+            return False
+            
+        password_hash = hashlib.sha256(password.encode()).hexdigest()
+        return password_hash == self.password_hash
+    
+    def requires_password(self) -> bool:
+        return self.password_hash is not None
     
     def add_song(self, entry: KaraokeEntry) -> KaraokeQueueItem:
         self.queue.enqueue(entry)
@@ -78,4 +103,24 @@ class RoomManager:
         if room_id not in self.rooms:
             self.rooms[room_id] = Room(id=room_id)
         return self.rooms[room_id]
+    
+    def create_room(self, room_id: str, is_public: bool = True, password: str = None) -> Room:
+        """Create a new room with privacy settings"""
+        if room_id in self.rooms:
+            raise ValueError(f"Room {room_id} already exists")
+        
+        room = Room(id=room_id, is_public=is_public)
+        if password:
+            room.set_password(password)
+        
+        self.rooms[room_id] = room
+        return room
+    
+    def get_public_rooms(self) -> Dict[str, Room]:
+        """Get only public rooms"""
+        return {room_id: room for room_id, room in self.rooms.items() if room.is_public}
+    
+    def room_exists(self, room_id: str) -> bool:
+        """Check if a room exists"""
+        return room_id in self.rooms
     

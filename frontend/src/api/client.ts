@@ -1,4 +1,14 @@
-import type { KaraokeEntry, KaraokeSearchResult, VideoURLResponse } from '../types';
+import type { 
+  KaraokeEntry, 
+  KaraokeSearchResult, 
+  VideoURLResponse, 
+  Room, 
+  RoomsResponse,
+  CreateRoomRequest,
+  CreateRoomResponse,
+  VerifyRoomRequest,
+  VerifyRoomResponse
+} from '../types';
 
 class ApiClient {
   private baseUrl: string;
@@ -34,6 +44,61 @@ class ApiClient {
 
     if (!response.ok) {
       throw new Error(`Failed to fetch video URL: ${response.statusText}`);
+    }
+
+    return response.json();
+  }
+
+  async getRooms(): Promise<RoomsResponse> {
+    const response = await fetch(`${this.baseUrl}/rooms`);
+    
+    if (!response.ok) {
+      throw new Error(`Failed to fetch rooms: ${response.statusText}`);
+    }
+    
+    return response.json();
+  }
+
+  async createRoom(request: CreateRoomRequest): Promise<CreateRoomResponse> {
+    const response = await fetch(`${this.baseUrl}/rooms/create`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(request),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({ detail: response.statusText }));
+      throw new Error(errorData.detail || `Failed to create room: ${response.statusText}`);
+    }
+
+    return response.json();
+  }
+
+  async getRoomDetails(roomId: string): Promise<Room> {
+    const response = await fetch(`${this.baseUrl}/rooms/${roomId}`);
+    
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({ detail: response.statusText }));
+      throw new Error(errorData.detail || `Failed to get room details: ${response.statusText}`);
+    }
+    
+    return response.json();
+  }
+
+  async verifyRoomAccess(request: VerifyRoomRequest): Promise<VerifyRoomResponse> {
+    const response = await fetch(`${this.baseUrl}/rooms/verify`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(request),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({ detail: response.statusText }));
+      throw new Error(errorData.detail || `Failed to verify room access: ${response.statusText}`);
     }
 
     return response.json();

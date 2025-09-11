@@ -1,6 +1,5 @@
 import { useEffect, useState, useCallback, useMemo } from "react";
 import useWebSocketHook from "react-use-websocket";
-import type { KaraokeQueue, DisplayPlayerState, KaraokeEntry } from "../types";
 
 type ClientType = "controller" | "display";
 type WebSocketMessage = [string, unknown];
@@ -9,37 +8,13 @@ export interface WebSocketState {
   connected: boolean;
   hasJoinedRoom: boolean;
   clientCount: number;
-  queue: KaraokeQueue | null;
-  upNextQueue: KaraokeQueue | null;
-  playerState: DisplayPlayerState | null;
-  isLeader: boolean;
-  lastQueueCommand: {
-    command: string;
-    data: unknown;
-    timestamp: number;
-  } | null;
+  lastMessage: [string, unknown] | null;
 }
 
 export interface WebSocketActions {
   sendCommand: (command: string, payload?: unknown) => void;
   sendCommandWithAck: (command: string, payload?: unknown, timeout?: number) => Promise<unknown>;
-
-  // Room management
   joinRoom: (roomId: string) => Promise<unknown>;
-
-  // Controller commands
-  queueSong: (entry: KaraokeEntry) => Promise<unknown>;
-  removeSong: (id: string) => Promise<unknown>;
-  playSong: () => Promise<unknown>;
-  pauseSong: () => Promise<unknown>;
-  playNext: () => Promise<unknown>;
-  queueNextSong: (entryId: string) => void;
-  clearQueue: () => Promise<unknown>;
-  setVolume: (volume: number) => Promise<unknown>;
-
-  // Display commands
-  updatePlayerState: (state: DisplayPlayerState) => void;
-  requestQueueUpdate: () => void;
 }
 
 export type WebSocketReturn = WebSocketState & WebSocketActions;
@@ -59,18 +34,9 @@ type PendingRequest = {
 
 export function useWebSocket(clientType: ClientType): WebSocketReturn {
   const [clientCount, setClientCount] = useState(0);
-  const [queue, setQueue] = useState<KaraokeQueue | null>(null);
-  const [playerState, setPlayerState] = useState<DisplayPlayerState | null>(
-    null,
-  );
   const [hasHandshaken, setHasHandshaken] = useState(false);
   const [hasJoinedRoom, setHasJoinedRoom] = useState(false);
-  const [isLeader, setIsLeader] = useState(false);
-  const [lastQueueCommand, setLastQueueCommand] = useState<{
-    command: string;
-    data: unknown;
-    timestamp: number;
-  } | null>(null);
+  const [lastMessage, setLastMessage] = useState<[string, unknown] | null>(null);
   const [pendingCommands, setPendingCommands] = useState<PendingCommand[]>([]);
   const [pendingRequests] = useState<Map<string, PendingRequest>>(new Map());
 
@@ -110,10 +76,7 @@ export function useWebSocket(clientType: ClientType): WebSocketReturn {
         console.log(`[WebSocket ${clientType}] Connected successfully`);
         setHasHandshaken(false);
 
-        // Reset leader status on reconnection (will be set by server)
-        if (clientType === "controller") {
-          setIsLeader(false);
-        }
+        // Reset leader status on reconnection handled by room
       },
       onClose: () => {
         console.log(`[WebSocket ${clientType}] Connection closed`);
@@ -202,80 +165,12 @@ export function useWebSocket(clientType: ClientType): WebSocketReturn {
     try {
       const [command, data] = lastJsonMessage as WebSocketMessage;
 
+      // Store last message for room-specific handling
+      setLastMessage([command, data]);
+      
       switch (command) {
         case "client_count":
           setClientCount(data as number);
-          break;
-        case "queue_update": {
-          const incomingQueue = data as KaraokeQueue;
-          console.log(`[${clientType}] Received queue_update:`, incomingQueue);
-          // Only update if incoming queue is newer (conflict resolution)
-          setQueue((prevQueue) => {
-            if (!prevQueue) return incomingQueue;
-
-            // Compare versions - higher version wins
-            if (incomingQueue.version > prevQueue.version) {
-              console.log(
-                `[${clientType}] Updating queue to newer version ${incomingQueue.version}`,
-              );
-              return incomingQueue;
-            }
-
-            // If versions are equal, use timestamp as tiebreaker
-            if (
-              incomingQueue.version === prevQueue.version &&
-              incomingQueue.timestamp > prevQueue.timestamp
-            ) {
-              console.log(
-                `[${clientType}] Updating queue with newer timestamp`,
-              );
-              return incomingQueue;
-            }
-
-            // Keep existing queue if incoming is older
-            console.log(`[${clientType}] Ignoring older queue update`);
-            return prevQueue;
-          });
-          break;
-        }
-        case "player_state": {
-          const incomingState = data as DisplayPlayerState;
-          setPlayerState((prevState) => {
-            if (!prevState) return incomingState;
-            if (incomingState.version > prevState.version) {
-              return incomingState;
-            }
-
-            if (
-              incomingState.version === prevState.version &&
-              incomingState.timestamp > prevState.timestamp
-            ) {
-              return incomingState;
-            }
-
-            return prevState;
-          });
-          break;
-        }
-        case "play_song":
-          setPlayerState((prev) =>
-            prev ? { ...prev, play_state: "playing" } : null,
-          );
-          break;
-        case "pause_song":
-          setPlayerState((prev) =>
-            prev ? { ...prev, play_state: "paused" } : null,
-          );
-          break;
-        case "request_player_state":
-          if (clientType === "controller" && playerState) {
-            sendJsonMessage(["player_state", playerState]);
-          }
-          break;
-        case "leader_status":
-          if (clientType === "controller") {
-            setIsLeader((data as { is_leader: boolean }).is_leader);
-          }
           break;
         case "ping":
           // Respond to server ping with pong
@@ -296,23 +191,6 @@ export function useWebSocket(clientType: ClientType): WebSocketReturn {
           }
           break;
         }
-        case "send_current_queue":
-          // Display should send its current queue to controllers
-          if (clientType === "display") {
-            console.log("[Display] Received send_current_queue request");
-            setLastQueueCommand({ command, data, timestamp: Date.now() });
-          }
-          break;
-        case "set_volume":
-          // Store volume commands for displays to handle (still needed)
-          if (clientType === "display") {
-            console.log(
-              `[${clientType}] Received volume command: ${command}`,
-              data,
-            );
-            setLastQueueCommand({ command, data, timestamp: Date.now() });
-          }
-          break;
         case "error":
           console.error("WebSocket error:", data);
           break;
@@ -388,55 +266,18 @@ export function useWebSocket(clientType: ClientType): WebSocketReturn {
     [generateRequestId, hasHandshaken, sendJsonMessage, clientType, pendingRequests],
   );
 
-  const upNextQueue = useMemo(() => {
-    if (!queue || !queue.items.length) {
-      return { items: [], version: 1, timestamp: Date.now() };
-    }
 
-    return {
-      items: queue.items.filter(
-        (item) => !playerState?.entry || item.entry.id !== playerState.entry.id,
-      ),
-      version: queue.version,
-      timestamp: queue.timestamp,
-    };
-  }, [queue, playerState?.entry]);
-
-  // Create stable action functions
-  // biome-ignore lint/correctness/useExhaustiveDependencies: sendCommand is stable
-    const actions = useMemo(
-    () => ({
-      joinRoom: joinRoomInternal, // Use internal function for future migration
-      queueSong: (entry: KaraokeEntry) => sendCommandWithAck("queue_song", entry),
-      removeSong: (id: string) => sendCommandWithAck("remove_song", { entry_id: id }),
-      playSong: () => sendCommandWithAck("play_song"),
-      pauseSong: () => sendCommandWithAck("pause_song"),
-      playNext: () => sendCommandWithAck("play_next"),
-      queueNextSong: (entryId: string) =>
-        sendCommand("queue_next_song", { entry_id: entryId }),
-      clearQueue: () => sendCommandWithAck("clear_queue"),
-      setVolume: (volume: number) => sendCommandWithAck("set_volume", { volume }),
-      updatePlayerState: (state: DisplayPlayerState) =>
-        sendCommand("update_player_state", state),
-      requestQueueUpdate: () => sendCommand("request_queue_update"),
-    }),
-    [joinRoomInternal], // eslint-disable-line react-hooks/exhaustive-deps
-  );
 
   return {
     // State
     connected,
     hasJoinedRoom,
     clientCount,
-    queue,
-    upNextQueue,
-    playerState,
-    isLeader,
-    lastQueueCommand,
+    lastMessage,
 
-    // Actions
+    // Core actions
     sendCommand,
     sendCommandWithAck,
-    ...actions,
+    joinRoom: joinRoomInternal,
   };
 }

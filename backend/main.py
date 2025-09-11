@@ -1,12 +1,14 @@
 from typing_extensions import Annotated
 from pathlib import Path
 from os import environ
+import time
 
 from fastapi import FastAPI, WebSocket, Depends, HTTPException
 from fastapi.websockets import WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
+from pydantic import BaseModel
 
 from core.search import KaraokeEntry
 from services.karaoke_service import KaraokeService, KaraokeSearchResult, VideoURLResponse
@@ -14,6 +16,16 @@ from commands import ControllerCommands, DisplayCommands
 from websocket_errors import WebSocketErrorType, create_error_response
 from websocket_models import validate_websocket_message
 from session_manager import SessionManager
+
+# Request/Response models
+class CreateRoomRequest(BaseModel):
+    room_id: str
+    is_public: bool = True
+    password: str = None
+
+class JoinRoomRequest(BaseModel):
+    room_id: str
+    password: str = None
 
 app = FastAPI()
 
@@ -44,6 +56,68 @@ async def get_video_url(entry: KaraokeEntry, service: Annotated[KaraokeService, 
 async def get_health():
     """Get WebSocket connection health metrics"""
     return session_manager.get_health_metrics()
+
+@app.get("/rooms")
+async def get_active_rooms():
+    return {
+        "rooms": session_manager.get_active_rooms(),
+        "timestamp": time.time()
+    }
+
+@app.post("/rooms/create")
+async def create_room(request: CreateRoomRequest):
+    try:
+        room = session_manager.room_manager.create_room(
+            room_id=request.room_id,
+            is_public=request.is_public,
+            password=request.password
+        )
+        
+        return {
+            "success": True,
+            "room": {
+                "id": room.id,
+                "is_public": room.is_public,
+                "requires_password": room.requires_password(),
+                "created_at": room.created_at
+            }
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.get("/rooms/{room_id}")
+async def get_room_details(room_id: str):
+    if not session_manager.room_manager.room_exists(room_id):
+        raise HTTPException(status_code=404, detail="Room not found")
+    
+    room = session_manager.room_manager.get_room(room_id)
+    
+    return {
+        "id": room.id,
+        "is_public": room.is_public,
+        "requires_password": room.requires_password(),
+        "created_at": room.created_at
+    }
+
+@app.post("/rooms/verify")
+async def verify_room_access(request: JoinRoomRequest):
+    if not session_manager.room_manager.room_exists(request.room_id):
+        raise HTTPException(status_code=404, detail="Room not found")
+    
+    room = session_manager.room_manager.get_room(request.room_id)
+    
+    if room.requires_password():
+        if not room.verify_password(request.password or ""):
+            raise HTTPException(status_code=401, detail="Invalid password")
+    
+    return {
+        "success": True,
+        "room": {
+            "id": room.id,
+            "is_public": room.is_public,
+            "requires_password": room.requires_password()
+        }
+    }
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket, service: Annotated[KaraokeService, Depends()]):

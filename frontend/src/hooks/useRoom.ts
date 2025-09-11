@@ -243,11 +243,12 @@ export function useRoom(clientType: ClientType, initialRoomId?: string | null): 
   }, [ws.connected, clientType]);
 
   useEffect(() => {
-    if (ws.hasJoinedRoom && ws.connected && clientType === 'controller') {
+    if (ws.hasJoinedRoom && clientType === 'controller') {
       console.log('[useRoom] Requesting queue update after joining room');
       ws.sendCommand('request_queue_update');
     }
-  }, [ws, clientType]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ws.hasJoinedRoom, clientType]);
   
   
   return {

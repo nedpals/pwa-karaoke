@@ -18,10 +18,15 @@ const buttonVariants = cva(
         lg: "px-6 py-3 text-lg",
         xl: "px-8 py-4 text-xl",
       },
+      active: {
+        true: "bg-gradient-to-b from-blue-500/90 to-blue-700/90 border-blue-400/50 shadow-lg shadow-blue-500/20 hover:not-disabled:from-blue-400/90 hover:not-disabled:to-blue-600/90",
+        false: "",
+      },
     },
     defaultVariants: {
       variant: "primary",
       size: "md",
+      active: false,
     },
   }
 );
@@ -32,6 +37,7 @@ export type ButtonSize = "sm" | "md" | "lg" | "xl";
 export interface BaseButtonProps extends VariantProps<typeof buttonVariants> {
   children: React.ReactNode;
   className?: string;
+  active?: boolean;
 }
 
 export interface ButtonProps<T extends ElementType = "button"> extends BaseButtonProps {
@@ -42,6 +48,7 @@ export function Button<T extends ElementType = "button">({
   as,
   variant,
   size,
+  active,
   className,
   children,
   ...rest
@@ -50,7 +57,7 @@ export function Button<T extends ElementType = "button">({
 
   return (
     <Component
-      className={cn(buttonVariants({ variant, size }), className)}
+      className={cn(buttonVariants({ variant, size, active }), className)}
       {...rest}
     >
       {children}

@@ -166,7 +166,7 @@ function SearchResults({
 }
 
 function SongSelectTab() {
-  const { queueSong, queue } = useRoomContext();
+  const { queueSong, queue, playerState } = useRoomContext();
   const { hasPhysicalKeyboard } = usePhysicalKeyboard();
   const [showVirtualKeyboard, setShowVirtualKeyboard] = useState(false);
   const [queueingStates, setQueueingStates] = useState<Record<string, boolean>>({});
@@ -205,7 +205,7 @@ function SongSelectTab() {
     try {
       await queueSong(entry);
     } catch (error) {
-      console.error("Failed to queue song:", error);
+      console.error(error);
       setErrorMessage(`Failed to queue "${entry.title}". Please try again.`);
       setTimeout(() => setErrorMessage(null), 5000); // Clear error after 5 seconds
     } finally {
@@ -257,7 +257,7 @@ function SongSelectTab() {
             searchError={searchError}
             searchQuery={textInput.text}
             queueingStates={queueingStates}
-            queueCount={queue?.items.length ?? 0}
+            queueCount={(playerState?.entry ? 1 : 0) + (queue?.items.length ?? 0)}
             onAddToQueue={handleAddQueueItem}
           />
         </div>

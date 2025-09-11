@@ -147,7 +147,7 @@ export function useRoom(clientType: ClientType, initialRoomId?: string | null): 
     switch (command) {
       case "queue_update": {
         const incomingQueue = data as KaraokeQueue;
-        console.log(`[${clientType}] Received queue_update:`, incomingQueue);
+        // console.log(`[${clientType}] Received queue_update:`, incomingQueue);
         setQueue((prevQueue) => {
           if (!prevQueue) return incomingQueue;
 
@@ -213,10 +213,10 @@ export function useRoom(clientType: ClientType, initialRoomId?: string | null): 
         }
         break;
       case "send_current_queue":
-        if (clientType === "display") {
-          console.log("[Display] Received send_current_queue request");
-          setLastQueueCommand({ command, data, timestamp: Date.now() });
-        }
+        // if (clientType === "display") {
+        //   console.log("[Display] Received send_current_queue request");
+        //   setLastQueueCommand({ command, data, timestamp: Date.now() });
+        // }
         break;
       case "set_volume":
         if (clientType === "display") {

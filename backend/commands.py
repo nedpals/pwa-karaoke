@@ -1,5 +1,6 @@
 import random
 import time
+import asyncio
 from typing_extensions import Literal
 
 from core.search import KaraokeEntry
@@ -17,11 +18,11 @@ class ClientCommands:
     async def pong(self, data):
         """Handle pong response from client"""
         self.client.update_pong()
-        print(f"[DEBUG] Received pong from {self.client.client_type} ({self.client.id})")
+        # print(f"[DEBUG] Received pong from {self.client.client_type} ({self.client.id})")
 
     async def request_full_state(self, data):
         """Handle request for full state synchronization"""
-        print(f"[DEBUG] {self.client.client_type} requesting full state sync")
+        # print(f"[DEBUG] {self.client.client_type} requesting full state sync")
         
         if not self.client.room_id:
             await self.client.send_command("client_count", 0)
@@ -91,30 +92,18 @@ class ClientCommands:
     
     async def play_next(self, _: None):
         next_song = self.room.play_next()
-        print(f"[DEBUG] Playing next song: {next_song.entry.title if next_song else 'None'}")
+        print(f"[DEBUG] Playing next song: {next_song}")
 
-        if next_song:
-            new_player_state = DisplayPlayerState(
-                entry=next_song.entry,
-                play_state="playing",
-                current_time=0.0,
-                duration=0.0,
-                volume=self.room.player_state.volume if self.room.player_state else 0.5,
-                version=int(time.time() * 1000),
-                timestamp=time.time()
-            )
-        else:
-            new_player_state = DisplayPlayerState(
-                entry=None,
-                play_state="finished",
-                current_time=0.0,
-                duration=0.0,
-                volume=self.room.player_state.volume if self.room.player_state else 1,
-                version=int(time.time() * 1000),
-                timestamp=time.time()
-            )
+        await self._update_player_state(DisplayPlayerState(
+            entry=next_song.entry if next_song else None,
+            play_state="playing" if next_song else "finished",
+            current_time=0.0,
+            duration=0.0,
+            volume=self.room.player_state.volume if self.room.player_state else 0.5,
+            version=int(time.time() * 1000),
+            timestamp=time.time()
+        ))
 
-        await self._update_player_state(new_player_state)
         await self._broadcast_room_state()
 
 class ControllerCommands(ClientCommands):
@@ -127,9 +116,16 @@ class ControllerCommands(ClientCommands):
         entry = KaraokeEntry.parse_obj(payload)
         print(f"[DEBUG] Controller queue_song received: {entry.title} by {entry.artist}")
         
-        # Add song to room queue and broadcast update
+        is_previously_empty = self.room.is_empty
+        is_currently_playing = self.room.player_state and self.room.player_state.entry is not None
+
         self.room.add_song(entry)
+        await asyncio.sleep(0.1)  # Small delay to ensure state consistency
         await self._broadcast_room_state()
+        
+        if is_previously_empty and not is_currently_playing:
+            # Directly play if queue is empty
+            await self.play_next(None)
 
     async def queue_next_song(self, payload):
         # Move song to next position in room queue and broadcast update
@@ -178,10 +174,6 @@ class DisplayCommands(ClientCommands):
             return None
 
     async def update_player_state(self, _state):
-        # Broadcast the updated player state to all clients
-        #
-        # TIP: When the song is finished, the display client should send a "finished" state
-        # so that the controller clients will be the ones to request to play the next song
         await self._update_player_state(_state)
 
     async def request_queue_update(self, _: None):

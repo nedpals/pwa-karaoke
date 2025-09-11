@@ -59,9 +59,9 @@ class Room(BaseModel):
     
     def play_next(self) -> Optional[KaraokeQueueItem]:
         if self.queue.items:
-            self.queue.items.pop(0)
+            next_song = self.queue.items.pop(0)
             self.queue_version += 1
-            return self.queue.items[0] if self.queue.items else None
+            return next_song
         return None
     
     def clear_queue(self) -> None:
@@ -69,7 +69,7 @@ class Room(BaseModel):
         self.queue_version += 1
     
     def get_current_song(self) -> Optional[KaraokeQueueItem]:
-        return self.queue.items[0] if self.queue.items else None
+        return self.player_state.entry if self.player_state else None
     
     def get_up_next_queue(self) -> list[KaraokeQueueItem]:
         return self.queue.items[1:] if len(self.queue.items) > 1 else []
@@ -87,13 +87,9 @@ class Room(BaseModel):
             "timestamp": time.time()
         }
     
-    def get_up_next_payload(self) -> Dict[str, Any]:
-        up_next = self.get_up_next_queue()
-        return {
-            "items": [item.model_dump() for item in up_next],
-            "version": self.queue_version,
-            "timestamp": time.time()
-        }
+    @property
+    def is_empty(self) -> bool:
+        return len(self.queue.items) == 0
 
 class RoomManager:
     def __init__(self):

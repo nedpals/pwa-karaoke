@@ -664,28 +664,6 @@ function PlayerStateProviderInternal({ children }: { children: React.ReactNode }
     }
   }, [connected]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Auto-play first song when queue goes from empty to having songs (only when no player state exists)
-  useEffect(() => {
-    if (
-      queue &&
-      queue.items.length > 0 &&
-      (!playerState || (!playerState.entry && playerState.play_state !== "playing")) // No current song and not actively playing
-    ) {
-      const firstSong = queue.items[0];
-      console.log("[PlayerState] Auto-playing first song:", firstSong.entry.title);
-
-      updatePlayerState({
-        entry: firstSong.entry,
-        play_state: "playing",
-        current_time: 0,
-        duration: 0,
-        volume: playerState?.volume ?? 0.5,
-        version: Date.now(),
-        timestamp: Date.now(),
-      });
-    }
-  }, [queue, playerState, updatePlayerState]);
-
   const previousQueueLengthRef = useRef(0);
   useEffect(() => {
     if (upNextQueue && upNextQueue.items.length > 0) {

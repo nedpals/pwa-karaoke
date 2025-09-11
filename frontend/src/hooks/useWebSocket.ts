@@ -185,6 +185,7 @@ export function useWebSocket(clientType: ClientType): WebSocketReturn {
             if (ackData.success) {
               pendingRequest.resolve(ackData);
             } else {
+              console.error(ackData.error);
               pendingRequest.reject(new Error(ackData.error || "Request failed"));
             }
             pendingRequests.delete(ackData.request_id);

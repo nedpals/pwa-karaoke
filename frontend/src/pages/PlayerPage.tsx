@@ -25,7 +25,6 @@ type AppState = "awaiting-interaction" | "connecting" | "connected" | "ready" | 
 interface PlayerHeaderStatus {
   status: string;
   title: string;
-  count?: number;
   icon?: React.ReactNode;
 }
 
@@ -419,7 +418,6 @@ function PlayingStateContent() {
       status: "Up Next",
       title: `${nextSong.entry.artist} - ${nextSong.entry.title}`,
       icon: <RiMusic2Fill className="w-8 h-8 mr-2 text-yellow-500" />,
-      count: upNextQueue.items.length,
     }, { duration: 3000 });
 
     if (!nextSong.entry.video_url) {
@@ -431,7 +429,8 @@ function PlayingStateContent() {
           console.error('[Prefetch] Failed to prefetch URL for:', nextSong.entry.title, error);
         });
     }
-  }, [upNextQueue, triggerVideoUrl, setPlayerHeaderStatus]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [upNextQueue]);
 
   if (!playerState?.entry) return null;
 
@@ -442,7 +441,7 @@ function PlayingStateContent() {
           status={playerHeaderStatus.status}
           title={playerHeaderStatus.title}
           icon={playerHeaderStatus.icon}
-          count={Math.max(playerHeaderStatus.count ?? 0, 0)}
+          count={Math.max(upNextQueue?.items.length ?? 0, 0)}
         />
       </div>
 
@@ -578,7 +577,7 @@ function PlayerStateProviderInternal({ children }: { children: React.ReactNode }
     connected,
     playerState,
     clientCount,
-    queue,
+    upNextQueue,
     requestQueueUpdate,
     updatePlayerState,
     lastQueueCommand,
@@ -589,7 +588,6 @@ function PlayerStateProviderInternal({ children }: { children: React.ReactNode }
     status: "Loading",
     title: "No Song",
     icon: <RiMusic2Fill className="w-8 h-8 mr-2 text-blue-500" />,
-    count: 0,
   });
 
   // OSD management (single OSD for all messages, always top-left)
@@ -616,10 +614,10 @@ function PlayerStateProviderInternal({ children }: { children: React.ReactNode }
         status: "Playing",
         title: `${playerState.entry.artist} - ${playerState.entry.title}`,
         icon: <RiMusic2Fill className="w-8 h-8 mr-2 text-blue-500" />,
-        count: queue ? queue.items.length : 0,
       });
     }
-  }, [playerState, queue]); // Removed setPlayerHeaderStatus to prevent infinite loop
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [playerState, upNextQueue]);
 
   // Handle OSD updates based on player state - use refs to track last states to avoid conflicts
   const lastPlayStateRef = useRef<string | null>(null);
@@ -690,22 +688,22 @@ function PlayerStateProviderInternal({ children }: { children: React.ReactNode }
 
   const previousQueueLengthRef = useRef(0);
   useEffect(() => {
-    if (queue && queue.items.length > previousQueueLengthRef.current) {
-      const newSong = queue.items[queue.items.length - 1];
+    if (upNextQueue && upNextQueue.items.length > 0) {
       const isFirstSong = previousQueueLengthRef.current === 0;
+      const newSong = upNextQueue.items[0];
       
       if (!isFirstSong) {
         setPlayerHeaderStatus({
           status: "Queued",
           title: `${newSong.entry.artist} - ${newSong.entry.title}`,
           icon: <RiMusic2Fill className="w-8 h-8 mr-2 text-green-500" />,
-          count: queue.items.length - 1,
         }, { duration: 3000 });
       }
     }
     
-    previousQueueLengthRef.current = queue?.items.length || 0;
-  }, [queue, setPlayerHeaderStatus]);
+    previousQueueLengthRef.current = upNextQueue ? upNextQueue.items.length : 0;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [upNextQueue, playerState?.entry]);
 
   useEffect(() => {
     if (!lastQueueCommand) return;

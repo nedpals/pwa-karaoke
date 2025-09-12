@@ -77,22 +77,20 @@ function VideoPlayerComponent({
   const hasNearingEndFiredRef = useRef(false);
 
   // Versioned player state update
-  const updateVersionedPlayerState = useMemo(() => {
-    return (partialState: Partial<DisplayPlayerState>) => {
-      const versionedState = {
-        entry: playerState?.entry || null,
-        play_state: "paused" as const,
-        current_time: 0,
-        duration: 0,
-        volume: playerState?.volume ?? 0.5,
-        version: Date.now(),
-        timestamp: Date.now(),
-        ...partialState,
-      };
-
-      updatePlayerState(versionedState);
+  const updateVersionedPlayerState = useCallback((partialState: Partial<DisplayPlayerState>) => {
+    const versionedState = {
+      entry: playerState?.entry || null,
+      play_state: "paused" as const,
+      current_time: 0,
+      duration: 0,
+      volume: playerState?.volume ?? 0.5,
+      version: Date.now(),
+      timestamp: Date.now(),
+      ...partialState,
     };
-  }, [playerState, updatePlayerState]);
+
+    updatePlayerState(versionedState);
+  }, [playerState?.entry, playerState?.volume, updatePlayerState]);
 
   // Handle play/pause state changes from controller commands
   useEffect(() => {
@@ -663,14 +661,15 @@ function PlayerStateProviderInternal({ children }: { children: React.ReactNode }
       lastVolumeRef.current = volume;
       setOSD({ message: `Volume: ${volumePercent}%`, visible: true }, { duration: 2000 });
     }
-  }, [playerState?.volume, playerState?.play_state, playerState?.entry, setOSD]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [playerState?.volume, playerState?.play_state, playerState?.entry]);
 
   useEffect(() => {
-    if (!lastQueueCommand) return;
+    if (!lastQueueCommand || !playerState) return;
 
     const { command, data } = lastQueueCommand;
 
-    if (command === "set_volume" && playerState) {
+    if (command === "set_volume") {
       const newVolume = data as number;
       updatePlayerState({
         ...playerState,
@@ -679,7 +678,7 @@ function PlayerStateProviderInternal({ children }: { children: React.ReactNode }
         timestamp: Date.now(),
       });
     }
-  }, [lastQueueCommand, playerState, updatePlayerState]);
+  }, [lastQueueCommand]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const contextValue: PlayerContextType = {
     appState,

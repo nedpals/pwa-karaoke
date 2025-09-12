@@ -10,7 +10,7 @@ interface MessageTemplateProps {
 
 export function MessageTemplate({ 
   title = "System Message", 
-  size = "md", 
+  size = "auto", 
   className = "",
   children,
   background

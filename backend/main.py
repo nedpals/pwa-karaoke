@@ -115,7 +115,10 @@ async def verify_room_access(request: JoinRoomRequest):
     room = session_manager.room_manager.get_room(request.room_id)
     
     if room.requires_password():
-        if not room.verify_password(request.password or ""):
+        if request.password is None or len(request.password) == 0:
+            raise HTTPException(status_code=401, detail="Password required")
+
+        if not room.verify_password(request.password):
             raise HTTPException(status_code=401, detail="Invalid password")
     
     return {

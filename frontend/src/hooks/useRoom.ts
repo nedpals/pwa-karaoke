@@ -12,6 +12,7 @@ export interface RoomState {
   isVerified: boolean;
   isVerifying: boolean;
   verificationError: string | null;
+  requiresPassword: boolean;
   
   // WebSocket connection status
   connected: boolean;
@@ -56,11 +57,12 @@ export interface RoomActions {
 export type UseRoomReturn = RoomState & RoomActions;
 
 export function useRoom(clientType: ClientType): UseRoomReturn {
-  const { isOffline, isLoading: isServerStateLoading } = useServerStatus();
+  const { isOffline } = useServerStatus();
   const [roomId, setRoomId] = useState<string | null>(null);
   const [isVerified, setIsVerified] = useState(false);
   const [isVerifying, setIsVerifying] = useState(false);
   const [verificationError, setVerificationError] = useState<string | null>(null);
+  const [requiresPassword, setRequiresPassword] = useState(false);
 
   const [queue, setQueue] = useState<KaraokeQueue | null>(null);
   const [playerState, setPlayerState] = useState<DisplayPlayerState | null>(null);
@@ -98,6 +100,7 @@ export function useRoom(clientType: ClientType): UseRoomReturn {
     }
     
     setVerificationError(null);
+    setRequiresPassword(false);
     
     try {
       const roomPassword = password || getRoomPassword(targetRoomId);
@@ -121,6 +124,16 @@ export function useRoom(clientType: ClientType): UseRoomReturn {
         errorMessage = 'Server is offline or unreachable. Please check your connection and try again.';
       }
       
+      // Check if the error indicates password is required
+      if (error instanceof Error && (error.message === 'Password required' || error.message === 'Invalid password')) {
+        setRequiresPassword(true);
+        if (error.message === 'Password required') {
+          errorMessage = 'This room requires a password to join.';
+        } else {
+          errorMessage = 'The password you entered is incorrect.';
+        }
+      }
+      
       setVerificationError(errorMessage);
       setIsVerified(false);
 
@@ -130,7 +143,7 @@ export function useRoom(clientType: ClientType): UseRoomReturn {
     } finally {
       setIsVerifying(false);
     }
-  }, [isServerStateLoading, isOffline, verifyRoom]);
+  }, [isOffline, verifyRoom]); // eslint-disable-line react-hooks/exhaustive-deps
   
   useEffect(() => {
     if (!ws.lastMessage) return;
@@ -230,6 +243,7 @@ export function useRoom(clientType: ClientType): UseRoomReturn {
     isVerified,
     isVerifying,
     verificationError,
+    requiresPassword,
     
     // WebSocket state (forwarded)
     connected: ws.connected,

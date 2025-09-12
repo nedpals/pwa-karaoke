@@ -19,6 +19,7 @@ import { MaterialSymbolsVolumeUpRounded } from "../components/icons/MaterialSymb
 import { MaterialSymbolsVolumeDownRounded } from "../components/icons/MaterialSymbolsVolumeDownRounded";
 import { Text } from "../components/atoms/Text";
 import { Button } from "../components/atoms/Button";
+import { Input } from "../components/atoms/Input";
 import { ProgressBar } from "../components/atoms/ProgressBar";
 import { SearchInput } from "../components/molecules/SearchInput";
 import { IconButton } from "../components/molecules/IconButton";
@@ -641,6 +642,56 @@ function ControllerPageContent() {
   );
 }
 
+function PasswordInputScreen({ roomId, room }: { roomId: string; room: ReturnType<typeof useRoom> }) {
+  const [password, setPassword] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!password.trim() || isSubmitting) return;
+
+    setIsSubmitting(true);
+    try {
+      await room.verifyAndJoinRoom(roomId, password);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="flex flex-col items-center space-y-6 max-w-md">
+      <div className="text-center space-y-2">
+        <Text size="lg" shadow>
+          Password Required
+        </Text>
+        <Text size="base" shadow className="text-gray-300">
+          {room.verificationError}
+        </Text>
+      </div>
+
+      <form onSubmit={handleSubmit} className="w-full space-y-4">
+        <Input
+          type="password"
+          placeholder="Enter room password"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          glass
+          disabled={isSubmitting}
+          autoFocus
+        />
+        <Button
+          type="submit"
+          variant="primary"
+          disabled={!password.trim() || isSubmitting}
+          className="w-full"
+        >
+          {isSubmitting ? 'Joining...' : 'Join Room'}
+        </Button>
+      </form>
+    </div>
+  );
+}
+
 export default function ControllerPage() {
   const [searchParams] = useSearchParams();
   const roomId = searchParams.get("room");
@@ -672,6 +723,14 @@ export default function ControllerPage() {
   }
 
   if (room.verificationError) {
+    if (room.requiresPassword) {
+      return (
+        <ControllerMessageScreen>
+          <PasswordInputScreen roomId={roomId!} room={room} />
+        </ControllerMessageScreen>
+      );
+    }
+
     return (
       <ControllerMessageScreen>
         <div className="flex flex-col items-center space-y-4 max-w-md">

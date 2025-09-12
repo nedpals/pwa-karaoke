@@ -7,6 +7,7 @@ import { OSD } from "../components/molecules/OSD";
 import { PlayerHeader } from "../components/organisms/PlayerHeader";
 import { QRCode } from "../components/atoms/QRCode";
 import { Button } from "../components/atoms/Button";
+import { Input } from "../components/atoms/Input";
 import { RiMusic2Fill } from "../components/icons/RiMusic2Fill";
 import { LoadingSpinner } from "../components/atoms/LoadingSpinner";
 import { MessageTemplate } from "../components/templates/MessageTemplate";
@@ -730,6 +731,58 @@ function PlayerPageContent() {
   }
 }
 
+function PasswordInputScreen({ roomId, room }: { roomId: string; room: ReturnType<typeof useRoom> }) {
+  const [password, setPassword] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!password.trim() || isSubmitting) return;
+
+    setIsSubmitting(true);
+    try {
+      await room.verifyAndJoinRoom(roomId, password);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="flex flex-col items-center space-y-6 max-w-3xl py-4">
+      <div className="text-center space-y-2">
+        <Text size="lg" shadow>
+          Password Required
+        </Text>
+        <Text size="base" shadow className="text-gray-300">
+          {room.verificationError}
+        </Text>
+      </div>
+
+      <form onSubmit={handleSubmit} className="w-full space-y-4">
+        <Input
+          type="password"
+          placeholder="Enter room password"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          glass
+          size="lg"
+          disabled={isSubmitting}
+          autoFocus
+        />
+        <Button
+          type="submit"
+          variant="primary"
+          size="lg"
+          disabled={!password.trim() || isSubmitting}
+          className="w-full"
+        >
+          {isSubmitting ? 'Joining...' : 'Join Room'}
+        </Button>
+      </form>
+    </div>
+  );
+}
+
 export default function PlayerPage() {
   const [searchParams] = useSearchParams();
   const roomId = searchParams.get("room");
@@ -756,6 +809,14 @@ export default function PlayerPage() {
   }
 
   if (room.verificationError) {
+    if (room.requiresPassword) {
+      return (
+        <MessageTemplate background={<FallbackBackground className="relative" />}>
+          <PasswordInputScreen roomId={roomId!} room={room} />
+        </MessageTemplate>
+      );
+    }
+
     return (
       <ConnectingStateScreen 
         title="Access Denied"

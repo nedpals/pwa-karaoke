@@ -385,7 +385,8 @@ function ClientCountDisplay() {
 
 function PlayingStateContent() {
   // Make it null so it wont trigger the "queued" message on first load
-  const lastUpNextQueueCountRef = useRef<number | null>(null);
+  const lastUpNextQueueVersion = useRef<number | null>(null);
+  const lastUpNextQueueLength = useRef<number>(0);
   const [upNextStatus, setUpNextStatus] = useTempState<string | null>(null);
   const [queuedStatus, setQueuedStatus] = useTempState<string | null>(null);
 
@@ -462,13 +463,16 @@ function PlayingStateContent() {
   }, [upNextQueue, setUpNextStatus]);
 
   useEffect(() => {
-    if (lastUpNextQueueCountRef.current && upNextQueue && upNextQueue.items.length > lastUpNextQueueCountRef.current) {
+    console.log({ lastUpNextQueueCountRef: lastUpNextQueueVersion.current, upNextQueueVersion: upNextQueue?.version });
+
+    if (lastUpNextQueueVersion.current && upNextQueue && upNextQueue.version > lastUpNextQueueVersion.current && upNextQueue.items.length > lastUpNextQueueLength.current) {
       const newSong = upNextQueue.items[upNextQueue.items.length - 1];
       setQueuedStatus(`${newSong.entry.artist} - ${newSong.entry.title}`, { duration: 3000 });
     }
 
     return () => {
-      lastUpNextQueueCountRef.current = upNextQueue?.items.length || 0;
+      lastUpNextQueueVersion.current = upNextQueue?.version ?? null;
+      lastUpNextQueueLength.current = upNextQueue?.items.length ?? 0;
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [upNextQueue]);

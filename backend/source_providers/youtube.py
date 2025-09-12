@@ -170,8 +170,10 @@ class YTKaraokeSourceProvider(KaraokeSourceProvider):
                 stream = yt.streams.first()
                 
             return stream.url if stream else None
-        except Exception:
+        except Exception as e:
             # Return None if extraction fails, fallback to original URL
+            print(f"Failed to extract video URL for {youtube_url}")
+            print(e)
             return None
 
     async def close(self):

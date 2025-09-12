@@ -23,6 +23,17 @@ class BrowserManager:
         if not config.PLAYWRIGHT_ENABLED:
             return None
             
+        if self._browser is None or not self._browser.is_connected():
+            await self._ensure_browser()
+        
+        return self._browser
+
+    async def _ensure_browser(self):
+        """Ensure we have a connected browser instance."""
+        # Clean up stale browser if it exists
+        if self._browser and not self._browser.is_connected():
+            self._browser = None
+            
         if self._browser is None:
             if self._playwright is None:
                 self._playwright = await async_playwright().start()
@@ -44,8 +55,6 @@ class BrowserManager:
                         "--disable-features=VizDisplayCompositor"
                     ]
                 )
-        
-        return self._browser
     
     async def close(self):
         """Close browser and cleanup."""

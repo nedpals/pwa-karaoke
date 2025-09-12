@@ -27,7 +27,14 @@ class YTKaraokeSourceProvider(KaraokeSourceProvider):
         if not browser:
             return KaraokeSearchResult(entries=[])
         
-        page_obj = await browser.new_page()
+        try:
+            page_obj = await browser.new_page()
+        except Exception:
+            # Browser connection may have been closed, try to get a fresh browser
+            browser = await browser_manager.get_browser()
+            if not browser:
+                return KaraokeSearchResult(entries=[])
+            page_obj = await browser.new_page()
 
         try:
             enhanced_query = self._enhance_query_with_keywords(query)

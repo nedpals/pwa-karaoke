@@ -1,0 +1,63 @@
+version: '3.8'
+
+services:
+  browserless:
+    image: browserless/chrome:latest
+    restart: unless-stopped
+    environment:
+      - HEALTH=true
+      - CHROME_ARGS=--disable-blink-features=AutomationControlled,--disable-web-security,--disable-features=VizDisplayCompositor,--disable-ipc-flooding-protection,--no-sandbox,--disable-dev-shm-usage
+      # Performance and resource limits
+      - MAX_CONCURRENT_SESSIONS=3
+      - SESSION_TIMEOUT=60000
+      - MAX_MEMORY_PERCENT=90
+      - CONCURRENT=3
+      # Optional: Add token for security
+      # - TOKEN=your-secret-token
+    # Resource limits to prevent browser from consuming too much memory
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: '1.0'
+        reservations:
+          memory: 512M
+          cpus: '0.25'
+
+  # PWA Karaoke application
+  karaoke-app:
+    build: .
+    restart: unless-stopped
+    environment:
+      # Playwright configuration to use browserless
+      - PLAYWRIGHT_ENABLED=true
+      - PLAYWRIGHT_BROWSER_URL=ws://browserless:3000
+      - PLAYWRIGHT_HEADLESS=true
+    ports:
+      - "8000:8000"
+    depends_on:
+      - browserless
+    # Health check for the karaoke app
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # Optional: Add a reverse proxy for production
+  # nginx:
+  #   image: nginx:alpine
+  #   ports:
+  #     - "80:80"
+  #     - "443:443"
+  #   volumes:
+  #     - ./nginx.conf:/etc/nginx/nginx.conf:ro
+  #   depends_on:
+  #     - karaoke-app
+  #   restart: unless-stopped
+
+# Optional: Create a custom network for better isolation
+networks:
+  default:
+    name: karaoke-network

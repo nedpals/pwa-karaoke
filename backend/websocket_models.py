@@ -76,8 +76,6 @@ COMMAND_PAYLOAD_MAP = {
     "play_next": dict,
     "clear_queue": dict,
     "request_queue_update": dict,
-    "send_current_queue": dict,
-    "send_full_state": dict,
 }
 
 def validate_websocket_message(command: str, payload: Any) -> Dict[str, Any]:

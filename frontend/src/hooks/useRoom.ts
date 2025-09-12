@@ -51,7 +51,6 @@ export interface RoomActions {
   
   // Display commands (implemented here)
   updatePlayerState: (state: DisplayPlayerState) => void;
-  requestQueueUpdate: () => void;
 }
 
 export type UseRoomReturn = RoomState & RoomActions;
@@ -202,21 +201,10 @@ export function useRoom(clientType: ClientType, initialRoomId?: string | null): 
           prev ? { ...prev, play_state: "paused" } : null,
         );
         break;
-      case "request_player_state":
-        if (clientType === "controller" && playerState) {
-          ws.sendCommand("player_state", playerState);
-        }
-        break;
       case "leader_status":
         if (clientType === "controller") {
           setIsLeader((data as { is_leader: boolean }).is_leader);
         }
-        break;
-      case "send_current_queue":
-        // if (clientType === "display") {
-        //   console.log("[Display] Received send_current_queue request");
-        //   setLastQueueCommand({ command, data, timestamp: Date.now() });
-        // }
         break;
       case "set_volume":
         if (clientType === "display") {
@@ -241,15 +229,6 @@ export function useRoom(clientType: ClientType, initialRoomId?: string | null): 
       setIsLeader(false);
     }
   }, [ws.connected, clientType]);
-
-  useEffect(() => {
-    if (ws.hasJoinedRoom && clientType === 'controller') {
-      console.log('[useRoom] Requesting queue update after joining room');
-      ws.sendCommand('request_queue_update');
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ws.hasJoinedRoom, clientType]);
-  
   
   return {
     // Room state
@@ -288,6 +267,5 @@ export function useRoom(clientType: ClientType, initialRoomId?: string | null): 
     clearQueue: () => ws.sendCommandWithAck("clear_queue"),
     setVolume: (volume: number) => ws.sendCommandWithAck("set_volume", { volume }),
     updatePlayerState: (state: DisplayPlayerState) => ws.sendCommand("update_player_state", state),
-    requestQueueUpdate: () => ws.sendCommand("request_queue_update"),
   };
 }

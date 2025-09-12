@@ -375,7 +375,8 @@ function ClientCountDisplay() {
 }
 
 function PlayingStateContent() {
-  const lastUpNextQueueCountRef = useRef(0);
+  // Make it null so it wont trigger the "queued" message on first load
+  const lastUpNextQueueCountRef = useRef<number | null>(null);
   const [upNextStatus, setUpNextStatus] = useTempState<string | null>(null);
   const [queuedStatus, setQueuedStatus] = useTempState<string | null>(null);
 
@@ -450,8 +451,8 @@ function PlayingStateContent() {
       });
   }, [upNextQueue, setUpNextStatus]);
 
-  useEffect(() => {    
-    if (upNextQueue && upNextQueue.items.length > lastUpNextQueueCountRef.current) {
+  useEffect(() => {
+    if (lastUpNextQueueCountRef.current && upNextQueue && upNextQueue.items.length > lastUpNextQueueCountRef.current) {
       const newSong = upNextQueue.items[upNextQueue.items.length - 1];
       setQueuedStatus(`${newSong.entry.artist} - ${newSong.entry.title}`, { duration: 3000 });
     }
@@ -603,14 +604,12 @@ function AwaitingInteractionStateScreen() {
 }
 
 function PlayerStateProviderInternal({ children }: { children: React.ReactNode }) {
-  const hasRequestedInitialQueue = useRef(false);
   const [hasInteracted, setHasInteracted] = useState(false);
 
   const {
     connected,
     playerState,
     clientCount,
-    requestQueueUpdate,
     updatePlayerState,
     lastQueueCommand,
   } = useRoomContext();
@@ -665,16 +664,6 @@ function PlayerStateProviderInternal({ children }: { children: React.ReactNode }
       setOSD({ message: `Volume: ${volumePercent}%`, visible: true }, { duration: 2000 });
     }
   }, [playerState?.volume, playerState?.play_state, playerState?.entry, setOSD]);
-
-  // Handle initial queue request
-  useEffect(() => {
-    if (connected && !hasRequestedInitialQueue.current) {
-      hasRequestedInitialQueue.current = true;
-      requestQueueUpdate();
-    } else if (!connected) {
-      hasRequestedInitialQueue.current = false;
-    }
-  }, [connected]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!lastQueueCommand) return;

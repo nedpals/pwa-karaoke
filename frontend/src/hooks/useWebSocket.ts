@@ -130,16 +130,6 @@ export function useWebSocket(clientType: ClientType): WebSocketReturn {
     });
   }, [hasHandshaken, generateRequestId, clientType, pendingRequests, sendJsonMessage]);
 
-  // Room joining is now handled explicitly by pages
-
-  // Request full state sync after joining room
-  useEffect(() => {
-    if (hasJoinedRoom && readyState === 1) {
-      console.log(`[WebSocket ${clientType}] Requesting full state synchronization`);
-      sendJsonMessage(["request_full_state", {}]);
-    }
-  }, [hasJoinedRoom, readyState, sendJsonMessage, clientType]);
-
   // Flush pending commands after handshake completion
   useEffect(() => {
     if (hasHandshaken && hasJoinedRoom && pendingCommands.length > 0) {

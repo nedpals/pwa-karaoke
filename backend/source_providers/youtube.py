@@ -2,7 +2,7 @@ import re
 from urllib.parse import quote
 from typing import Optional
 from playwright.async_api import Browser
-from pytube import YouTube
+from pytubefix import YouTube
 from core.search import KaraokeSourceProvider, KaraokeSearchResult, KaraokeEntry
 from browser_manager import browser_manager
 

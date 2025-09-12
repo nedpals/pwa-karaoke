@@ -19,14 +19,9 @@ import { useVideoUrl, useVideoUrlMutation } from "../hooks/useApi";
 import type {
   DisplayPlayerState,
 } from "../types";
+import { cn } from "../lib/utils";
 
 type AppState = "awaiting-interaction" | "connecting" | "connected" | "ready" | "playing";
-
-interface PlayerHeaderStatus {
-  status: string;
-  title: string;
-  icon?: React.ReactNode;
-}
 
 interface OSDState {
   message: string;
@@ -38,10 +33,6 @@ interface PlayerContextType {
   appState: AppState;
   hasInteracted: boolean;
   setHasInteracted: (value: boolean) => void;
-
-  // PlayerHeader status
-  playerHeaderStatus: PlayerHeaderStatus;
-  setPlayerHeaderStatus: (status: PlayerHeaderStatus, options?: { duration?: number }) => void;
 
   // OSD state (single OSD that handles all messages)
   osd: OSDState;
@@ -76,7 +67,7 @@ function VideoPlayerComponent({
 }: {
   videoUrl: string | null;
   isLoadingVideoUrl: boolean;
-  onNearingEnd: () => void;
+  onNearingEnd: (params: { timeRemaining: number }) => void;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const { playerState, updatePlayerState } = useRoomContext();
@@ -181,7 +172,7 @@ function VideoPlayerComponent({
 
         if (shouldFireNearingEnd) {
           hasNearingEndFiredRef.current = true;
-          onNearingEnd();
+          onNearingEnd({ timeRemaining });
         }
       }
     };
@@ -384,14 +375,43 @@ function ClientCountDisplay() {
 }
 
 function PlayingStateContent() {
+  const lastUpNextQueueCountRef = useRef(0);
+  const [upNextStatus, setUpNextStatus] = useTempState<string | null>(null);
+  const [queuedStatus, setQueuedStatus] = useTempState<string | null>(null);
+
   const { playerState, upNextQueue } = useRoomContext();
-  const { playerHeaderStatus, setPlayerHeaderStatus } = usePlayerState();
   const { trigger: triggerVideoUrl } = useVideoUrlMutation();
   const { data: videoUrlData, isLoading: isLoadingVideoUrl } = useVideoUrl(
     playerState?.entry && !playerState.entry.video_url
       ? playerState.entry
       : null,
   );
+
+  const playerHeaderStatusText = useMemo(() => {
+    if (upNextStatus) {
+      return "Up Next";
+    }
+    if (queuedStatus) {
+      return "Queued";
+    }
+    if (!playerState?.entry || playerState.play_state !== "playing") {
+      return "Paused";
+    }
+    return "Playing";
+  }, [upNextStatus, queuedStatus, playerState]);
+
+  const playerHeaderStatusTitle = useMemo(() => {
+    if (upNextStatus) {
+      return upNextStatus;
+    }
+    if (queuedStatus) {
+      return queuedStatus;
+    }
+    if (!playerState?.entry) {
+      return "No Song";
+    }
+    return `${playerState.entry.artist} - ${playerState.entry.title}`;
+  }, [upNextStatus, queuedStatus, playerState]);
 
   const videoUrl = useMemo(() => {
     if (!playerState?.entry) return null;
@@ -409,25 +429,35 @@ function PlayingStateContent() {
     return null;
   }, [playerState, videoUrlData]);
 
-  const handleNearingEnd = useCallback(() => {
+  const handleNearingEnd = useCallback(({ timeRemaining }: { timeRemaining: number }) => {
     if (!upNextQueue || upNextQueue.items.length === 0) return;
 
     const nextSong = upNextQueue.items[0];
+    setUpNextStatus(`${nextSong.entry.artist} - ${nextSong.entry.title}`, { duration: timeRemaining * 1000 });
 
-    setPlayerHeaderStatus({
-      status: "Up Next",
-      title: `${nextSong.entry.artist} - ${nextSong.entry.title}`,
-      icon: <RiMusic2Fill className="w-8 h-8 mr-2 text-yellow-500" />,
-    }, { duration: 3000 });
+    if (nextSong.entry.video_url) {
+      // Skip prefeteching if we already have the URL
+      return;
+    }
 
-    if (!nextSong.entry.video_url) {
-      triggerVideoUrl(nextSong.entry)
-        .then(() => {
-          console.log('[Prefetch] Successfully prefetched URL for:', nextSong.entry.title);
-        })
-        .catch(error => {
-          console.error('[Prefetch] Failed to prefetch URL for:', nextSong.entry.title, error);
-        });
+    // Prefetch video URL for next song
+    triggerVideoUrl(nextSong.entry)
+      .then(() => {
+        console.log('[Prefetch] Successfully prefetched URL for:', nextSong.entry.title);
+      })
+      .catch((error: unknown) => {
+        console.error('[Prefetch] Failed to prefetch URL for:', nextSong.entry.title, error);
+      });
+  }, [upNextQueue, setUpNextStatus]);
+
+  useEffect(() => {    
+    if (upNextQueue && upNextQueue.items.length > lastUpNextQueueCountRef.current) {
+      const newSong = upNextQueue.items[upNextQueue.items.length - 1];
+      setQueuedStatus(`${newSong.entry.artist} - ${newSong.entry.title}`, { duration: 3000 });
+    }
+
+    return () => {
+      lastUpNextQueueCountRef.current = upNextQueue?.items.length || 0;
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [upNextQueue]);
@@ -438,9 +468,12 @@ function PlayingStateContent() {
     <div className="relative bg-black h-screen w-screen">
       <div className="absolute top-0 inset-x-0 z-20 max-w-7xl mx-auto pt-8">
         <PlayerHeader
-          status={playerHeaderStatus.status}
-          title={playerHeaderStatus.title}
-          icon={playerHeaderStatus.icon}
+          status={playerHeaderStatusText}
+          title={playerHeaderStatusTitle}
+          icon={<RiMusic2Fill className={cn("w-8 h-8 mr-2 text-blue-500", {
+            "text-yellow-500": upNextStatus,
+            "text-green-500": queuedStatus,
+          })} />}
           count={Math.max(upNextQueue?.items.length ?? 0, 0)}
         />
       </div>
@@ -577,18 +610,10 @@ function PlayerStateProviderInternal({ children }: { children: React.ReactNode }
     connected,
     playerState,
     clientCount,
-    upNextQueue,
     requestQueueUpdate,
     updatePlayerState,
     lastQueueCommand,
   } = useRoomContext();
-
-  // PlayerHeader status management
-  const [playerHeaderStatus, setPlayerHeaderStatus] = useTempState<PlayerHeaderStatus>({
-    status: "Loading",
-    title: "No Song",
-    icon: <RiMusic2Fill className="w-8 h-8 mr-2 text-blue-500" />,
-  });
 
   // OSD management (single OSD for all messages, always top-left)
   const [osd, setOSD] = useTempState<OSDState>({
@@ -605,19 +630,6 @@ function PlayerStateProviderInternal({ children }: { children: React.ReactNode }
     if (connected && playerState?.entry) return "playing";
     return "connecting";
   }, [hasInteracted, connected, playerState?.entry, clientCount]);
-
-
-  // Update PlayerHeader status based on player state
-  useEffect(() => {
-    if (playerState?.entry) {
-      setPlayerHeaderStatus({
-        status: "Playing",
-        title: `${playerState.entry.artist} - ${playerState.entry.title}`,
-        icon: <RiMusic2Fill className="w-8 h-8 mr-2 text-blue-500" />,
-      });
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [playerState, upNextQueue]);
 
   // Handle OSD updates based on player state - use refs to track last states to avoid conflicts
   const lastPlayStateRef = useRef<string | null>(null);
@@ -664,25 +676,6 @@ function PlayerStateProviderInternal({ children }: { children: React.ReactNode }
     }
   }, [connected]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const previousQueueLengthRef = useRef(0);
-  useEffect(() => {
-    if (upNextQueue && upNextQueue.items.length > 0) {
-      const isFirstSong = previousQueueLengthRef.current === 0;
-      const newSong = upNextQueue.items[0];
-      
-      if (!isFirstSong) {
-        setPlayerHeaderStatus({
-          status: "Queued",
-          title: `${newSong.entry.artist} - ${newSong.entry.title}`,
-          icon: <RiMusic2Fill className="w-8 h-8 mr-2 text-green-500" />,
-        }, { duration: 3000 });
-      }
-    }
-    
-    previousQueueLengthRef.current = upNextQueue ? upNextQueue.items.length : 0;
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [upNextQueue, playerState?.entry]);
-
   useEffect(() => {
     if (!lastQueueCommand) return;
 
@@ -703,8 +696,6 @@ function PlayerStateProviderInternal({ children }: { children: React.ReactNode }
     appState,
     hasInteracted,
     setHasInteracted,
-    playerHeaderStatus,
-    setPlayerHeaderStatus,
     osd,
     setOSD,
   };

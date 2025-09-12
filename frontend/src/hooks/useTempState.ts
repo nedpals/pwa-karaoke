@@ -45,7 +45,6 @@ export function useTempState<T>(
   const setState = (newValue: T, options?: TempStateSetterOptions<T>) => {
     // Check if we should clear permanent state when setting temporary
     if (options?.clearWhen?.(permanentValue.current)) {
-      console.log("Setting back to", initialValue, "due to clearWhen condition");
       setCurrentValue(initialValue);
     }
 
@@ -75,7 +74,7 @@ export function useTempState<T>(
         setCurrentValue(newValue);
       }
     }
-  };
+  }
 
   return [
     currentValue,

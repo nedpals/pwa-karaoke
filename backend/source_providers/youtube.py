@@ -1,16 +1,16 @@
 import re
 from urllib.parse import quote
 from typing import Optional
-from playwright.async_api import async_playwright, Browser
+from playwright.async_api import Browser
 from pytube import YouTube
 from core.search import KaraokeSourceProvider, KaraokeSearchResult, KaraokeEntry
-from config import config
+from browser_manager import browser_manager
 
 class YTKaraokeSourceProvider(KaraokeSourceProvider):
     def __init__(self, allowed_channels: list[str] = None, karaoke_keywords: list[str] = None):
         super().__init__()
-        self.browser: Optional[Browser] = None
-        self.playwright_enabled = config.PLAYWRIGHT_ENABLED
+        # Browser is now managed globally
+        pass
         # Examples: ["KaraFun", "Sing King", "Lucky Voice", "Karaoke Mugen"]
         self.allowed_channels = allowed_channels or []
         self.karaoke_keywords = karaoke_keywords or ["karaoke", "instrumental", "backing track", "sing along"]
@@ -20,24 +20,9 @@ class YTKaraokeSourceProvider(KaraokeSourceProvider):
         return "youtube"
 
     async def _get_browser(self) -> Optional[Browser]:
-        if not self.playwright_enabled:
-            return None
-        if self.browser is None:
-            playwright = await async_playwright().start()
-            
-            if config.PLAYWRIGHT_BROWSER_URL:
-                # Connect to remote browser (e.g., browserless/chrome)
-                self.browser = await playwright.chromium.connect_over_cdp(config.PLAYWRIGHT_BROWSER_URL)
-            else:
-                # Launch local browser
-                self.browser = await playwright.chromium.launch(headless=config.PLAYWRIGHT_HEADLESS)
-        return self.browser
+        return await browser_manager.get_browser()
 
     async def search(self, query: str) -> KaraokeSearchResult:
-        if not self.playwright_enabled:
-            # Return empty result if Playwright is not available
-            return KaraokeSearchResult(entries=[])
-        
         browser = await self._get_browser()
         if not browser:
             return KaraokeSearchResult(entries=[])
@@ -183,6 +168,5 @@ class YTKaraokeSourceProvider(KaraokeSourceProvider):
             return None
 
     async def close(self):
-        if self.browser and self.playwright_enabled:
-            await self.browser.close()
-            self.browser = None
+        # Browser cleanup is handled by browser_manager
+        pass

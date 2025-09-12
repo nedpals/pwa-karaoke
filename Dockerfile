@@ -12,8 +12,8 @@ RUN npm ci --only=production
 # Copy frontend source
 COPY frontend/ ./
 
-# Build frontend for production and output to backend static directory
-RUN npm run build:prod
+# Build frontend for production
+RUN npm run build
 
 # Production stage - Backend
 FROM python:3.12-slim
@@ -28,7 +28,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY backend/ ./
 
 # Copy built frontend from build stage
-COPY --from=frontend-build /app/backend/static ./static
+COPY --from=frontend-build /app/frontend/dist ./static
 
 # Expose port
 EXPOSE 8000

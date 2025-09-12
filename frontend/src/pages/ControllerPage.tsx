@@ -644,14 +644,13 @@ function ControllerPageContent() {
 export default function ControllerPage() {
   const [searchParams] = useSearchParams();
   const roomId = searchParams.get("room");
-  const room = useRoom("controller", roomId);
+  const room = useRoom("controller");
 
-  // Auto-verify and join room when roomId is available
   useEffect(() => {
-    if (roomId && !room.isVerified && !room.isVerifying) {
+    if (roomId) {
       room.verifyAndJoinRoom(roomId);
     }
-  }, [roomId, room.isVerified, room.isVerifying, room.verifyAndJoinRoom]);
+  }, []);
 
   // Redirect to home if no room specified
   if (!roomId) {
@@ -663,8 +662,10 @@ export default function ControllerPage() {
     return (
       <ControllerMessageScreen>
         <div className="flex flex-col items-center space-y-4">
-          <Text size="lg" shadow>Verifying room access...</Text>
-          <LoadingSpinner size="xl" />
+          <Text size="lg" shadow>Connecting...</Text>
+          <Text size="base" shadow className="text-gray-300">
+            Please wait while we verify your access to the room.
+          </Text>
         </div>
       </ControllerMessageScreen>
     );
@@ -672,13 +673,13 @@ export default function ControllerPage() {
 
   if (room.verificationError) {
     return (
-      <ControllerMessageScreen title="Access Denied">
+      <ControllerMessageScreen>
         <div className="flex flex-col items-center space-y-4 max-w-md">
-          <Text size="base" className="text-red-400">
-            {room.verificationError}
+          <Text size="lg" shadow>
+            Access Denied
           </Text>
-          <Text size="sm" className="text-white/60">
-            You may need the correct password to access this room
+          <Text size="base" shadow className="text-gray-300">
+            {room.verificationError}
           </Text>
         </div>
       </ControllerMessageScreen>

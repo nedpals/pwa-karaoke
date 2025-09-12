@@ -32,7 +32,8 @@ type PendingRequest = {
   command: string;
 };
 
-export function useWebSocket(clientType: ClientType): WebSocketReturn {
+export function useWebSocket(clientType: ClientType, initalAutoConnect = true): WebSocketReturn {
+  const [autoConnect, setAutoConnect] = useState(initalAutoConnect);
   const [clientCount, setClientCount] = useState(0);
   const [hasHandshaken, setHasHandshaken] = useState(false);
   const [hasJoinedRoom, setHasJoinedRoom] = useState(false);
@@ -55,7 +56,7 @@ export function useWebSocket(clientType: ClientType): WebSocketReturn {
   }, []);
 
   const { sendJsonMessage, lastJsonMessage, readyState } = useWebSocketHook(
-    socketUrl,
+    autoConnect ? socketUrl : null,
     {
       shouldReconnect: () => true,
       reconnectAttempts: 50, // Increased from 10
@@ -92,21 +93,18 @@ export function useWebSocket(clientType: ClientType): WebSocketReturn {
 
   const connected = readyState === 1 && hasHandshaken;
 
-  // Send handshake when connection opens
-  // biome-ignore lint/correctness/useExhaustiveDependencies: clientType is static
-    useEffect(() => {
-    if (readyState === 1 && !hasHandshaken) {
-      console.log(`[WebSocket ${clientType}] Sending handshake`);
-      sendJsonMessage(["handshake", clientType]);
-      setHasHandshaken(true);
-    }
-  }, [readyState, hasHandshaken, clientType, sendJsonMessage]);
-
   // Internal room joining function
   const joinRoomInternal = useCallback(async (roomId: string): Promise<void> => {
+    if (!autoConnect) {
+      setAutoConnect(true);
+      // Wait for 1 second to allow connection to establish
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+    }
+    
     // Must be handshaken before joining room
     if (!hasHandshaken) {
-      throw new Error("Must complete handshake before joining room");
+      sendJsonMessage(["handshake", clientType]);
+      setHasHandshaken(true);
     }
 
     return new Promise((resolve, reject) => {
@@ -128,7 +126,7 @@ export function useWebSocket(clientType: ClientType): WebSocketReturn {
       pendingRequests.set(requestId, joinRoomRequest);
       sendJsonMessage(["join_room", { room_id: roomId, request_id: requestId }]);
     });
-  }, [hasHandshaken, generateRequestId, clientType, pendingRequests, sendJsonMessage]);
+  }, [autoConnect, hasHandshaken, generateRequestId, clientType, pendingRequests, sendJsonMessage]);
 
   // Flush pending commands after handshake completion
   useEffect(() => {

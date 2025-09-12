@@ -457,6 +457,7 @@ function PlayingStateContent() {
       .catch((error: unknown) => {
         console.error('[Prefetch] Failed to prefetch URL for:', nextSong.entry.title, error);
       });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [upNextQueue, setUpNextStatus]);
 
   useEffect(() => {
@@ -732,25 +733,23 @@ function PlayerPageContent() {
 export default function PlayerPage() {
   const [searchParams] = useSearchParams();
   const roomId = searchParams.get("room");
-  const room = useRoom("display", roomId);
+  const room = useRoom("display");
 
-  // Auto-verify and join room when roomId is available
   useEffect(() => {
-    if (roomId && !room.isVerified && !room.isVerifying) {
+    if (roomId) {
       room.verifyAndJoinRoom(roomId);
     }
-  }, [roomId, room.isVerified, room.isVerifying, room.verifyAndJoinRoom]);
+  }, []);
 
   // Redirect to home if no room specified
   if (!roomId) {
     return <Navigate to="/" replace />;
   }
 
-  // Show verification states
   if (room.isVerifying) {
     return (
       <ConnectingStateScreen 
-        title="Verifying Room Access"
+        title="Connecting..."
         subtitle="Please wait while we check your permissions..."
       />
     );
@@ -760,7 +759,7 @@ export default function PlayerPage() {
     return (
       <ConnectingStateScreen 
         title="Access Denied"
-        subtitle={`${room.verificationError}. This room may be private or require a password. Please check with the room creator.`}
+        subtitle={room.verificationError}
       />
     );
   }

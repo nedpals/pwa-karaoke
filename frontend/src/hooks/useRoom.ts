@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useWebSocket } from './useWebSocket';
-import { useVerifyRoomMutation } from './useApi';
+import { useServerStatus, useVerifyRoomMutation } from './useApi';
 import { getRoomPassword, storeRoomPassword } from '../lib/roomStorage';
 import type { DisplayPlayerState, KaraokeQueue, KaraokeEntry } from '../types';
 
@@ -55,8 +55,9 @@ export interface RoomActions {
 
 export type UseRoomReturn = RoomState & RoomActions;
 
-export function useRoom(clientType: ClientType, initialRoomId?: string | null): UseRoomReturn {
-  const [roomId, setRoomId] = useState<string | null>(initialRoomId || null);
+export function useRoom(clientType: ClientType): UseRoomReturn {
+  const { isOffline, isLoading: isServerStateLoading } = useServerStatus();
+  const [roomId, setRoomId] = useState<string | null>(null);
   const [isVerified, setIsVerified] = useState(false);
   const [isVerifying, setIsVerifying] = useState(false);
   const [verificationError, setVerificationError] = useState<string | null>(null);
@@ -70,7 +71,7 @@ export function useRoom(clientType: ClientType, initialRoomId?: string | null): 
     timestamp: number;
   } | null>(null);
   
-  const ws = useWebSocket(clientType);
+  const ws = useWebSocket(clientType, false);
   const { trigger: verifyRoom } = useVerifyRoomMutation();
   
   const upNextQueue = useMemo(() => {
@@ -87,28 +88,15 @@ export function useRoom(clientType: ClientType, initialRoomId?: string | null): 
     };
   }, [queue, playerState?.entry]);
   
-  useEffect(() => {
-    if (!roomId) {
-      setIsVerified(false);
-      setVerificationError(null);
+  const verifyAndJoinRoom = useCallback(async (targetRoomId: string, password?: string) => {    
+    setIsVerifying(true);
+
+    if (isOffline) {
+      setVerificationError('Server is offline. Please refresh the page to try again.');
+      setIsVerifying(false);
       return;
     }
     
-    verifyRoomAccess(roomId);
-  }, [roomId]); // eslint-disable-line react-hooks/exhaustive-deps
-  
-  useEffect(() => {
-    if (ws.connected && roomId && isVerified && !ws.hasJoinedRoom) {
-      console.log(`[useRoom] Joining WebSocket room: ${roomId}`);
-      ws.joinRoom(roomId).catch((error) => {
-        console.error(`[useRoom] Failed to join WebSocket room:`, error);
-        setVerificationError(`Failed to join room: ${error.message}`);
-      });
-    }
-  }, [ws, roomId, isVerified]);
-  
-  const verifyRoomAccess = useCallback(async (targetRoomId: string, password?: string) => {
-    setIsVerifying(true);
     setVerificationError(null);
     
     try {
@@ -125,18 +113,24 @@ export function useRoom(clientType: ClientType, initialRoomId?: string | null): 
       
       setIsVerified(true);
       setRoomId(targetRoomId);
+
+      await ws.joinRoom(targetRoomId);
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Room verification failed';
+      let errorMessage = error instanceof Error ? error.message : 'This room may be private or require a password. Please check with the room creator.';
+      if (error instanceof TypeError && error.message === 'Failed to fetch') {
+        errorMessage = 'Server is offline or unreachable. Please check your connection and try again.';
+      }
+      
       setVerificationError(errorMessage);
       setIsVerified(false);
+
+      if (!(error instanceof Error)) {
+        console.error('[useRoom] Unknown error during room verification:', error);
+      }
     } finally {
       setIsVerifying(false);
     }
-  }, [verifyRoom]);
-  
-  const verifyAndJoinRoom = useCallback(async (targetRoomId: string, password?: string) => {
-    await verifyRoomAccess(targetRoomId, password);
-  }, [verifyRoomAccess]);
+  }, [isServerStateLoading, isOffline, verifyRoom]);
   
   useEffect(() => {
     if (!ws.lastMessage) return;

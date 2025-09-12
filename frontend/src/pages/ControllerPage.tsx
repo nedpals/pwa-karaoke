@@ -712,7 +712,7 @@ export default function ControllerPage() {
   if (room.isVerifying) {
     return (
       <ControllerMessageScreen>
-        <div className="flex flex-col items-center space-y-4">
+        <div className="flex flex-col items-center justify-center min-h-48 space-y-4">
           <Text size="lg" shadow>Connecting...</Text>
           <Text size="base" shadow className="text-gray-300">
             Please wait while we verify your access to the room.
@@ -733,7 +733,7 @@ export default function ControllerPage() {
 
     return (
       <ControllerMessageScreen>
-        <div className="flex flex-col items-center space-y-4 max-w-md">
+        <div className="flex flex-col items-center justify-center min-h-48 space-y-4 max-w-md">
           <Text size="lg" shadow>
             Access Denied
           </Text>
@@ -748,7 +748,7 @@ export default function ControllerPage() {
   if (!room.isVerified || !room.hasJoinedRoom) {
     return (
       <ControllerMessageScreen>
-        <div className="flex flex-col items-center space-y-4">
+        <div className="flex flex-col items-center justify-center space-y-4 min-h-48">
           <Text size="lg" shadow>{!room.isVerified ? "Loading..." : "Joining room..."}</Text>
           <LoadingSpinner size="xl" />
         </div>

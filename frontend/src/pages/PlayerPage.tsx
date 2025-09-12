@@ -511,7 +511,7 @@ function ConnectingStateScreen({
 }) {
   return (
     <MessageTemplate background={<FallbackBackground className="relative" />}>
-      <div className="flex flex-col items-center space-y-4">
+      <div className="flex flex-col items-center justify-center space-y-4 min-h-48">
         <Text size="lg" shadow>
           {title}
         </Text>

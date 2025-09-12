@@ -5,6 +5,7 @@ from playwright.async_api import Browser
 from pytubefix import YouTube
 from core.search import KaraokeSourceProvider, KaraokeSearchResult, KaraokeEntry
 from browser_manager import browser_manager
+from services.po_token_service import po_token_service
 
 class YTKaraokeSourceProvider(KaraokeSourceProvider):
     def __init__(self, allowed_channels: list[str] = None, karaoke_keywords: list[str] = None):
@@ -42,6 +43,12 @@ class YTKaraokeSourceProvider(KaraokeSourceProvider):
             await page_obj.goto(search_url)
 
             await page_obj.wait_for_selector('ytd-video-renderer', timeout=10000)
+            
+            # Wait a bit more for YouTube to fully initialize and generate tokens
+            await page_obj.wait_for_timeout(1000)
+            
+            # Harvest PO token from this search page
+            await po_token_service.add_token_from_page(page_obj)
 
             video_elements = await page_obj.query_selector_all('ytd-video-renderer')
 
@@ -153,11 +160,28 @@ class YTKaraokeSourceProvider(KaraokeSourceProvider):
 
     async def _get_raw_video_url(self, youtube_url: str) -> Optional[str]:
         """
-        Extract raw video URL using pytube2.
+        Extract raw video URL using pytubefix with PO token authentication.
         Returns the highest quality video stream URL.
         """
         try:
-            yt = YouTube(youtube_url)
+            # Get PO token for enhanced access
+            token_data = await po_token_service.get_po_token()
+            
+            # Create YouTube object with PO token if available
+            if token_data and token_data.get('poToken'):
+                # Create a po_token_verifier function that returns the tokens
+                def po_token_verifier():
+                    return token_data['visitorData'], token_data['poToken']
+                
+                yt = YouTube(
+                    youtube_url, 
+                    'WEB',
+                    po_token_verifier=po_token_verifier
+                )
+            else:
+                # Fall back to ANDROID client which doesn't require PO token
+                yt = YouTube(youtube_url, 'ANDROID')
+            
             # Get the highest quality progressive stream (video + audio)
             stream = yt.streams.filter(progressive=True, file_extension='mp4').order_by('resolution').desc().first()
             

@@ -35,7 +35,6 @@ type PendingRequest = {
 export function useWebSocket(clientType: ClientType, initalAutoConnect = true): WebSocketReturn {
   const [autoConnect, setAutoConnect] = useState(initalAutoConnect);
   const [clientCount, setClientCount] = useState(0);
-  const [hasHandshaken, setHasHandshaken] = useState(false);
   const [hasJoinedRoom, setHasJoinedRoom] = useState(false);
   const [lastMessage, setLastMessage] = useState<[string, unknown] | null>(null);
   const [pendingCommands, setPendingCommands] = useState<PendingCommand[]>([]);
@@ -75,13 +74,9 @@ export function useWebSocket(clientType: ClientType, initalAutoConnect = true): 
       },
       onOpen: () => {
         console.log(`[WebSocket ${clientType}] Connected successfully`);
-        setHasHandshaken(false);
-
-        // Reset leader status on reconnection handled by room
       },
       onClose: () => {
         console.log(`[WebSocket ${clientType}] Connection closed`);
-        setHasHandshaken(false);
         setHasJoinedRoom(false);
         setPendingCommands([]); // Clear pending commands on disconnect
       },
@@ -91,7 +86,7 @@ export function useWebSocket(clientType: ClientType, initalAutoConnect = true): 
     },
   );
 
-  const connected = readyState === 1 && hasHandshaken;
+  const connected = readyState === 1;
 
   // Internal room joining function
   const joinRoomInternal = useCallback(async (roomId: string): Promise<void> => {
@@ -102,10 +97,7 @@ export function useWebSocket(clientType: ClientType, initalAutoConnect = true): 
     }
     
     // Must be handshaken before joining room
-    if (!hasHandshaken) {
-      sendJsonMessage(["handshake", clientType]);
-      setHasHandshaken(true);
-    }
+    sendJsonMessage(["handshake", { client_type: clientType }]);
 
     return new Promise((resolve, reject) => {
       const requestId = generateRequestId();
@@ -126,11 +118,11 @@ export function useWebSocket(clientType: ClientType, initalAutoConnect = true): 
       pendingRequests.set(requestId, joinRoomRequest);
       sendJsonMessage(["join_room", { room_id: roomId, request_id: requestId }]);
     });
-  }, [autoConnect, hasHandshaken, generateRequestId, clientType, pendingRequests, sendJsonMessage]);
+  }, [autoConnect, generateRequestId, clientType, pendingRequests, sendJsonMessage]);
 
   // Flush pending commands after handshake completion
   useEffect(() => {
-    if (hasHandshaken && hasJoinedRoom && pendingCommands.length > 0) {
+    if (hasJoinedRoom && pendingCommands.length > 0) {
       console.log(
         `[WebSocket ${clientType}] Flushing ${pendingCommands.length} pending commands`,
       );
@@ -143,7 +135,7 @@ export function useWebSocket(clientType: ClientType, initalAutoConnect = true): 
       // Clear the pending commands
       setPendingCommands([]);
     }
-  }, [hasHandshaken, hasJoinedRoom, pendingCommands, sendJsonMessage, clientType]);
+  }, [hasJoinedRoom, pendingCommands, sendJsonMessage, clientType]);
 
   // Handle incoming messages
   // biome-ignore lint/correctness/useExhaustiveDependencies: playerState always changes and causes unnecessary re-renders
@@ -191,7 +183,7 @@ export function useWebSocket(clientType: ClientType, initalAutoConnect = true): 
 
   const sendCommand = useCallback(
     (command: string, payload: unknown = null) => {
-      if (hasHandshaken && hasJoinedRoom) {
+      if (hasJoinedRoom) {
         sendJsonMessage([command, payload]);
       } else {
         // Queue the command to be sent after handshake
@@ -208,7 +200,7 @@ export function useWebSocket(clientType: ClientType, initalAutoConnect = true): 
         ]);
       }
     },
-    [sendJsonMessage, hasHandshaken, hasJoinedRoom, clientType],
+    [sendJsonMessage, hasJoinedRoom, clientType],
   );
 
   const sendCommandWithAck = useCallback(
@@ -235,7 +227,7 @@ export function useWebSocket(clientType: ClientType, initalAutoConnect = true): 
 
         const messageWithId = [command, { ...(payload as object || {}), request_id: requestId }];
         
-        if (hasHandshaken) {
+        if (hasJoinedRoom) {
           sendJsonMessage(messageWithId);
         } else {
           console.log(
@@ -252,7 +244,7 @@ export function useWebSocket(clientType: ClientType, initalAutoConnect = true): 
         }
       });
     },
-    [generateRequestId, hasHandshaken, sendJsonMessage, clientType, pendingRequests],
+    [generateRequestId, hasJoinedRoom, sendJsonMessage, clientType, pendingRequests],
   );
 
 

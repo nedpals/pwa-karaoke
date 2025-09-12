@@ -6,6 +6,7 @@ from fastapi.websockets import WebSocketState
 
 from nanoid import generate as generate_nanoid
 from websocket_errors import WebSocketErrorType, create_error_response
+from websocket_models import HandshakePayload
 
 class ConnectionClient:
     id: str
@@ -140,7 +141,7 @@ class ClientManager:
         if not isinstance(data, list) or data[0] != "handshake":
             raise WebSocketDisconnect()
 
-        client_type = data[1]
+        client_type = HandshakePayload.parse_obj(data[1]).client_type
         if client_type not in ["controller", "display"]:
             raise WebSocketDisconnect()
 

@@ -57,6 +57,14 @@ async def get_health():
     """Get WebSocket connection health metrics"""
     return session_manager.get_health_metrics()
 
+@app.get("/heartbeat")
+async def heartbeat():
+    """Simple heartbeat endpoint for frontend server status monitoring"""
+    return {
+        "status": "ok", 
+        "timestamp": int(time.time() * 1000)  # milliseconds timestamp
+    }
+
 @app.get("/rooms")
 async def get_active_rooms():
     return {

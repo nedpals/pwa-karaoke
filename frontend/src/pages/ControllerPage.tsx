@@ -6,7 +6,7 @@ import {
   RoomProvider,
   useRoomContext,
 } from "../providers/RoomProvider";
-import { useSearchMutation } from "../hooks/useApi";
+import { useSearchMutation, useServerStatus } from "../hooks/useApi";
 import { useTextInput } from "../hooks/useTextInput";
 import { MaterialSymbolsFastForwardRounded } from "../components/icons/MaterialSymbolsFastForwardRounded";
 import { MaterialSymbolsKeyboardArrowUpRounded } from "../components/icons/MaterialSymbolsArrowUpRounded";
@@ -600,6 +600,23 @@ function QueueTab() {
   );
 }
 
+function ServerStatusBanner() {
+  const { isOffline } = useServerStatus();
+  
+  if (!isOffline) return null;
+  
+  return (
+    <div className="bg-red-500/20 border-b border-red-500/50 px-4 py-2">
+      <div className="flex items-center justify-center space-x-2">
+        <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
+        <Text size="sm" className="text-red-200 text-center">
+          Server connection lost. Some features may not work properly.
+        </Text>
+      </div>
+    </div>
+  );
+}
+
 function ControllerPageContent() {
   const [tab, setTab] =
     useState<(typeof CONTROLLER_TABS)[number]["id"]>("song-select");
@@ -614,6 +631,7 @@ function ControllerPageContent() {
 
   return (
     <ControllerLayout>
+      <ServerStatusBanner />
       <TabNavigation
         tabs={tabs}
         activeTab={tab}

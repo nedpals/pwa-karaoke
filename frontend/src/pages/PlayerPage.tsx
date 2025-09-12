@@ -15,7 +15,7 @@ import {
   useRoomContext,
 } from "../providers/RoomProvider";
 import { useTempState, type TempStateSetterOptions } from "../hooks/useTempState";
-import { useVideoUrl, useVideoUrlMutation } from "../hooks/useApi";
+import { useVideoUrl, useVideoUrlMutation, useServerStatus } from "../hooks/useApi";
 import type {
   DisplayPlayerState,
 } from "../types";
@@ -361,13 +361,23 @@ function VideoPlayerComponent({
 }
 
 function ClientCountDisplay() {
-  const { clientCount } = useRoomContext();
+  const { isOffline } = useServerStatus();
+  const { clientCount: initialClientCount } = useRoomContext();
+  const clientCount = initialClientCount - 1; // Exclude self from count
   
   return (
     <GlassPanel className="px-3 py-2">
-      <Text size="sm" className="text-white/80">
-        {clientCount} {clientCount === 1 ? 'client' : 'clients'} connected
-      </Text>
+      <div className="flex">
+        {isOffline && (
+          <div className="flex items-center space-x-2 ml-r pl-r border-r border-white/50">
+            <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
+            <Text size="sm">Offline</Text>
+          </div>
+        )}
+        <Text size="sm" className="text-white/80">
+          {clientCount} {clientCount === 1 ? 'client' : 'clients'} connected
+        </Text>
+      </div>
     </GlassPanel>
   );
 }
@@ -768,7 +778,7 @@ export default function PlayerPage() {
       <PlayerStateProviderInternal>
         <div className="relative">
           <PlayerPageContent />
-          {/* Client count display - bottom left, visible across all player states */}
+          {/* Status display - bottom left, visible across all player states */}
           <div className="absolute bottom-4 left-4 z-30">
             <ClientCountDisplay />
           </div>

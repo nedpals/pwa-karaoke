@@ -2,6 +2,7 @@ import useSWR from 'swr';
 import useSWRMutation from 'swr/mutation';
 import { apiClient } from '../api/client';
 import type { KaraokeEntry, CreateRoomRequest, VerifyRoomRequest } from '../types';
+import { useEffect } from 'react';
 
 export function useSearch(query: string) {
   return useSWR(
@@ -94,4 +95,32 @@ export function useVerifyRoomMutation() {
       return apiClient.verifyRoomAccess(arg);
     }
   );
+}
+
+export function useServerStatus() {
+  const { data, error, isLoading, mutate } = useSWR(
+    'heartbeat',
+    () => apiClient.heartbeat(),
+    {
+      refreshInterval: 10000, // Check every 10 seconds
+      revalidateOnFocus: true,
+      revalidateOnReconnect: true,
+      errorRetryCount: 3,
+      errorRetryInterval: 2000,
+      shouldRetryOnError: true,
+    }
+  );
+
+  useEffect(() => {
+    console.log('Heartbeat error:', error);
+  }, [error])
+
+  return {
+    isOnline: !error && !!data,
+    isOffline: !!error,
+    isLoading,
+    lastHeartbeat: data?.timestamp,
+    error,
+    mutate,
+  };
 }

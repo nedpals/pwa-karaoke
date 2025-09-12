@@ -103,6 +103,19 @@ class ApiClient {
 
     return response.json();
   }
+
+  async heartbeat(): Promise<{ status: string; timestamp: number }> {
+    const response = await fetch(`${this.baseUrl}/heartbeat`, {
+      method: 'GET',
+      signal: AbortSignal.timeout(5000), // 5 second timeout
+    });
+
+    if (!response.ok) {
+      throw new Error(`Heartbeat failed: ${response.statusText}`);
+    }
+
+    return response.json();
+  }
 }
 
 export const apiClient = new ApiClient();

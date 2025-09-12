@@ -143,6 +143,7 @@ class SessionManager:
             room = self.get_room(room_id)
             
             if room.is_public:
+                current_song = room.get_current_song()
                 active_rooms.append({
                     "id": room_id,
                     "name": room_id,  # Using room_id as name for now
@@ -155,7 +156,7 @@ class SessionManager:
                     "is_public": room.is_public,
                     "requires_password": room.requires_password(),
                     "created_at": room.created_at,
-                    "current_song": room.get_current_song().entry.title if room.get_current_song() else None
+                    "current_song": current_song.title if current_song else None
                 })
         
         active_rooms.sort(key=lambda x: x["client_count"], reverse=True)

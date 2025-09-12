@@ -176,6 +176,7 @@ class YTKaraokeSourceProvider(KaraokeSourceProvider):
                 yt = YouTube(
                     youtube_url, 
                     'WEB',
+                    use_po_token=True,
                     po_token_verifier=po_token_verifier
                 )
             else:

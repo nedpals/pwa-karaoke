@@ -302,7 +302,7 @@ function PlayerTab() {
   const [isPlayNextLoading, setIsPlayNextLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [optimisticVolume, setOptimisticVolume] = useState<number | null>(null);
-
+  const volumePerc = Math.round((optimisticVolume ?? playerState?.volume ?? 0.5) * 100);
 
   // Clear optimistic volume when server state matches our optimistic value
   useEffect(() => {
@@ -350,12 +350,11 @@ function PlayerTab() {
     }
   };
 
-  const handleVolumeUp = async () => {
+  const adjustPlayerVolume = async (newVolumeDecimal: number) => {
     if (isVolumeLoading) return;
     
     const currentVolume = optimisticVolume ?? playerState?.volume ?? 0.5;
-    const newVolume = Math.min(1.0, currentVolume + 0.1);
-    
+    const newVolume = Math.max(0.0, currentVolume + newVolumeDecimal);
     
     // Optimistic update
     setOptimisticVolume(newVolume);
@@ -373,33 +372,7 @@ function PlayerTab() {
     } finally {
       setIsVolumeLoading(false);
     }
-  };
-
-  const handleVolumeDown = async () => {
-    if (isVolumeLoading) return;
-    
-    const currentVolume = optimisticVolume ?? playerState?.volume ?? 0.5;
-    const newVolume = Math.max(0.0, currentVolume - 0.1);
-    
-  
-    // Optimistic update
-    setOptimisticVolume(newVolume);
-    setIsVolumeLoading(true);
-    setErrorMessage(null);
-    
-    try {
-      await setVolume(newVolume);
-    } catch (error) {
-      console.error("Failed to set volume:", error);
-      // Rollback optimistic update immediately on error
-      setOptimisticVolume(null);
-      setErrorMessage("Failed to adjust volume. Please try again.");
-      setTimeout(() => setErrorMessage(null), 3000);
-    } finally {
-      setIsVolumeLoading(false);
-    }
-  };
-
+  }
 
   const handlePlayNext = async () => {
     if (isPlayNextLoading) return;
@@ -470,7 +443,7 @@ function PlayerTab() {
         <div className="flex flex-row self-center items-center space-x-4 bg-black/50 p-2 rounded-full mt-8">
           <IconButton
             icon={<MaterialSymbolsVolumeDownRounded />}
-            onClick={handleVolumeDown}
+            onClick={() => adjustPlayerVolume(-0.1)}
             disabled={!playerState || !playerState.entry || (optimisticVolume ?? playerState?.volume ?? 0.5) <= 0 || isVolumeLoading}
             variant="secondary"
             size="lg"
@@ -478,15 +451,11 @@ function PlayerTab() {
             label="Volume Down"
           />
           <Text size="lg" className="text-white min-w-16 text-center font-medium">
-            {(() => {
-              const displayVolume = optimisticVolume ?? playerState?.volume ?? 0.5;
-              console.log('[Volume Display Debug] Optimistic:', optimisticVolume, 'PlayerState:', playerState?.volume, 'Final:', displayVolume);
-              return Math.round(displayVolume * 100);
-            })()}%
+            {volumePerc}%
           </Text>
           <IconButton
             icon={<MaterialSymbolsVolumeUpRounded />}
-            onClick={handleVolumeUp}
+            onClick={() => adjustPlayerVolume(0.1)}
             disabled={!playerState || !playerState.entry || (optimisticVolume ?? playerState?.volume ?? 0.5) >= 1 || isVolumeLoading}
             variant="secondary"
             size="lg"

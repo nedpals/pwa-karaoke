@@ -267,7 +267,7 @@ function SongSelectTab() {
 }
 
 function PlayerTab() {
-  const { playerState, queue, playSong, pauseSong, playNext, setVolume } =
+  const { playerState, playSong, pauseSong, playNext, setVolume } =
     useRoomContext();
   const [isPlaybackLoading, setIsPlaybackLoading] = useState(false);
   const [isVolumeLoading, setIsVolumeLoading] = useState(false);
@@ -422,20 +422,17 @@ function PlayerTab() {
               )}
               onClick={handlePlayerPlayback}
               disabled={!playerState || !playerState.entry || isPlaybackLoading}
-              variant="secondary"
+              variant="primary"
               size="xl"
-              className="text-3xl sm:text-4xl md:text-5xl rounded-full border-2 border-white px-8 py-4 sm:px-10 sm:py-5 bg-white/10 hover:bg-white/20 transition-all"
+              className="text-3xl sm:text-4xl md:text-5xl border-white rounded-full px-8 py-4 sm:px-10 sm:py-5 transition-all"
             />
 
-            {/* Skip Next */}
             <IconButton
               icon={<MaterialSymbolsFastForwardRounded />}
               onClick={handlePlayNext}
               disabled={
                 !playerState ||
                 !playerState.entry ||
-                !queue ||
-                queue.items.length === 0 ||
                 isPlayNextLoading
               }
               variant="secondary"

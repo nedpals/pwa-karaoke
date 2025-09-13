@@ -11,7 +11,6 @@ import { useTextInput } from "../hooks/useTextInput";
 import { MaterialSymbolsFastForwardRounded } from "../components/icons/MaterialSymbolsFastForwardRounded";
 import { MaterialSymbolsKeyboardArrowUpRounded } from "../components/icons/MaterialSymbolsArrowUpRounded";
 import { MaterialSymbolsDeleteOutline } from "../components/icons/MaterialSymbolsDeleteOutline";
-import { MaterialSymbolsKeyboardAltOutlineRounded } from "../components/icons/MaterialSymbolsKeyboardAltOutlineRounded";
 import { MaterialSymbolsPlaylistAddRounded } from "../components/icons/MaterialSymbolsPlaylistAddRounded";
 import { MaterialSymbolsPauseRounded } from "../components/icons/MaterialSymbolsPauseRounded";
 import { MaterialSymbolsPlayArrowRounded } from "../components/icons/MaterialSymbolsPlayRounded";
@@ -30,9 +29,7 @@ import { ControllerLayout } from "../components/templates/ControllerLayout";
 import { FullScreenLayout } from "../components/templates/FullScreenLayout";
 import { MessageTemplate } from "../components/templates/MessageTemplate";
 import { TimeDisplay } from "../components/molecules/TimeDisplay";
-import { VirtualKeyboard } from "../components/organisms/VirtualKeyboard";
 import { LoadingSpinner } from "../components/atoms/LoadingSpinner";
-import { usePhysicalKeyboard } from "../hooks/usePhysicalKeyboard";
 
 const CONTROLLER_TABS = [
   {
@@ -168,8 +165,6 @@ function SearchResults({
 
 function SongSelectTab() {
   const { queueSong, queue, playerState } = useRoomContext();
-  const { hasPhysicalKeyboard } = usePhysicalKeyboard();
-  const [showVirtualKeyboard, setShowVirtualKeyboard] = useState(false);
   const [queueingStates, setQueueingStates] = useState<Record<string, boolean>>({});
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [hasSearched, setHasSearched] = useState(false);
@@ -190,7 +185,6 @@ function SongSelectTab() {
     
     try {
       await triggerSearch(textInput.text);
-      setShowVirtualKeyboard(false);
     } catch (error) {
       console.error("Search error:", error);
       setSearchError("Failed to search. Please check your connection and try again.");
@@ -232,15 +226,10 @@ function SongSelectTab() {
             size="lg"
             onFocus={(e) => {
               textInput.updateCursorFromInput(e);
-              // Only show virtual keyboard if no physical keyboard is detected
-              if (!hasPhysicalKeyboard) {
-                setShowVirtualKeyboard(true);
-              }
             }}
             onClick={textInput.updateCursorFromInput}
             onKeyUp={textInput.updateCursorFromInput}
             onSelect={(e) => textInput.updateCursorFromInput(e)}
-            preventSystemKeyboard={true}
           />
         </div>
 
@@ -264,33 +253,6 @@ function SongSelectTab() {
         </div>
       </div>
 
-      <div className="fixed bottom-0 inset-x-0 bg-black/40 flex flex-col z-20 backdrop-blur-md">
-        <IconButton
-          icon={<MaterialSymbolsKeyboardAltOutlineRounded className="text-2xl" />}
-          onClick={() => setShowVirtualKeyboard((v) => !v)}
-          label={showVirtualKeyboard ? "Hide Keyboard" : "Show Keyboard"}
-          showLabel
-          variant="secondary"
-          className="w-full py-4 rounded-none border-x-0"
-        />
-        {showVirtualKeyboard && (
-          <div className="py-2 px-2 max-w-6xl mx-auto w-full">
-            <VirtualKeyboard
-              onKeyPress={(key) => {
-                if (key === "\n") {
-                  handleSearch();
-                  setShowVirtualKeyboard(false);
-                } else {
-                  textInput.insertText(key);
-                }
-              }}
-              onBackspace={textInput.backspace}
-              onClear={textInput.clear}
-              disabled={isSearching}
-            />
-          </div>
-        )}
-      </div>
     </div>
   );
 }

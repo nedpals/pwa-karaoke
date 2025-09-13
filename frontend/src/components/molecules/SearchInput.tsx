@@ -16,7 +16,6 @@ export interface SearchInputProps extends BaseInputProps {
   onClick?: (e: React.MouseEvent<HTMLInputElement>) => void;
   onKeyUp?: (e: React.KeyboardEvent<HTMLInputElement>) => void;
   onSelect?: (e: React.SyntheticEvent<HTMLInputElement>) => void;
-  preventSystemKeyboard?: boolean;
 }
 
 export function SearchInput({ 
@@ -33,7 +32,6 @@ export function SearchInput({
   onClick,
   onKeyUp,
   onSelect,
-  preventSystemKeyboard = false,
   ...props 
 }: SearchInputProps) {
   const [internalValue, setInternalValue] = useState("");
@@ -75,7 +73,11 @@ export function SearchInput({
         placeholder={placeholder}
         glass
         className="pr-16"
-        inputMode={preventSystemKeyboard ? "none" : undefined}
+        inputMode="text"
+        autoComplete="off"
+        autoCapitalize="off"
+        autoCorrect="off"
+        spellCheck={false}
         {...props}
       />
       <Button

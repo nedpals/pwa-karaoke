@@ -6,9 +6,15 @@ body {
 
 @keyframes marqueeScroll {
   0% {
-    transform: translateX(100%);
+    transform: translateX(0px);
+  }
+  25% {
+    transform: translateX(0px);
+  }
+  75% {
+    transform: translateX(var(--scroll-distance));
   }
   100% {
-    transform: translateX(-100%);
+    transform: translateX(var(--scroll-distance));
   }
 }

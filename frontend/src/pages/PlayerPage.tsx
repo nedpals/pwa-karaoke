@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useMemo, createContext, useContext, useCallback } from "react";
-import { useSearchParams, Navigate } from "react-router";
+import { useSearchParams, Navigate, Link } from "react-router";
 import { Text } from "../components/atoms/Text";
 import { useRoom } from "../hooks/useRoom";
 import { GlassPanel } from "../components/organisms/GlassPanel";
@@ -867,10 +867,19 @@ export default function PlayerPage() {
     }
 
     return (
-      <ConnectingStateScreen 
-        title="Access Denied"
-        subtitle={room.verificationError}
-      />
+      <MessageTemplate background={<FallbackBackground className="relative" />}>
+        <div className="flex flex-col items-center justify-center space-y-6 min-h-48">
+          <Text size="lg" shadow>
+            Access Denied
+          </Text>
+          <Text size="base" shadow className="text-gray-300">
+            {room.verificationError}
+          </Text>
+          <Button as={Link} to="/" variant="primary" size="lg">
+            Back to Join Page
+          </Button>
+        </div>
+      </MessageTemplate>
     );
   }
 

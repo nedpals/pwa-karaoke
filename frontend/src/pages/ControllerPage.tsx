@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useSearchParams, Navigate } from "react-router";
+import { useSearchParams, Navigate, Link } from "react-router";
 import type { KaraokeEntry, KaraokeQueueItem } from "../types";
 import { useRoom } from "../hooks/useRoom";
 import {
@@ -731,13 +731,16 @@ export default function ControllerPage() {
 
     return (
       <ControllerMessageScreen>
-        <div className="flex flex-col items-center justify-center min-h-48 space-y-4 max-w-md">
+        <div className="flex flex-col items-center justify-center min-h-48 space-y-6 max-w-md">
           <Text size="lg" shadow>
             Access Denied
           </Text>
           <Text size="base" shadow className="text-gray-300">
             {room.verificationError}
           </Text>
+          <Button as={Link} to="/" variant="primary" size="lg">
+            Back to Join Page
+          </Button>
         </div>
       </ControllerMessageScreen>
     );

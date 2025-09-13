@@ -18,6 +18,7 @@ import { MaterialSymbolsVolumeUpRounded } from "../components/icons/MaterialSymb
 import { MaterialSymbolsVolumeDownRounded } from "../components/icons/MaterialSymbolsVolumeDownRounded";
 import { Text } from "../components/atoms/Text";
 import { Button } from "../components/atoms/Button";
+import { MarqueeText } from "../components/molecules/MarqueeText";
 import { Input } from "../components/atoms/Input";
 import { ProgressBar } from "../components/atoms/ProgressBar";
 import { SearchInput } from "../components/molecules/SearchInput";
@@ -374,12 +375,12 @@ function PlayerTab() {
         {/* Song Info Section */}
         <div className="flex flex-col items-center text-center space-y-2 sm:space-y-3">
           <Text size="base" className="text-white/70 sm:text-lg">Now Playing</Text>
-          <Text size="xl" weight="bold" className="sm:text-2xl md:text-3xl lg:text-4xl leading-tight px-4">
+          <MarqueeText size="xl" weight="bold" className="sm:text-2xl md:text-3xl lg:text-4xl leading-tight px-4" pauseOnHover>
             {playerState?.entry ? playerState.entry.title : "No song"}
-          </Text>
-          <Text size="lg" className="sm:text-xl md:text-2xl text-white/90 px-4">
+          </MarqueeText>
+          <MarqueeText size="lg" className="sm:text-xl md:text-2xl text-white/90 px-4" pauseOnHover>
             {playerState?.entry ? playerState.entry.artist : "--"}
-          </Text>
+          </MarqueeText>
           {playerState?.entry?.uploader && (
             <div className="flex flex-col sm:flex-row sm:space-x-4 space-y-1 sm:space-y-0 text-xs sm:text-sm text-white/70">
               <Text>From: {playerState.entry.source}</Text>

@@ -7,7 +7,6 @@ import {
   useRoomContext,
 } from "../providers/RoomProvider";
 import { useSearchMutation, useServerStatus } from "../hooks/useApi";
-import { useTextInput } from "../hooks/useTextInput";
 import { MaterialSymbolsFastForwardRounded } from "../components/icons/MaterialSymbolsFastForwardRounded";
 import { MaterialSymbolsKeyboardArrowUpRounded } from "../components/icons/MaterialSymbolsArrowUpRounded";
 import { MaterialSymbolsDeleteOutline } from "../components/icons/MaterialSymbolsDeleteOutline";
@@ -158,7 +157,7 @@ function SongSelectTab() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [hasSearched, setHasSearched] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
-  const textInput = useTextInput("");
+ const [textInput, setTextInput] = useState("");
 
   const {
     trigger: triggerSearch,
@@ -166,14 +165,14 @@ function SongSelectTab() {
     isMutating: isSearching,
   } = useSearchMutation();
 
-  const handleSearch = async () => {
-    if (!textInput.text.trim()) return;
-    
+  const handleSearch = async (value: string) => {
+    if (!value.trim() || isSearching) return;
+    setTextInput(value);
     setSearchError(null);
     setHasSearched(true);
     
     try {
-      await triggerSearch(textInput.text);
+      await triggerSearch(value);
     } catch (error) {
       console.error("Search error:", error);
       setSearchError("Failed to search. Please check your connection and try again.");
@@ -206,20 +205,11 @@ function SongSelectTab() {
           </Text>
 
           <SearchInput
-            ref={textInput.inputRef}
-            value={textInput.text}
-            onChange={textInput.updateFromInput}
+            size="md"
             onSearch={handleSearch}
             isSearching={isSearching}
             placeholder="Search for a song..."
-            size="md"
             className="sm:text-lg"
-            onFocus={(e) => {
-              textInput.updateCursorFromInput(e);
-            }}
-            onClick={textInput.updateCursorFromInput}
-            onKeyUp={textInput.updateCursorFromInput}
-            onSelect={(e) => textInput.updateCursorFromInput(e)}
           />
         </div>
 
@@ -235,7 +225,7 @@ function SongSelectTab() {
             isSearching={isSearching}
             hasSearched={hasSearched}
             searchError={searchError}
-            searchQuery={textInput.text}
+            searchQuery={textInput}
             queueingStates={queueingStates}
             queueCount={(playerState?.entry ? 1 : 0) + (queue?.items.length ?? 0)}
             onAddToQueue={handleAddQueueItem}

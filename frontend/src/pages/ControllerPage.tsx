@@ -364,93 +364,120 @@ function PlayerTab() {
   };
 
   return (
-    <div className="max-w-4xl mx-auto px-3 sm:px-4 lg:px-6 text-white pt-6 sm:pt-12 md:pt-16 lg:pt-24">
+    <div className="max-w-4xl mx-auto px-3 sm:px-4 lg:px-6 text-white pt-4 sm:pt-6 md:pt-8">
       {errorMessage && (
         <div className="mb-4 p-3 bg-red-500/20 border border-red-500/50 rounded-lg text-center">
           <Text size="sm" className="text-red-200 sm:text-base">{errorMessage}</Text>
         </div>
       )}
-      <div className="flex flex-col justify-center h-full">
-        <div className="flex flex-col items-center text-center py-6 sm:py-8 md:py-12 space-y-3 sm:space-y-4">
-          <Text size="lg" className="sm:text-xl md:text-2xl">Now Playing</Text>
-          <Text size="2xl" weight="bold" className="sm:text-3xl md:text-4xl lg:text-5xl leading-tight px-4">
+      <div className="flex flex-col space-y-6 sm:space-y-8">
+        {/* Song Info Section */}
+        <div className="flex flex-col items-center text-center space-y-2 sm:space-y-3">
+          <Text size="base" className="text-white/70 sm:text-lg">Now Playing</Text>
+          <Text size="xl" weight="bold" className="sm:text-2xl md:text-3xl lg:text-4xl leading-tight px-4">
             {playerState?.entry ? playerState.entry.title : "No song"}
           </Text>
-          <Text size="xl" className="sm:text-2xl md:text-3xl px-4">
+          <Text size="lg" className="sm:text-xl md:text-2xl text-white/90 px-4">
             {playerState?.entry ? playerState.entry.artist : "--"}
           </Text>
           {playerState?.entry?.uploader && (
-            <div className="flex flex-col sm:flex-row sm:space-x-4 space-y-1 sm:space-y-0 text-sm sm:text-base">
+            <div className="flex flex-col sm:flex-row sm:space-x-4 space-y-1 sm:space-y-0 text-xs sm:text-sm text-white/70">
               <Text>From: {playerState.entry.source}</Text>
               <Text>By: {playerState.entry.uploader}</Text>
             </div>
           )}
         </div>
 
-        {/* Progress bar */}
-        <div className="flex flex-row items-center gap-2 sm:gap-3 px-2 sm:px-4">
-          <TimeDisplay seconds={playerState?.current_time || 0} className="text-xs sm:text-sm" />
-          <ProgressBar
-            value={playerState?.current_time || 0}
-            max={playerState?.duration || 0}
-          />
-          <TimeDisplay seconds={playerState?.duration || 0} className="text-xs sm:text-sm" />
+        {/* Progress Section */}
+        <div className="space-y-3 sm:space-y-4">
+          <div className="flex flex-row items-center gap-3 sm:gap-4">
+            <TimeDisplay
+              seconds={playerState?.current_time || 0}
+              className="text-sm sm:text-base font-mono text-white/90 min-w-12 sm:min-w-16 text-center"
+            />
+            <ProgressBar
+              value={playerState?.current_time || 0}
+              max={playerState?.duration || 0}
+              className="h-2 sm:h-3"
+            />
+            <TimeDisplay
+              seconds={playerState?.duration || 0}
+              className="text-sm sm:text-base font-mono text-white/90 min-w-12 sm:min-w-16 text-center"
+            />
+          </div>
         </div>
 
-        <div className="flex flex-row justify-center pt-6 sm:pt-8">
-          <IconButton
-            icon={playerState?.play_state === "playing" ? (
-              <MaterialSymbolsPauseRounded />
-            ) : (
-              <MaterialSymbolsPlayArrowRounded />
-            )}
-            onClick={handlePlayerPlayback}
-            disabled={!playerState || !playerState.entry || isPlaybackLoading}
-            variant="secondary"
-            size="lg"
-            className="text-2xl sm:text-3xl md:text-4xl rounded-full border border-white px-6 py-3 sm:px-8 sm:py-4 md:px-12"
-          />
-        </div>
+        {/* Main Controls Section */}
+        <div className="flex flex-col items-center space-y-6">
+          {/* Primary Transport Controls */}
+          <div className="flex items-center space-x-4 sm:space-x-6">
+            {/* Skip Previous (if needed in future) */}
 
-        <div className="flex flex-row self-center items-center space-x-3 sm:space-x-4 bg-black/50 p-2 sm:p-3 rounded-full mt-6 sm:mt-8">
-          <IconButton
-            icon={<MaterialSymbolsVolumeDownRounded />}
-            onClick={() => adjustPlayerVolume(-0.1)}
-            disabled={!playerState || !playerState.entry || (optimisticVolume ?? playerState?.volume ?? 0.5) <= 0 || isVolumeLoading}
-            variant="secondary"
-            size="md"
-            className="text-lg sm:text-xl md:text-2xl rounded-full border border-white/50 px-3 py-2 sm:px-4"
-            label="Volume Down"
-          />
-          <Text size="base" className="text-white min-w-12 sm:min-w-16 text-center font-medium sm:text-lg">
-            {volumePerc}%
-          </Text>
-          <IconButton
-            icon={<MaterialSymbolsVolumeUpRounded />}
-            onClick={() => adjustPlayerVolume(0.1)}
-            disabled={!playerState || !playerState.entry || (optimisticVolume ?? playerState?.volume ?? 0.5) >= 1 || isVolumeLoading}
-            variant="secondary"
-            size="md"
-            className="text-lg sm:text-xl md:text-2xl rounded-full border border-white/50 px-3 py-2 sm:px-4"
-            label="Volume Up"
-          />
+            {/* Main Play/Pause Button */}
+            <IconButton
+              icon={playerState?.play_state === "playing" ? (
+                <MaterialSymbolsPauseRounded />
+              ) : (
+                <MaterialSymbolsPlayArrowRounded />
+              )}
+              onClick={handlePlayerPlayback}
+              disabled={!playerState || !playerState.entry || isPlaybackLoading}
+              variant="secondary"
+              size="xl"
+              className="text-3xl sm:text-4xl md:text-5xl rounded-full border-2 border-white px-8 py-4 sm:px-10 sm:py-5 bg-white/10 hover:bg-white/20 transition-all"
+            />
+
+            {/* Skip Next */}
+            <IconButton
+              icon={<MaterialSymbolsFastForwardRounded />}
+              onClick={handlePlayNext}
+              disabled={
+                !playerState ||
+                !playerState.entry ||
+                !queue ||
+                queue.items.length === 0 ||
+                isPlayNextLoading
+              }
+              variant="secondary"
+              size="lg"
+              className="text-xl sm:text-2xl md:text-3xl rounded-full border border-white/70 px-4 py-3 sm:px-5 sm:py-4"
+              label="Next"
+            />
+          </div>
+
+          {/* Volume Controls */}
+          <div className="flex items-center space-x-3 sm:space-x-4 bg-black/40 backdrop-blur-sm px-4 py-3 sm:px-6 sm:py-4 rounded-2xl border border-white/20">
+            <IconButton
+              icon={<MaterialSymbolsVolumeDownRounded />}
+              onClick={() => adjustPlayerVolume(-0.1)}
+              disabled={!playerState || !playerState.entry || (optimisticVolume ?? playerState?.volume ?? 0.5) <= 0 || isVolumeLoading}
+              variant="secondary"
+              size="sm"
+              className="text-lg sm:text-xl rounded-full px-2 py-2 hover:bg-white/10"
+              label="Volume Down"
+            />
+            <div className="flex items-center space-x-2 min-w-20 sm:min-w-24">
+              <div className="h-1 bg-white/20 rounded-full flex-1 overflow-hidden">
+                <div
+                  className="h-full bg-white rounded-full transition-all duration-200"
+                  style={{ width: `${volumePerc}%` }}
+                />
+              </div>
+              <Text size="sm" className="text-white font-medium min-w-10 text-center sm:text-base">
+                {volumePerc}%
+              </Text>
+            </div>
+            <IconButton
+              icon={<MaterialSymbolsVolumeUpRounded />}
+              onClick={() => adjustPlayerVolume(0.1)}
+              disabled={!playerState || !playerState.entry || (optimisticVolume ?? playerState?.volume ?? 0.5) >= 1 || isVolumeLoading}
+              variant="secondary"
+              size="sm"
+              className="text-lg sm:text-xl rounded-full px-2 py-2 hover:bg-white/10"
+              label="Volume Up"
+            />
+          </div>
         </div>
-        <IconButton
-          icon={<MaterialSymbolsFastForwardRounded />}
-          label="Play next song"
-          showLabel
-          onClick={handlePlayNext}
-          disabled={
-            !playerState ||
-            !playerState.entry ||
-            !queue ||
-            queue.items.length === 0 ||
-            isPlayNextLoading
-          }
-          variant="secondary"
-          size="md"
-          className="self-center rounded-full border border-white px-4 py-2 sm:px-6 sm:py-2 md:px-8 mt-8 sm:mt-12 md:mt-20 text-sm sm:text-base"
-        />
       </div>
     </div>
   );

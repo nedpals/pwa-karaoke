@@ -5,6 +5,8 @@ from playwright.async_api import Browser
 from pytubefix import YouTube
 from core.search import KaraokeSourceProvider, KaraokeSearchResult, KaraokeEntry
 from browser_manager import browser_manager
+from config import config
+from urllib.parse import urlparse, urlunparse
 
 class YTKaraokeSourceProvider(KaraokeSourceProvider):
     def __init__(self, allowed_channels: list[str] = None, karaoke_keywords: list[str] = None):
@@ -21,6 +23,30 @@ class YTKaraokeSourceProvider(KaraokeSourceProvider):
 
     async def _get_browser(self) -> Optional[Browser]:
         return await browser_manager.get_browser()
+
+    def _get_proxy_config(self) -> Optional[dict]:
+        """Get proxy configuration for pytubefix."""
+        if not config.PROXY_SERVER:
+            return None
+
+        # pytubefix expects proxies in requests format
+        proxies = {
+            "http": config.PROXY_SERVER,
+            "https": config.PROXY_SERVER
+        }
+
+        # If proxy has authentication, format it as username:password@server
+        if config.PROXY_USERNAME and config.PROXY_PASSWORD:
+            parsed = urlparse(config.PROXY_SERVER)
+            # Reconstruct URL with authentication
+            netloc = f"{config.PROXY_USERNAME}:{config.PROXY_PASSWORD}@{parsed.hostname}:{parsed.port}"
+            auth_server = urlunparse((parsed.scheme, netloc, parsed.path, parsed.params, parsed.query, parsed.fragment))
+            proxies = {
+                "http": auth_server,
+                "https": auth_server
+            }
+
+        return proxies
 
     async def search(self, query: str) -> KaraokeSearchResult:
         browser = await self._get_browser()
@@ -157,7 +183,11 @@ class YTKaraokeSourceProvider(KaraokeSourceProvider):
         Returns the highest quality video stream URL.
         """
         try:
-            yt = YouTube(youtube_url)
+            proxy_config = self._get_proxy_config()
+            if proxy_config:
+                yt = YouTube(youtube_url, proxies=proxy_config)
+            else:
+                yt = YouTube(youtube_url)
             # Get the highest quality progressive stream (video + audio)
             stream = yt.streams.filter(progressive=True, file_extension='mp4').order_by('resolution').desc().first()
             

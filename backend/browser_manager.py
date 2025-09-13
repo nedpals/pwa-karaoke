@@ -57,11 +57,11 @@ class BrowserManager:
                 }
 
                 # Add proxy configuration if provided
-                if config.PLAYWRIGHT_PROXY_SERVER:
-                    proxy_config = {"server": config.PLAYWRIGHT_PROXY_SERVER}
-                    if config.PLAYWRIGHT_PROXY_USERNAME and config.PLAYWRIGHT_PROXY_PASSWORD:
-                        proxy_config["username"] = config.PLAYWRIGHT_PROXY_USERNAME
-                        proxy_config["password"] = config.PLAYWRIGHT_PROXY_PASSWORD
+                if config.PROXY_SERVER:
+                    proxy_config = {"server": config.PROXY_SERVER}
+                    if config.PROXY_USERNAME and config.PROXY_PASSWORD:
+                        proxy_config["username"] = config.PROXY_USERNAME
+                        proxy_config["password"] = config.PROXY_PASSWORD
                     launch_options["proxy"] = proxy_config
 
                 # Launch local browser with anti-detection settings and optional proxy

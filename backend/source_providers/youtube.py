@@ -184,6 +184,8 @@ class YTKaraokeSourceProvider(KaraokeSourceProvider):
         """
         try:
             proxy_config = self._get_proxy_config()
+            print(f"Using proxy config: {proxy_config}")
+
             if proxy_config:
                 yt = YouTube(youtube_url, proxies=proxy_config)
             else:

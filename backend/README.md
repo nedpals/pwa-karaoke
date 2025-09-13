@@ -51,7 +51,7 @@ Leadership    Versioning
 ## Quick Start
 
 ### Prerequisites
-- Python 3.8+
+- Python 3.11+ (tested with 3.12)
 - pip package manager
 
 ### Installation
@@ -61,12 +61,18 @@ Leadership    Versioning
    cd backend
    ```
 
-2. **Install dependencies**:
+2. **Create virtual environment** (recommended):
+   ```bash
+   python -m venv venv
+   source venv/bin/activate  # On Windows: venv\Scripts\activate
+   ```
+
+3. **Install dependencies**:
    ```bash
    pip install -r requirements.txt
    ```
 
-3. **Install Playwright browsers** (required for YouTube search):
+4. **Install Playwright browsers** (required for YouTube search):
    ```bash
    playwright install chromium
    ```
@@ -76,7 +82,7 @@ Leadership    Versioning
    playwright install
    ```
 
-4. **Run the server**:
+5. **Run the server**:
    ```bash
    python main.py
    ```
@@ -85,6 +91,9 @@ Leadership    Versioning
    - WebSocket endpoint: `ws://localhost:8000/ws`
    - Health endpoint: `http://localhost:8000/health`
    - Search endpoint: `http://localhost:8000/search?query=<search_term>`
+   - Video URL endpoint: `POST http://localhost:8000/get_video_url`
+   - Rooms endpoint: `http://localhost:8000/rooms`
+   - API docs: `http://localhost:8000/docs`
 
 ## Source Providers
 
@@ -131,11 +140,12 @@ Add your provider to the service in `services/karaoke_service.py`:
 from source_providers.basic_provider import BasicVideoProvider
 
 class KaraokeService:
-    def __init__(self):
+    def __init__(self, cache):
         self.source_providers = [
-            BasicVideoProvider(),
-            # ... other providers
+            YTKaraokeSourceProvider(),
+            BasicVideoProvider(),  # Add your provider here
         ]
+        self.cache = cache
 ```
 
 ### Lazy Loading with get_video_url
@@ -165,9 +175,13 @@ class LazyVideoProvider(KaraokeSourceProvider):
         
         return KaraokeSearchResult(entries=entries)
     
-    async def get_video_url(self, entry: KaraokeEntry) -> Optional[str]:
+    async def get_video_url(self, entry: KaraokeEntry) -> Union[str, VideoURLResult, None]:
         # Fetch video URL when actually needed
-        return await your_api_get_stream_url(entry.id)
+        return VideoURLResult(
+            video_url=await your_api_get_stream_url(entry.id),
+            cache_ttl_seconds=3600,
+            cacheable=True
+        )
 ```
 
 ## HTTP Server
@@ -180,7 +194,7 @@ The server runs on `0.0.0.0:8000` (accessible from all interfaces) and is curren
 
 ### CORS
 
-Cross-origin requests are allowed from `http://localhost:5173` (Vite dev server). To modify CORS settings, update the `CORSMiddleware` configuration in `main.py`.
+Cross-origin requests are currently allowed from all origins (`["*"]`) for production hosting. To modify CORS settings, update the `CORSMiddleware` configuration in `main.py`.
 
 ### API Documentation
 
@@ -211,7 +225,7 @@ All WebSocket communication uses JSON arrays: `[command_name, payload_object]`
 
 ### Connection Flow
 
-Clients establish connection by connecting to `ws://localhost:8000/ws`, then send a handshake message with their client type (`["handshake", "controller"]` or `["handshake", "display"]`). After handshake completion, clients must join a room using `["join_room", {"room_id": "room_name"}]` before sending any room-scoped commands.
+Clients establish connection by connecting to `ws://localhost:8000/ws`, then send a handshake message with their client type (`["handshake", {"client_type": "controller"}]` or `["handshake", {"client_type": "display"}]`). After handshake completion, clients must join a room using `["join_room", {"room_id": "room_name"}]` before sending any room-scoped commands.
 
 ### Message Processing
 
@@ -223,10 +237,9 @@ The server processes incoming WebSocket messages by extracting the command name 
 
 **Connection Management**
 ```typescript
-["handshake", "controller" | "display"]
+["handshake", {"client_type": "controller" | "display"}]
 ["join_room", {"room_id": string}]
 ["pong", {"timestamp": number}]
-["request_full_state", {}]
 ```
 
 #### Controller Commands
@@ -256,9 +269,9 @@ The server processes incoming WebSocket messages by extracting the command name 
 ["set_volume", {"volume": number}] // 0.0 to 1.0
 ```
 
-**Queue Information**
+**State Management**
 ```typescript
-["request_queue_update", {}]
+["player_state", DisplayPlayerState]
 ```
 
 #### Display Commands
@@ -266,13 +279,12 @@ The server processes incoming WebSocket messages by extracting the command name 
 **Player State Management**
 ```typescript
 ["update_player_state", DisplayPlayerState]
-["video_loaded", PlayerState]
+["video_loaded", DisplayPlayerState]
 ```
 
-**State Synchronization**
+**State Broadcasting**
 ```typescript
 ["queue_update", QueueData]
-["send_current_queue", {}]
 ```
 
 ### Server-to-Client Messages
@@ -304,9 +316,13 @@ The server processes incoming WebSocket messages by extracting the command name 
 
 #### Commands
 ```typescript
+// Control Commands (to displays)
 ["play_song", {}]
 ["pause_song", {}]
 ["set_volume", number]
+
+// Queue Commands (to controllers)
+["queue_update", QueueData]
 ```
 
 #### Errors
@@ -339,9 +355,10 @@ The server processes incoming WebSocket messages by extracting the command name 
 ```typescript
 {
   entry: KaraokeEntry | null,
-  play_state: "playing" | "paused" | "loading",
-  progress: number,      // 0.0 to 1.0
-  volume: number,        // 0.0 to 1.0
+  play_state: "playing" | "paused" | "buffering" | "finished",
+  current_time: number,  // Current position in seconds
+  duration: number,      // Total duration in seconds
+  volume: number,        // Volume level 0.0-1.0
   version: number,       // For conflict resolution
   timestamp: number      // Unix timestamp
 }
@@ -395,3 +412,17 @@ Connection problems often stem from port 8000 being blocked by firewall settings
 ### Performance Issues
 
 Performance problems can be diagnosed through the health endpoint at `/health`, which provides connection metrics including heartbeat timeouts and disconnection rates. If network connectivity is unstable, consider reducing heartbeat frequency to prevent unnecessary disconnections from timeout issues.
+
+### Room Management Issues
+
+- Verify room exists via `GET /rooms/{room_id}`
+- Check password requirements via room verification endpoint
+- Monitor room leadership status in logs
+- Ensure client joins room before sending room-scoped commands
+
+### Caching Issues
+
+- Monitor cache hit rates via `/health` endpoint
+- Check memory usage in cache statistics
+- Video URL cache has configurable TTL settings
+- Cache cleanup runs automatically for expired entries

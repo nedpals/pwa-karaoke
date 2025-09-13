@@ -72,17 +72,7 @@ Leadership    Versioning
    pip install -r requirements.txt
    ```
 
-4. **Install Playwright browsers** (required for YouTube search):
-   ```bash
-   playwright install chromium
-   ```
-   
-   Or install all browsers:
-   ```bash
-   playwright install
-   ```
-
-5. **Run the server**:
+4. **Run the server**:
    ```bash
    python main.py
    ```
@@ -397,13 +387,9 @@ The server processes incoming WebSocket messages by extracting the command name 
 
 ## Troubleshooting
 
-### Playwright Issues
-
-If you encounter browser download errors, try running `playwright install --with-deps chromium` to install system dependencies along with the browser. On Linux systems, you may need to run `playwright install-deps` separately to install required system libraries. Headless server environments should ensure all required libraries are available for browser automation.
-
 ### Search Not Working
 
-When search functionality fails, first verify that Playwright browsers are properly installed by running `playwright --version`. Check the server logs for YouTube search errors or API failures. Ensure your server has network connectivity to reach video platform APIs.
+When search functionality fails, check the server logs for YouTube search errors or API failures. Ensure your server has network connectivity to reach video platform APIs. If using a proxy, verify the proxy configuration in your environment variables.
 
 ### WebSocket Connection Issues
 

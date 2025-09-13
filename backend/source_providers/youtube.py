@@ -1,20 +1,14 @@
-import re
 import time
 import random
-from urllib.parse import quote
 from typing import Optional, Union
-from playwright.async_api import Browser
-from pytubefix import YouTube
+from pytubefix import YouTube, Search
 from core.search import KaraokeSourceProvider, KaraokeSearchResult, KaraokeEntry, VideoURLResult
-from browser_manager import browser_manager
 from config import config
 from urllib.parse import urlparse, urlunparse
 
 class YTKaraokeSourceProvider(KaraokeSourceProvider):
     def __init__(self, allowed_channels: list[str] = None, karaoke_keywords: list[str] = None):
         super().__init__()
-        # Browser is now managed globally
-        pass
         # Examples: ["KaraFun", "Sing King", "Lucky Voice", "Karaoke Mugen"]
         self.allowed_channels = allowed_channels or []
         self.karaoke_keywords = karaoke_keywords or ["karaoke", "instrumental", "backing track", "sing along"]
@@ -23,8 +17,6 @@ class YTKaraokeSourceProvider(KaraokeSourceProvider):
     def provider_id(self) -> str:
         return "youtube"
 
-    async def _get_browser(self) -> Optional[Browser]:
-        return await browser_manager.get_browser()
 
     def _get_proxy_config(self) -> Optional[dict]:
         """Get proxy configuration for pytubefix."""
@@ -51,105 +43,31 @@ class YTKaraokeSourceProvider(KaraokeSourceProvider):
         return proxies
 
     async def search(self, query: str) -> KaraokeSearchResult:
-        browser = await self._get_browser()
-        if not browser:
-            return KaraokeSearchResult(entries=[])
-        
-        try:
-            page_obj = await browser.new_page()
-        except Exception:
-            # Browser connection may have been closed, try to get a fresh browser
-            browser = await browser_manager.get_browser()
-            if not browser:
-                return KaraokeSearchResult(entries=[])
-            page_obj = await browser.new_page()
-
         try:
             enhanced_query = self._enhance_query_with_keywords(query)
-            search_url = f"https://www.youtube.com/results?search_query={quote(enhanced_query)}"
-            await page_obj.goto(search_url)
-
-            await page_obj.wait_for_selector('ytd-video-renderer', timeout=10000)
-
-            video_elements = await page_obj.query_selector_all('ytd-video-renderer')
-
-            # First pass: collect all video metadata
-            video_data = []
-            for i, element in enumerate(video_elements):
-                try:
-                    title_element = await element.query_selector('#video-title')
-                    title = await title_element.inner_text() if title_element else "Unknown Title"
-
-                    channel_element = await element.query_selector('#text > a')
-                    artist = await channel_element.inner_text() if channel_element else "Unknown Artist"
-
-                    if self.allowed_channels and not self._is_allowed_channel(artist):
-                        continue
-
-                    link_element = await element.query_selector('#video-title')
-                    href = await link_element.get_attribute('href') if link_element else ""
-                    video_url = f"https://www.youtube.com{href}" if href else ""
-
-                    if not video_url:
-                        continue
-
-                    duration_element = await element.query_selector('ytd-thumbnail-overlay-time-status-renderer span')
-                    duration_text = await duration_element.inner_text() if duration_element else ""
-                    duration = self._parse_duration(duration_text) if duration_text else None
-
-                    video_id = self._extract_video_id(href) if href else f"unknown_{i}"
-
-                    video_data.append({
-                        'id': video_id,
-                        'title': title.strip(),
-                        'artist': artist.strip(),
-                        'youtube_url': video_url,  # Keep YouTube URL for lazy loading
-                        'duration': duration
-                    })
-                except Exception:
+            proxy_config = self._get_proxy_config()
+            search = Search(enhanced_query, proxies=proxy_config)
+            entries = []
+            for video in search.videos:
+                if self.allowed_channels and not self._is_allowed_channel(video.author):
                     continue
 
-            if not video_data:
-                return KaraokeSearchResult(entries=[])
-
-            # Create entries without fetching video URLs (lazy loading)
-            entries = []
-            for data in video_data:
-                if data['id'] and data['id'] != 'unknown_':  # Skip entries without valid IDs
-                    karaoke_entry = KaraokeEntry(
-                        id=data['id'],
-                        title=data['title'],
-                        artist=data['artist'],
-                        video_url=None,  # Will be loaded on demand
-                        source=self.provider_id,
-                        uploader=data['artist'],
-                        duration=data['duration']
-                    )
-                    entries.append(karaoke_entry)
+                entries.append(KaraokeEntry(
+                    id=video.video_id,
+                    title=video.title,
+                    artist=video.author,
+                    video_url=None,  # Will be loaded on demand
+                    source=self.provider_id,
+                    uploader=video.author,
+                    duration=video.length
+                ))
 
             return KaraokeSearchResult(entries=entries)
 
-        finally:
-            await page_obj.close()
+        except Exception as e:
+            print(f"Search failed: {e}")
+            return KaraokeSearchResult(entries=[])
 
-    def _parse_duration(self, duration_text: str) -> int:
-        if not duration_text:
-            return None
-
-        parts = duration_text.split(':')
-        if len(parts) == 2:
-            minutes, seconds = map(int, parts)
-            return minutes * 60 + seconds
-        elif len(parts) == 3:
-            hours, minutes, seconds = map(int, parts)
-            return hours * 3600 + minutes * 60 + seconds
-        return None
-
-    def _extract_video_id(self, href: str) -> str:
-        if not href:
-            return ""
-        match = re.search(r'watch\?v=([^&]+)', href)
-        return match.group(1) if match else ""
 
     def _enhance_query_with_keywords(self, query: str) -> str:
         if not self.karaoke_keywords:
@@ -205,11 +123,7 @@ class YTKaraokeSourceProvider(KaraokeSourceProvider):
                 if attempt == 0:
                     print(f"Using proxy config: {proxy_config}")
 
-                if proxy_config:
-                    yt = YouTube(youtube_url, proxies=proxy_config)
-                else:
-                    yt = YouTube(youtube_url)
-
+                yt = YouTube(youtube_url, proxies=proxy_config)
                 stream = yt.streams.filter(progressive=True, file_extension='mp4').order_by('resolution').desc().first()
                 if not stream:
                     stream = yt.streams.filter(adaptive=True, file_extension='mp4', only_video=False).order_by('resolution').desc().first()
@@ -243,5 +157,5 @@ class YTKaraokeSourceProvider(KaraokeSourceProvider):
         return None
 
     async def close(self):
-        # Browser cleanup is handled by browser_manager
+        # No cleanup needed for pytubefix
         pass

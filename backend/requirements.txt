@@ -27,7 +27,6 @@ mdurl==0.1.2
 multidict==6.6.4
 mutagen==1.47.0
 nanoid==2.0.0
-playwright==1.55.0
 propcache==0.3.2
 pycryptodomex==3.23.0
 pydantic==2.11.7

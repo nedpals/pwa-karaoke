@@ -16,7 +16,8 @@ import {
   useRoomContext,
 } from "../providers/RoomProvider";
 import { useTempState, type TempStateSetterOptions } from "../hooks/useTempState";
-import { useVideoUrl, useVideoUrlMutation, useServerStatus } from "../hooks/useApi";
+import { useVideoUrlMutation, useServerStatus } from "../hooks/useApi";
+import { useVideoUrlWithRetry } from "../hooks/useVideoUrlWithRetry";
 import type {
   DisplayPlayerState,
 } from "../types";
@@ -64,10 +65,18 @@ function FallbackBackground({ className }: {
 function VideoPlayerComponent({
   videoUrl,
   isLoadingVideoUrl,
+  error,
+  canRetry,
+  onRetry,
+  retryCount,
   onNearingEnd,
 }: {
   videoUrl: string | null;
   isLoadingVideoUrl: boolean;
+  error: Error | null;
+  canRetry: boolean;
+  onRetry: () => void;
+  retryCount: number;
   onNearingEnd: (params: { timeRemaining: number }) => void;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -230,7 +239,7 @@ function VideoPlayerComponent({
 
     return (
       <div className="bg-black h-screen w-screen flex items-center justify-center">
-        <div className="text-center text-white space-y-4">
+        <div className="text-center text-white space-y-4 max-w-md px-4">
           <div className="text-6xl">⚠️</div>
           <Text size="xl" weight="bold" shadow>
             Video Failed to Load
@@ -241,6 +250,31 @@ function VideoPlayerComponent({
           <Text size="base" shadow className="text-gray-300">
             Unable to load video stream from {playerState.entry.source}
           </Text>
+          {error && (
+            <Text size="sm" shadow className="text-red-300">
+              Error: {error.message}
+            </Text>
+          )}
+          {retryCount > 0 && (
+            <Text size="sm" shadow className="text-yellow-300">
+              Retry attempts: {retryCount}/3
+            </Text>
+          )}
+          {canRetry && (
+            <Button
+              onClick={onRetry}
+              variant="primary"
+              size="md"
+              className="mt-4"
+            >
+              Try Again
+            </Button>
+          )}
+          {!canRetry && retryCount >= 3 && (
+            <Text size="sm" shadow className="text-red-400">
+              Maximum retry attempts reached. Please try a different song.
+            </Text>
+          )}
         </div>
       </div>
     );
@@ -392,7 +426,14 @@ function PlayingStateContent() {
 
   const { playerState, upNextQueue } = useRoomContext();
   const { trigger: triggerVideoUrl } = useVideoUrlMutation();
-  const { data: videoUrlData, isLoading: isLoadingVideoUrl } = useVideoUrl(
+  const {
+    videoUrl: videoUrlData,
+    isLoading: isLoadingVideoUrl,
+    error: videoUrlError,
+    canRetry,
+    retry,
+    retryCount
+  } = useVideoUrlWithRetry(
     playerState?.entry && !playerState.entry.video_url
       ? playerState.entry
       : null,
@@ -433,8 +474,8 @@ function PlayingStateContent() {
     }
 
     // Check if we fetched it via the API (including prefetched via SWR cache)
-    if (videoUrlData?.video_url) {
-      return videoUrlData.video_url;
+    if (videoUrlData) {
+      return videoUrlData;
     }
 
     return null;
@@ -498,6 +539,10 @@ function PlayingStateContent() {
         <VideoPlayerComponent
           videoUrl={videoUrl}
           isLoadingVideoUrl={isLoadingVideoUrl}
+          error={videoUrlError}
+          canRetry={canRetry}
+          onRetry={retry}
+          retryCount={retryCount}
           onNearingEnd={handleNearingEnd}
         />
       </div>

@@ -10,7 +10,9 @@ export function useSearch(query: string) {
     {
       revalidateOnFocus: false,
       revalidateOnReconnect: false,
-      shouldRetryOnError: false,
+      shouldRetryOnError: true,
+      errorRetryCount: 1, // Fewer retries for search to keep it responsive
+      errorRetryInterval: 1500,
     }
   );
 }
@@ -22,7 +24,12 @@ export function useVideoUrl(entry: KaraokeEntry | null) {
     {
       revalidateOnFocus: false,
       revalidateOnReconnect: false,
-      shouldRetryOnError: false,
+      shouldRetryOnError: true,
+      errorRetryCount: 2, // Additional SWR-level retries on top of API client retries
+      errorRetryInterval: 3000, // Fixed 3 second interval for SWR retries
+      onError: (error: Error) => {
+        console.error(`[useVideoUrl] Error fetching video URL for ${entry?.title}:`, error);
+      }
     }
   );
 }

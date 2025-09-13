@@ -1,4 +1,6 @@
 import re
+import time
+import random
 from urllib.parse import quote
 from typing import Optional
 from playwright.async_api import Browser
@@ -177,36 +179,55 @@ class YTKaraokeSourceProvider(KaraokeSourceProvider):
         youtube_url = f"https://www.youtube.com/watch?v={entry.id}"
         return await self._get_raw_video_url(youtube_url)
 
-    async def _get_raw_video_url(self, youtube_url: str) -> Optional[str]:
+    async def _get_raw_video_url(self, youtube_url: str, max_retries: int = 3, base_delay: float = 1.0) -> Optional[str]:
         """
         Extract raw video URL using pytube2.
         Returns the highest quality video stream URL.
         """
-        try:
-            proxy_config = self._get_proxy_config()
-            print(f"Using proxy config: {proxy_config}")
+        last_exception = None
 
-            if proxy_config:
-                yt = YouTube(youtube_url, proxies=proxy_config)
-            else:
-                yt = YouTube(youtube_url)
-            # Get the highest quality progressive stream (video + audio)
-            stream = yt.streams.filter(progressive=True, file_extension='mp4').order_by('resolution').desc().first()
-            
-            # If no progressive stream, get highest quality adaptive video stream
-            if not stream:
-                stream = yt.streams.filter(adaptive=True, file_extension='mp4', only_video=False).order_by('resolution').desc().first()
-            
-            # If still no stream, get any available stream
-            if not stream:
-                stream = yt.streams.first()
-                
-            return stream.url if stream else None
-        except Exception as e:
-            # Return None if extraction fails, fallback to original URL
-            print(f"Failed to extract video URL for {youtube_url}")
-            print(e)
-            return None
+        for attempt in range(max_retries + 1):
+            try:
+                proxy_config = self._get_proxy_config()
+                if attempt == 0:
+                    print(f"Using proxy config: {proxy_config}")
+
+                if proxy_config:
+                    yt = YouTube(youtube_url, proxies=proxy_config)
+                else:
+                    yt = YouTube(youtube_url)
+
+                stream = yt.streams.filter(progressive=True, file_extension='mp4').order_by('resolution').desc().first()
+                if not stream:
+                    stream = yt.streams.filter(adaptive=True, file_extension='mp4', only_video=False).order_by('resolution').desc().first()
+                if not stream:
+                    stream = yt.streams.first()
+
+                return stream.url if stream else None
+            except Exception as e:
+                last_exception = e
+                error_message = str(e).lower()
+
+                # Check if this is a retryable error
+                is_proxy_auth_error = "407" in error_message or "proxy authentication required" in error_message
+                is_tunnel_error = "tunnel connection failed" in error_message
+                is_4xx_error = any(code in error_message for code in ["400", "401", "403", "404", "408", "429"])
+                is_connection_error = "connection" in error_message or "timeout" in error_message
+                should_retry = is_proxy_auth_error or is_tunnel_error or is_4xx_error or is_connection_error
+
+                if attempt < max_retries and should_retry:
+                    delay = base_delay * (2 ** attempt) + random.uniform(0, 1)
+                    print(f"Attempt {attempt + 1} failed for {youtube_url}: {e}")
+                    print(f"Retrying in {delay:.1f} seconds...")
+                    time.sleep(delay)
+                    continue
+                else:
+                    print(f"Failed to extract video URL for {youtube_url} after {attempt + 1} attempts")
+                    print(f"Final error: {e}")
+                    return None
+
+        print(f"Unexpected retry loop exit for {youtube_url}. Last error: {last_exception}")
+        return None
 
     async def close(self):
         # Browser cleanup is handled by browser_manager

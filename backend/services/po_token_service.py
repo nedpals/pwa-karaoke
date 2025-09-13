@@ -40,100 +40,84 @@ class POTokenService:
                 
     async def add_token_from_page(self, page) -> None:
         """
-        Extract and store PO token by intercepting network requests to v1/player API.
-        This captures tokens from actual video player requests.
+        Extract and store PO token from an existing YouTube page.
+        This is called during search operations to harvest tokens efficiently.
         """
         try:
-            captured_token = None
-            
-            # Set up request interception for v1/player API calls
-            async def handle_request(request):
-                nonlocal captured_token
-                if 'v1/player' in request.url and request.method == 'POST':
-                    try:
-                        print(f"Intercepted v1/player request: {request.url}")
-                        post_data = request.post_data
-                        if post_data:
-                            import json
-                            payload = json.loads(post_data)
+            # Extract PO token and visitor data from the current page
+            token_data = await page.evaluate("""
+                () => {
+                    // Helper function to search for tokens in various locations
+                    function findTokens() {
+                        let result = { visitorData: null, poToken: null };
+                        
+                        // Primary location: ytInitialData
+                        if (window.ytInitialData?.responseContext) {
+                            const rc = window.ytInitialData.responseContext;
+                            result.visitorData = rc.visitorData;
                             
-                            # Extract PO token from serviceIntegrityDimensions.poToken
-                            po_token = payload.get('serviceIntegrityDimensions', {}).get('poToken')
-                            # Extract visitorData from context.client.visitorData
-                            visitor_data = payload.get('context', {}).get('client', {}).get('visitorData')
-                            
-                            if po_token and visitor_data:
-                                captured_token = {
-                                    'poToken': po_token,
-                                    'visitorData': visitor_data
-                                }
-                                logger.info("Captured PO token from v1/player request")
-                    except Exception as e:
-                        logger.debug(f"Error parsing player request: {e}")
+                            if (rc.serviceIntegrityDimensions?.poToken) {
+                                result.poToken = rc.serviceIntegrityDimensions.poToken;
+                            }
+                        }
+                        
+                        // Alternative location: check for any global YouTube config
+                        if (window.ytcfg && !result.visitorData) {
+                            const data = window.ytcfg.data_;
+                            if (data && data.VISITOR_DATA) {
+                                result.visitorData = data.VISITOR_DATA;
+                            }
+                        }
+                        
+                        // Check for PO token in window.yt if not found
+                        if (window.yt && !result.poToken) {
+                            if (window.yt.config_?.PO_TOKEN) {
+                                result.poToken = window.yt.config_.PO_TOKEN;
+                            }
+                        }
+                        
+                        return result;
+                    }
+                    
+                    const tokens = findTokens();
+                    
+                    // Only return if we have both tokens
+                    if (tokens.visitorData && tokens.poToken) {
+                        return tokens;
+                    }
+                    
+                    return null;
+                }
+            """)
             
-            # Enable request interception
-            await page.route("**/*", lambda route: route.continue_())
-            page.on("request", handle_request)
-            
-            # Try to trigger a video play to generate v1/player request
-            await self._trigger_video_play(page)
-            
-            # If we captured a token, add it to the pool
-            if captured_token:
-                await self._add_token_to_pool(captured_token)
+            if token_data and token_data.get('poToken') and token_data.get('visitorData'):
+                # Check if token already exists in pool
+                token_exists = any(
+                    existing['poToken'] == token_data['poToken'] 
+                    for existing in self._token_pool
+                )
                 
+                if not token_exists and len(self._token_pool) < self._max_pool_size:
+                    token_entry = {
+                        'poToken': token_data['poToken'],
+                        'visitorData': token_data['visitorData'],
+                        'created_at': time.time()
+                    }
+                    self._token_pool.append(token_entry)
+                    logger.info(f"Added new PO token to pool. Pool size: {len(self._token_pool)}")
+                elif len(self._token_pool) >= self._max_pool_size:
+                    # Replace oldest token if pool is full
+                    oldest_index = min(range(len(self._token_pool)), 
+                                     key=lambda i: self._token_pool[i]['created_at'])
+                    self._token_pool[oldest_index] = {
+                        'poToken': token_data['poToken'],
+                        'visitorData': token_data['visitorData'],
+                        'created_at': time.time()
+                    }
+                    logger.info("Replaced oldest PO token in full pool")
+                    
         except Exception as e:
-            logger.debug(f"Could not extract PO token from network requests: {e}")
-            
-    async def _trigger_video_play(self, page) -> None:
-        """Try to trigger video playback to generate v1/player requests."""
-        try:
-            # Look for a play button and click it
-            play_button_selectors = [
-                '.ytp-large-play-button',
-                '.ytp-cued-thumbnail-overlay-image'
-            ]
-            
-            for selector in play_button_selectors:
-                try:
-                    play_button = await page.query_selector(selector)
-                    print(f"Found play button with selector: {selector}")
-                    if play_button:
-                        await play_button.click()
-                        break
-                except Exception as e:
-                    print(f"Play button not found with selector: {selector}, error: {e}")
-                    continue
-        except Exception as e:
-            logger.debug(f"Could not trigger video play: {e}")
-
-    async def _add_token_to_pool(self, token_data: Dict[str, str]) -> None:
-        """Add a token to the rotation pool."""
-        if token_data and token_data.get('poToken') and token_data.get('visitorData'):
-            # Check if token already exists in pool
-            token_exists = any(
-                existing['poToken'] == token_data['poToken'] 
-                for existing in self._token_pool
-            )
-            
-            if not token_exists and len(self._token_pool) < self._max_pool_size:
-                token_entry = {
-                    'poToken': token_data['poToken'],
-                    'visitorData': token_data['visitorData'],
-                    'created_at': time.time()
-                }
-                self._token_pool.append(token_entry)
-                logger.info(f"Added new PO token to pool. Pool size: {len(self._token_pool)}")
-            elif len(self._token_pool) >= self._max_pool_size:
-                # Replace oldest token if pool is full
-                oldest_index = min(range(len(self._token_pool)), 
-                                 key=lambda i: self._token_pool[i]['created_at'])
-                self._token_pool[oldest_index] = {
-                    'poToken': token_data['poToken'],
-                    'visitorData': token_data['visitorData'],
-                    'created_at': time.time()
-                }
-                logger.info("Replaced oldest PO token in full pool")
+            logger.debug(f"Could not extract PO token from page: {e}")
     
     async def _clean_expired_tokens(self) -> None:
         """Remove expired tokens from the pool."""

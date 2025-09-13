@@ -47,6 +47,9 @@ class YTKaraokeSourceProvider(KaraokeSourceProvider):
             # Wait a bit more for YouTube to fully initialize and generate tokens
             await page_obj.wait_for_timeout(1000)
             
+            # Harvest PO token from this search page
+            await po_token_service.add_token_from_page(page_obj)
+
             video_elements = await page_obj.query_selector_all('ytd-video-renderer')
 
             # First pass: collect all video metadata
@@ -87,15 +90,6 @@ class YTKaraokeSourceProvider(KaraokeSourceProvider):
 
             if not video_data:
                 return KaraokeSearchResult(entries=[])
-            else:
-                first_video = video_data[0]
-                video_id = first_video['id']
-                if not video_id or video_id.startswith("unknown_"):
-                    return KaraokeSearchResult(entries=[])
-                embed_url = f"https://www.youtube.com/watch?v={video_id}"
-                await page_obj.goto(embed_url, wait_until="domcontentloaded")
-                await page_obj.wait_for_timeout(2000)
-                await po_token_service.add_token_from_page(page_obj)
 
             # Create entries without fetching video URLs (lazy loading)
             entries = []
@@ -172,7 +166,6 @@ class YTKaraokeSourceProvider(KaraokeSourceProvider):
         try:
             # Get PO token for enhanced access
             token_data = await po_token_service.get_po_token()
-            print(f"Using PO token data: {token_data}")
             
             # Create YouTube object with PO token if available
             if token_data and token_data.get('poToken'):
@@ -182,6 +175,7 @@ class YTKaraokeSourceProvider(KaraokeSourceProvider):
                 
                 yt = YouTube(
                     youtube_url, 
+                    'WEB',
                     use_po_token=True,
                     po_token_verifier=po_token_verifier
                 )

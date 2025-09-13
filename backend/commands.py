@@ -49,13 +49,56 @@ class ClientCommands:
         command = "play_song" if playback_state == "play" else "pause_song"
         await self.session_manager.broadcast_to_room_displays(self.client.room_id, command, {})
 
-    async def _broadcast_room_state(self):
+    async def _broadcast_room_state(self, should_prefetch: bool = True):
         # Broadcast queue update to all clients
         queue_payload = self.room.get_queue_update_payload()
         await self.session_manager.broadcast_to_room(self.client.room_id, "queue_update", queue_payload)
-        
+
         if self.room.player_state:
             await self.session_manager.broadcast_to_room_displays(self.client.room_id, "player_state", self.room.player_state.model_dump())
+
+        if should_prefetch:
+            asyncio.create_task(self._prefetch_video_urls())
+
+    async def _prefetch_video_urls(self):
+        """Prefetch video URLs for the first 2 songs in the queue"""
+        if not self.room or not self.room.queue.items:
+            return
+
+        # Get first 2 songs that don't already have video URLs
+        songs_to_prefetch = []
+        for item in self.room.queue.items[:2]:
+            if not item.entry.video_url:
+                songs_to_prefetch.append(item)
+
+        if not songs_to_prefetch:
+            return
+
+        print(f"[PREFETCH] Starting prefetch for {len(songs_to_prefetch)} songs in room {self.client.room_id}")
+
+        tasks = []
+        for item in songs_to_prefetch:
+            task = self._prefetch_single_video_url(item)
+            tasks.append(task)
+
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+
+    async def _prefetch_single_video_url(self, queue_item):
+        """Prefetch video URL for a single queue item"""
+        try:
+            print(f"[PREFETCH] Fetching URL for: {queue_item.entry.title} by {queue_item.entry.artist}")
+            video_response = await self.service.get_video_url(queue_item.entry)
+            if video_response.video_url:
+                queue_item.entry.video_url = video_response.video_url
+                print(f"[PREFETCH] ✓ Successfully prefetched URL for: {queue_item.entry.title}")
+                await self._broadcast_room_state(should_prefetch=False)
+            else:
+                print(f"[PREFETCH] ✗ No URL found for: {queue_item.entry.title}")
+
+        except Exception as e:
+            # Silent failure - client will handle fetching if needed
+            print(f"[PREFETCH] ✗ Failed to prefetch URL for {queue_item.entry.title}: {e}")
 
     async def join_room(self, payload):
         room_id = payload.get("room_id", "default")

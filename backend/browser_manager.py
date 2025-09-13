@@ -43,10 +43,10 @@ class BrowserManager:
                 # Note: Anti-detection args should be configured on browserless side
                 self._browser = await self._playwright.chromium.connect_over_cdp(config.PLAYWRIGHT_BROWSER_URL)
             else:
-                # Launch local browser with anti-detection settings
-                self._browser = await self._playwright.chromium.launch(
-                    headless=config.PLAYWRIGHT_HEADLESS,
-                    args=[
+                # Prepare launch options
+                launch_options = {
+                    "headless": config.PLAYWRIGHT_HEADLESS,
+                    "args": [
                         "--disable-blink-features=AutomationControlled",
                         "--disable-dev-shm-usage",
                         "--no-sandbox",
@@ -54,7 +54,18 @@ class BrowserManager:
                         "--disable-web-security",
                         "--disable-features=VizDisplayCompositor"
                     ]
-                )
+                }
+
+                # Add proxy configuration if provided
+                if config.PLAYWRIGHT_PROXY_SERVER:
+                    proxy_config = {"server": config.PLAYWRIGHT_PROXY_SERVER}
+                    if config.PLAYWRIGHT_PROXY_USERNAME and config.PLAYWRIGHT_PROXY_PASSWORD:
+                        proxy_config["username"] = config.PLAYWRIGHT_PROXY_USERNAME
+                        proxy_config["password"] = config.PLAYWRIGHT_PROXY_PASSWORD
+                    launch_options["proxy"] = proxy_config
+
+                # Launch local browser with anti-detection settings and optional proxy
+                self._browser = await self._playwright.chromium.launch(**launch_options)
     
     async def close(self):
         """Close browser and cleanup."""

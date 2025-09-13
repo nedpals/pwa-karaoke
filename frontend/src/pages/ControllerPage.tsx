@@ -92,9 +92,9 @@ function SearchResults({
   // Loading state
   if (isSearching) {
     return (
-      <div className="text-center py-16 flex flex-col items-center space-y-4">
-        <LoadingSpinner size="xl" />
-        <Text size="xl" className="text-white/70">
+      <div className="text-center py-8 sm:py-12 md:py-16 flex flex-col items-center space-y-3 sm:space-y-4">
+        <LoadingSpinner size="lg" className="sm:w-12 sm:h-12" />
+        <Text size="lg" className="text-white/70 sm:text-xl px-4">
           Searching for "{searchQuery}"...
         </Text>
       </div>
@@ -104,12 +104,12 @@ function SearchResults({
   // Error state
   if (searchError) {
     return (
-      <div className="text-center py-16">
-        <div className="text-6xl mb-4">⚠️</div>
-        <Text size="xl" className="text-red-400 mb-2">
+      <div className="text-center py-8 sm:py-12 md:py-16 px-4">
+        <div className="text-4xl sm:text-5xl md:text-6xl mb-3 sm:mb-4">⚠️</div>
+        <Text size="lg" className="text-red-400 mb-2 sm:text-xl">
           Search Failed
         </Text>
-        <Text className="text-white/70">
+        <Text size="sm" className="text-white/70 sm:text-base max-w-md mx-auto">
           {searchError}
         </Text>
       </div>
@@ -119,27 +119,35 @@ function SearchResults({
   // Results available
   if (searchResults && searchResults.entries.length > 0) {
     return (
-      <div className="space-y-4">
-        <Text className="text-white/70 text-center">
+      <div className="space-y-3 sm:space-y-4">
+        <Text size="sm" className="text-white/70 text-center sm:text-base px-4">
           Found {searchResults.entries.length} result{searchResults.entries.length !== 1 ? 's' : ''} for "{searchQuery}"
         </Text>
-        {searchResults.entries.map((entry, i) => {
-          const isQueueing = queueingStates[entry.id];
-          return (
-            <div
-              key={`search_result_${entry.id}_${i}`}
-              className="mb-4 flex flex-row items-stretch space-x-1 text-white"
-            >
-              <KaraokeEntryCard entry={entry} />
-              <IconButton
-                icon={queueCount && queueCount > 0 ? <MaterialSymbolsPlaylistAddRounded className="text-2xl" /> : <MaterialSymbolsPlayArrowRounded className="text-2xl" />}
-                onClick={() => onAddToQueue(entry)}
-                variant="secondary"
-                disabled={isQueueing}
-              />
-            </div>
-          );
-        })}
+        <div className="space-y-2 sm:space-y-3">
+          {searchResults.entries.map((entry, i) => {
+            const isQueueing = queueingStates[entry.id];
+            return (
+              <div
+                key={`search_result_${entry.id}_${i}`}
+                className="flex flex-row items-stretch space-x-2 text-white"
+              >
+                <div className="flex-1">
+                  <KaraokeEntryCard entry={entry} />
+                </div>
+                <div className="flex justify-center sm:justify-start">
+                  <IconButton
+                    icon={queueCount && queueCount > 0 ? <MaterialSymbolsPlaylistAddRounded className="text-xl sm:text-2xl" /> : <MaterialSymbolsPlayArrowRounded className="text-xl sm:text-2xl" />}
+                    onClick={() => onAddToQueue(entry)}
+                    variant="secondary"
+                    size="md"
+                    className="sm:h-full"
+                    disabled={isQueueing}
+                  />
+                </div>
+              </div>
+            );
+          })}
+        </div>
       </div>
     );
   }
@@ -147,12 +155,12 @@ function SearchResults({
   // Empty results (only show if search was performed)
   if (hasSearched && searchQuery.trim()) {
     return (
-      <div className="text-center py-16">
-        <div className="text-6xl mb-4">🔍</div>
-        <Text size="xl" className="text-white/70 mb-2">
+      <div className="text-center py-8 sm:py-12 md:py-16 px-4">
+        <div className="text-4xl sm:text-5xl md:text-6xl mb-3 sm:mb-4">🔍</div>
+        <Text size="lg" className="text-white/70 mb-2 sm:text-xl">
           No results found for "{searchQuery}"
         </Text>
-        <Text className="text-white/50">
+        <Text size="sm" className="text-white/50 sm:text-base max-w-md mx-auto">
           Try searching for a different song or artist
         </Text>
       </div>
@@ -210,9 +218,9 @@ function SongSelectTab() {
 
   return (
     <div className="relative h-full">
-      <div className="relative max-w-3xl mx-auto px-4">
-        <div className="pt-12">
-          <Text as="h1" size="7xl" weight="bold" className="text-center text-white pb-8">
+      <div className="relative max-w-4xl mx-auto px-3 sm:px-4 lg:px-6">
+        <div className="pt-6 sm:pt-8 md:pt-12">
+          <Text as="h1" size="4xl" weight="bold" className="text-center text-white pb-6 sm:text-5xl md:text-6xl lg:text-7xl sm:pb-8">
             Select a song
           </Text>
 
@@ -223,7 +231,8 @@ function SongSelectTab() {
             onSearch={handleSearch}
             isSearching={isSearching}
             placeholder="Search for a song..."
-            size="lg"
+            size="md"
+            className="sm:text-lg"
             onFocus={(e) => {
               textInput.updateCursorFromInput(e);
             }}
@@ -234,12 +243,12 @@ function SongSelectTab() {
         </div>
 
         {errorMessage && (
-          <div className="mb-4 p-4 bg-red-500/20 border border-red-500/50 rounded-lg">
-            <Text className="text-red-200">{errorMessage}</Text>
+          <div className="mb-4 p-3 sm:p-4 bg-red-500/20 border border-red-500/50 rounded-lg">
+            <Text size="sm" className="text-red-200 sm:text-base">{errorMessage}</Text>
           </div>
         )}
 
-        <div className="pt-12">
+        <div className="pt-6 sm:pt-8 md:pt-12 pb-20 sm:pb-6">
           <SearchResults
             searchResults={searchResults}
             isSearching={isSearching}
@@ -355,23 +364,23 @@ function PlayerTab() {
   };
 
   return (
-    <div className="max-w-5xl mx-auto px-4 text-white pt-24">
+    <div className="max-w-4xl mx-auto px-3 sm:px-4 lg:px-6 text-white pt-6 sm:pt-12 md:pt-16 lg:pt-24">
       {errorMessage && (
         <div className="mb-4 p-3 bg-red-500/20 border border-red-500/50 rounded-lg text-center">
-          <Text className="text-red-200">{errorMessage}</Text>
+          <Text size="sm" className="text-red-200 sm:text-base">{errorMessage}</Text>
         </div>
       )}
       <div className="flex flex-col justify-center h-full">
-        <div className="flex flex-col items-center text-center py-12 space-y-4">
-          <Text size="2xl">Now Playing</Text>
-          <Text size="5xl" weight="bold">
+        <div className="flex flex-col items-center text-center py-6 sm:py-8 md:py-12 space-y-3 sm:space-y-4">
+          <Text size="lg" className="sm:text-xl md:text-2xl">Now Playing</Text>
+          <Text size="2xl" weight="bold" className="sm:text-3xl md:text-4xl lg:text-5xl leading-tight px-4">
             {playerState?.entry ? playerState.entry.title : "No song"}
           </Text>
-          <Text size="3xl">
+          <Text size="xl" className="sm:text-2xl md:text-3xl px-4">
             {playerState?.entry ? playerState.entry.artist : "--"}
           </Text>
           {playerState?.entry?.uploader && (
-            <div className="flex flex-row space-x-2">
+            <div className="flex flex-col sm:flex-row sm:space-x-4 space-y-1 sm:space-y-0 text-sm sm:text-base">
               <Text>From: {playerState.entry.source}</Text>
               <Text>By: {playerState.entry.uploader}</Text>
             </div>
@@ -379,16 +388,16 @@ function PlayerTab() {
         </div>
 
         {/* Progress bar */}
-        <div className="flex flex-row items-center gap-2">
-          <TimeDisplay seconds={playerState?.current_time || 0} />
+        <div className="flex flex-row items-center gap-2 sm:gap-3 px-2 sm:px-4">
+          <TimeDisplay seconds={playerState?.current_time || 0} className="text-xs sm:text-sm" />
           <ProgressBar
             value={playerState?.current_time || 0}
             max={playerState?.duration || 0}
           />
-          <TimeDisplay seconds={playerState?.duration || 0} />
+          <TimeDisplay seconds={playerState?.duration || 0} className="text-xs sm:text-sm" />
         </div>
 
-        <div className="flex flex-row px-8 justify-center space-x-4 pt-8">
+        <div className="flex flex-row justify-center pt-6 sm:pt-8">
           <IconButton
             icon={playerState?.play_state === "playing" ? (
               <MaterialSymbolsPauseRounded />
@@ -398,22 +407,22 @@ function PlayerTab() {
             onClick={handlePlayerPlayback}
             disabled={!playerState || !playerState.entry || isPlaybackLoading}
             variant="secondary"
-            size="xl"
-            className="text-4xl rounded-full border border-white px-12 py-4"
+            size="lg"
+            className="text-2xl sm:text-3xl md:text-4xl rounded-full border border-white px-6 py-3 sm:px-8 sm:py-4 md:px-12"
           />
         </div>
 
-        <div className="flex flex-row self-center items-center space-x-4 bg-black/50 p-2 rounded-full mt-8">
+        <div className="flex flex-row self-center items-center space-x-3 sm:space-x-4 bg-black/50 p-2 sm:p-3 rounded-full mt-6 sm:mt-8">
           <IconButton
             icon={<MaterialSymbolsVolumeDownRounded />}
             onClick={() => adjustPlayerVolume(-0.1)}
             disabled={!playerState || !playerState.entry || (optimisticVolume ?? playerState?.volume ?? 0.5) <= 0 || isVolumeLoading}
             variant="secondary"
-            size="lg"
-            className="text-2xl rounded-full border border-white/50 px-4 py-2"
+            size="md"
+            className="text-lg sm:text-xl md:text-2xl rounded-full border border-white/50 px-3 py-2 sm:px-4"
             label="Volume Down"
           />
-          <Text size="lg" className="text-white min-w-16 text-center font-medium">
+          <Text size="base" className="text-white min-w-12 sm:min-w-16 text-center font-medium sm:text-lg">
             {volumePerc}%
           </Text>
           <IconButton
@@ -421,8 +430,8 @@ function PlayerTab() {
             onClick={() => adjustPlayerVolume(0.1)}
             disabled={!playerState || !playerState.entry || (optimisticVolume ?? playerState?.volume ?? 0.5) >= 1 || isVolumeLoading}
             variant="secondary"
-            size="lg"
-            className="text-2xl rounded-full border border-white/50 px-4 py-2"
+            size="md"
+            className="text-lg sm:text-xl md:text-2xl rounded-full border border-white/50 px-3 py-2 sm:px-4"
             label="Volume Up"
           />
         </div>
@@ -439,8 +448,8 @@ function PlayerTab() {
             isPlayNextLoading
           }
           variant="secondary"
-          size="lg"
-          className="self-center rounded-full border border-white px-8 py-2 mt-20"
+          size="md"
+          className="self-center rounded-full border border-white px-4 py-2 sm:px-6 sm:py-2 md:px-8 mt-8 sm:mt-12 md:mt-20 text-sm sm:text-base"
         />
       </div>
     </div>
@@ -462,24 +471,24 @@ function QueueTab() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   return (
-    <div className="max-w-3xl mx-auto px-4 py-12 text-white">
+    <div className="max-w-4xl mx-auto px-3 sm:px-4 lg:px-6 py-6 sm:py-8 md:py-12 text-white">
       {errorMessage && (
         <div className="mb-4 p-3 bg-red-500/20 border border-red-500/50 rounded-lg text-center">
-          <Text className="text-red-200">{errorMessage}</Text>
+          <Text size="sm" className="text-red-200 sm:text-base">{errorMessage}</Text>
         </div>
       )}
-      <div className="flex items-center justify-between mb-8">
-        <Text as="h2" size="4xl" weight="bold">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-6 sm:mb-8 space-y-3 sm:space-y-0">
+        <Text as="h2" size="2xl" weight="bold" className="sm:text-3xl md:text-4xl">
           {upNextQueue?.items.length || 0} Songs in Queue
         </Text>
         {queue && queue.items.length > (playerState?.entry ? 1 : 0) && (
           <Button
             onClick={async () => {
               if (isClearingQueue) return;
-              
+
               setIsClearingQueue(true);
               setErrorMessage(null);
-              
+
               try {
                 await clearQueue();
               } catch (error) {
@@ -493,6 +502,7 @@ function QueueTab() {
             variant="danger"
             size="sm"
             disabled={isClearingQueue}
+            className="self-start sm:self-auto"
           >
             Clear All
           </Button>
@@ -500,13 +510,13 @@ function QueueTab() {
       </div>
 
       {playerState?.entry && (
-        <div className="mt-8 space-y-4">
-          <Text>Now Playing</Text>
+        <div className="mt-6 sm:mt-8 space-y-3 sm:space-y-4">
+          <Text size="sm" className="sm:text-base font-medium">Now Playing</Text>
           <QueueItem
             entry={playerState.entry}
             actions={[
               {
-                icon: <MaterialSymbolsFastForwardRounded className="text-2xl" />,
+                icon: <MaterialSymbolsFastForwardRounded className="text-lg sm:text-xl md:text-2xl" />,
                 onClick: async () => {
                   try {
                     await playNext();
@@ -521,27 +531,27 @@ function QueueTab() {
         </div>
       )}
 
-      <div className="mt-8 space-y-4">
-        <Text>Up Next</Text>
-        <div className="space-y-2 flex flex-col">
+      <div className="mt-6 sm:mt-8 space-y-3 sm:space-y-4 pb-4">
+        <Text size="sm" className="sm:text-base font-medium">Up Next</Text>
+        <div className="space-y-2 sm:space-y-3 flex flex-col">
           {upNextQueue?.items.map((item: KaraokeQueueItem) => (
             <QueueItem
               key={`queue_item_${item.id}`}
               entry={item.entry}
               actions={[
                 {
-                  icon: <MaterialSymbolsKeyboardArrowUpRounded className="text-2xl" />,
+                  icon: <MaterialSymbolsKeyboardArrowUpRounded className="text-lg sm:text-xl md:text-2xl" />,
                   onClick: () => queueNextSong(item.id),
                   variant: "secondary",
                 },
                 {
-                  icon: <MaterialSymbolsDeleteOutline className="text-2xl" />,
+                  icon: <MaterialSymbolsDeleteOutline className="text-lg sm:text-xl md:text-2xl" />,
                   onClick: async () => {
                     if (removingStates[item.id]) return;
-                    
+
                     setRemovingStates(prev => ({ ...prev, [item.id]: true }));
                     setErrorMessage(null);
-                    
+
                     try {
                       await removeSong(item.id);
                     } catch (error) {
@@ -565,14 +575,14 @@ function QueueTab() {
 
 function ServerStatusBanner() {
   const { isOffline } = useServerStatus();
-  
+
   if (!isOffline) return null;
-  
+
   return (
-    <div className="bg-red-500/20 border-b border-red-500/50 px-4 py-2">
+    <div className="bg-red-500/20 border-b border-red-500/50 px-3 sm:px-4 py-2 sm:py-3">
       <div className="flex items-center justify-center space-x-2">
-        <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
-        <Text size="sm" className="text-red-200 text-center">
+        <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse flex-shrink-0" />
+        <Text size="xs" className="text-red-200 text-center sm:text-sm">
           Server connection lost. Some features may not work properly.
         </Text>
       </div>
@@ -640,12 +650,13 @@ function PasswordInputScreen({ roomId, room }: { roomId: string; room: ReturnTyp
           glass
           disabled={isSubmitting}
           autoFocus
+          className="text-base sm:text-lg"
         />
         <Button
           type="submit"
           variant="primary"
           disabled={!password.trim() || isSubmitting}
-          className="w-full"
+          className="w-full text-base sm:text-lg py-3 sm:py-4"
         >
           {isSubmitting ? 'Joining...' : 'Join Room'}
         </Button>

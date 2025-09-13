@@ -27,9 +27,6 @@ const meta: Meta<typeof SearchInput> = {
     placeholder: {
       control: { type: 'text' },
     },
-    preventSystemKeyboard: {
-      control: { type: 'boolean' },
-    },
   },
   decorators: [
     (Story) => (
@@ -99,19 +96,15 @@ export const Small: Story = {
   },
 };
 
-export const WithVirtualKeyboard: Story = {
+export const NativeKeyboard: Story = {
   args: {
-    placeholder: 'Touch to search (virtual keyboard)...',
+    placeholder: 'Search with native keyboard...',
     onSearch: (value: string) => {
       console.log('Searching for:', value);
       alert(`Searching for: "${value}"`);
     },
     size: 'md',
     searchButtonText: 'Search',
-    preventSystemKeyboard: true,
-    onClick: () => {
-      alert('Virtual keyboard would appear here');
-    },
   },
 };
 

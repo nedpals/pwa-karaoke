@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useMemo, createContext, useContext, useCallback } from "react";
-import { useSearchParams, Navigate, Link } from "react-router";
+import { useSearchParams, Navigate } from "react-router";
 import { Text } from "../components/atoms/Text";
 import { useRoom } from "../hooks/useRoom";
 import { GlassPanel } from "../components/organisms/GlassPanel";
@@ -7,10 +7,11 @@ import { OSD } from "../components/molecules/OSD";
 import { PlayerHeader } from "../components/organisms/PlayerHeader";
 import { QRCode } from "../components/atoms/QRCode";
 import { Button } from "../components/atoms/Button";
-import { Input } from "../components/atoms/Input";
 import { RiMusic2Fill } from "../components/icons/RiMusic2Fill";
 import { LoadingSpinner } from "../components/atoms/LoadingSpinner";
 import { MessageTemplate } from "../components/templates/MessageTemplate";
+import { SystemMessage } from "../components/templates/SystemMessage";
+import { PasswordInput } from "../components/organisms/PasswordInput";
 import {
   RoomProvider,
   useRoomContext,
@@ -551,29 +552,6 @@ function PlayingStateContent() {
   );
 }
 
-function ConnectingStateScreen({ 
-  title = "Connecting", 
-  subtitle
-}: {
-  title?: string;
-  subtitle?: string;
-}) {
-  return (
-    <MessageTemplate background={<FallbackBackground className="relative" />}>
-      <div className="flex flex-col items-center justify-center space-y-4 min-h-48">
-        <Text size="lg" shadow>
-          {title}
-        </Text>
-        {subtitle && (
-          <Text size="base" shadow className="text-gray-300">
-            {subtitle}
-          </Text>
-        )}
-      </div>
-    </MessageTemplate>
-  );
-}
-
 function ConnectedStateScreen() {
   const [searchParams] = useSearchParams();
   const roomId = searchParams.get("room");
@@ -639,17 +617,10 @@ function AwaitingInteractionStateScreen() {
   };
 
   return (
-    <MessageTemplate 
-      size="auto"
-      background={<FallbackBackground className="relative" />}
-    >
-      <div className="flex flex-col items-center space-y-4 py-2">
-        <Text size="lg" shadow className="text-center">
-          Allow Sound Permission
-        </Text>
-        <Text size="base" shadow className="text-center text-gray-300">
-          Click to allow this karaoke system to play audio automatically.
-        </Text>
+    <SystemMessage
+      title="Allow Sound Permission"
+      subtitle="Click to allow this karaoke system to play audio automatically."
+      actions={() => (
         <Button
           onClick={handleInteraction}
           variant="primary"
@@ -657,8 +628,9 @@ function AwaitingInteractionStateScreen() {
         >
           Allow Sound
         </Button>
-      </div>
-    </MessageTemplate>
+      )}
+      variant="player"
+    />
   );
 }
 
@@ -762,75 +734,18 @@ function PlayerPageContent() {
   switch (appState) {
     case "awaiting-interaction":
       return <AwaitingInteractionStateScreen />;
-
-    case "connecting":
-      return <ConnectingStateScreen />;
-
     case "connected":
       return <ConnectedStateScreen />;
-
     case "ready":
       return <ReadyStateScreen />;
-
     case "playing":
       return <PlayingStateContent />;
-
     default:
-      return <ConnectingStateScreen />;
+      // Connecting goes here
+      return <SystemMessage title="Connecting" variant="player" />;
   }
 }
 
-function PasswordInputScreen({ roomId, room }: { roomId: string; room: ReturnType<typeof useRoom> }) {
-  const [password, setPassword] = useState('');
-  const [isSubmitting, setIsSubmitting] = useState(false);
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!password.trim() || isSubmitting) return;
-
-    setIsSubmitting(true);
-    try {
-      await room.verifyAndJoinRoom(roomId, password);
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
-  return (
-    <div className="flex flex-col items-center space-y-6 max-w-3xl py-4">
-      <div className="text-center space-y-2">
-        <Text size="lg" shadow>
-          Password Required
-        </Text>
-        <Text size="base" shadow className="text-gray-300">
-          {room.verificationError}
-        </Text>
-      </div>
-
-      <form onSubmit={handleSubmit} className="w-full space-y-4">
-        <Input
-          type="password"
-          placeholder="Enter room password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          glass
-          size="lg"
-          disabled={isSubmitting}
-          autoFocus
-        />
-        <Button
-          type="submit"
-          variant="primary"
-          size="lg"
-          disabled={!password.trim() || isSubmitting}
-          className="w-full"
-        >
-          {isSubmitting ? 'Joining...' : 'Join Room'}
-        </Button>
-      </form>
-    </div>
-  );
-}
 
 export default function PlayerPage() {
   const [searchParams] = useSearchParams();
@@ -850,9 +765,10 @@ export default function PlayerPage() {
 
   if (room.isVerifying) {
     return (
-      <ConnectingStateScreen 
+      <SystemMessage
         title="Connecting..."
         subtitle="Please wait while we check your permissions..."
+        variant="player"
       />
     );
   }
@@ -860,33 +776,27 @@ export default function PlayerPage() {
   if (room.verificationError) {
     if (room.requiresPassword) {
       return (
-        <MessageTemplate background={<FallbackBackground className="relative" />}>
-          <PasswordInputScreen roomId={roomId!} room={room} />
-        </MessageTemplate>
+        <SystemMessage title="Password Required" variant="player">
+          <PasswordInput roomId={roomId!} room={room} />
+        </SystemMessage>
       );
     }
 
     return (
-      <MessageTemplate background={<FallbackBackground className="relative" />}>
-        <div className="flex flex-col items-center justify-center space-y-6 min-h-48">
-          <Text size="lg" shadow>
-            Access Denied
-          </Text>
-          <Text size="base" shadow className="text-gray-300">
-            {room.verificationError}
-          </Text>
-          <Button as={Link} to="/" variant="primary" size="lg">
-            Back to Join Page
-          </Button>
-        </div>
-      </MessageTemplate>
+      <SystemMessage
+        title="Access Denied"
+        subtitle={room.verificationError}
+        actions={() => <SystemMessage.BackButton />}
+        variant="player"
+      />
     );
   }
 
   if (!room.isVerified || !room.hasJoinedRoom) {
     return (
-      <ConnectingStateScreen 
+      <SystemMessage
         title={!room.isVerified ? "Loading..." : "Joining room..."}
+        variant="player"
       />
     );
   }

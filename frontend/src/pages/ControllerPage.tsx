@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useSearchParams, Navigate, Link } from "react-router";
+import { useSearchParams, Navigate } from "react-router";
 import type { KaraokeEntry, KaraokeQueueItem } from "../types";
 import { useRoom } from "../hooks/useRoom";
 import {
@@ -19,7 +19,6 @@ import { MaterialSymbolsVolumeDownRounded } from "../components/icons/MaterialSy
 import { Text } from "../components/atoms/Text";
 import { Button } from "../components/atoms/Button";
 import { MarqueeText } from "../components/molecules/MarqueeText";
-import { Input } from "../components/atoms/Input";
 import { ProgressBar } from "../components/atoms/ProgressBar";
 import { SearchInput } from "../components/molecules/SearchInput";
 import { IconButton } from "../components/molecules/IconButton";
@@ -27,8 +26,8 @@ import { TabNavigation, type Tab } from "../components/organisms/TabNavigation";
 import { QueueItem } from "../components/organisms/QueueItem";
 import { KaraokeEntryCard as AtomicKaraokeEntryCard } from "../components/organisms/KaraokeEntryCard";
 import { ControllerLayout } from "../components/templates/ControllerLayout";
-import { FullScreenLayout } from "../components/templates/FullScreenLayout";
-import { MessageTemplate } from "../components/templates/MessageTemplate";
+import { SystemMessage } from "../components/templates/SystemMessage";
+import { PasswordInput } from "../components/organisms/PasswordInput";
 import { TimeDisplay } from "../components/molecules/TimeDisplay";
 import { LoadingSpinner } from "../components/atoms/LoadingSpinner";
 
@@ -47,25 +46,6 @@ const CONTROLLER_TABS = [
   },
 ] as const;
 
-function ControllerMessageScreen({ title, children }: { title?: string; children: React.ReactNode }) {
-  const backgroundImage = "https://images.unsplash.com/photo-1545569341-9eb8b30979d9?q=80&w=2070&auto=format&fit=crop&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D";
-  
-  return (
-    <MessageTemplate
-      title={title}
-      background={
-        <FullScreenLayout
-          background="image"
-          backgroundImage={backgroundImage}
-        >
-          <div className="flex flex-col w-full h-full bg-black/30" />
-        </FullScreenLayout>
-      }
-    >
-      {children}
-    </MessageTemplate>
-  );
-}
 
 function KaraokeEntryCard({ entry }: { entry: KaraokeEntry }) {
   return <AtomicKaraokeEntryCard entry={entry} className="bg-black/40 border-white/20" />;
@@ -639,56 +619,6 @@ function ControllerPageContent() {
   );
 }
 
-function PasswordInputScreen({ roomId, room }: { roomId: string; room: ReturnType<typeof useRoom> }) {
-  const [password, setPassword] = useState('');
-  const [isSubmitting, setIsSubmitting] = useState(false);
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!password.trim() || isSubmitting) return;
-
-    setIsSubmitting(true);
-    try {
-      await room.verifyAndJoinRoom(roomId, password);
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
-  return (
-    <div className="flex flex-col items-center space-y-6 max-w-md">
-      <div className="text-center space-y-2">
-        <Text size="lg" shadow>
-          Password Required
-        </Text>
-        <Text size="base" shadow className="text-gray-300">
-          {room.verificationError}
-        </Text>
-      </div>
-
-      <form onSubmit={handleSubmit} className="w-full space-y-4">
-        <Input
-          type="password"
-          placeholder="Enter room password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          glass
-          disabled={isSubmitting}
-          autoFocus
-          className="text-base sm:text-lg"
-        />
-        <Button
-          type="submit"
-          variant="primary"
-          disabled={!password.trim() || isSubmitting}
-          className="w-full text-base sm:text-lg py-3 sm:py-4"
-        >
-          {isSubmitting ? 'Joining...' : 'Join Room'}
-        </Button>
-      </form>
-    </div>
-  );
-}
 
 export default function ControllerPage() {
   const [searchParams] = useSearchParams();
@@ -709,51 +639,41 @@ export default function ControllerPage() {
   // Show verification states
   if (room.isVerifying) {
     return (
-      <ControllerMessageScreen>
-        <div className="flex flex-col items-center justify-center min-h-48 space-y-4">
-          <Text size="lg" shadow>Connecting...</Text>
-          <Text size="base" shadow className="text-gray-300">
-            Please wait while we verify your access to the room.
-          </Text>
-        </div>
-      </ControllerMessageScreen>
+      <SystemMessage
+        title="Connecting..."
+        subtitle="Please wait while we verify your access to the room."
+        variant="controller"
+      />
     );
   }
 
   if (room.verificationError) {
     if (room.requiresPassword) {
       return (
-        <ControllerMessageScreen>
-          <PasswordInputScreen roomId={roomId!} room={room} />
-        </ControllerMessageScreen>
+        <SystemMessage title="Password Required" variant="controller">
+          <PasswordInput roomId={roomId!} room={room} />
+        </SystemMessage>
       );
     }
 
     return (
-      <ControllerMessageScreen>
-        <div className="flex flex-col items-center justify-center min-h-48 space-y-6 max-w-md">
-          <Text size="lg" shadow>
-            Access Denied
-          </Text>
-          <Text size="base" shadow className="text-gray-300">
-            {room.verificationError}
-          </Text>
-          <Button as={Link} to="/" variant="primary" size="lg">
-            Back to Join Page
-          </Button>
-        </div>
-      </ControllerMessageScreen>
+      <SystemMessage
+        title="Access Denied"
+        subtitle={room.verificationError}
+        actions={() => <SystemMessage.BackButton />}
+        variant="controller"
+      />
     );
   }
 
   if (!room.isVerified || !room.hasJoinedRoom) {
     return (
-      <ControllerMessageScreen>
-        <div className="flex flex-col items-center justify-center space-y-4 min-h-48">
-          <Text size="lg" shadow>{!room.isVerified ? "Loading..." : "Joining room..."}</Text>
-          <LoadingSpinner size="xl" />
-        </div>
-      </ControllerMessageScreen>
+      <SystemMessage
+        title={!room.isVerified ? "Loading..." : "Joining room..."}
+        variant="controller"
+      >
+        <LoadingSpinner size="xl" />
+      </SystemMessage>
     );
   }
 

@@ -2,10 +2,10 @@ import re
 import time
 import random
 from urllib.parse import quote
-from typing import Optional
+from typing import Optional, Union
 from playwright.async_api import Browser
 from pytubefix import YouTube
-from core.search import KaraokeSourceProvider, KaraokeSearchResult, KaraokeEntry
+from core.search import KaraokeSourceProvider, KaraokeSearchResult, KaraokeEntry, VideoURLResult
 from browser_manager import browser_manager
 from config import config
 from urllib.parse import urlparse, urlunparse
@@ -162,22 +162,35 @@ class YTKaraokeSourceProvider(KaraokeSourceProvider):
             return True
         return any(allowed.lower() in channel_name.lower() for allowed in self.allowed_channels)
 
-    async def get_video_url(self, entry: KaraokeEntry) -> Optional[str]:
+    async def get_video_url(self, entry: KaraokeEntry) -> Union[str, VideoURLResult, None]:
         """
         Fetch the actual video URL for a YouTube entry on demand.
-        
+
         Args:
             entry: KaraokeEntry with YouTube video ID as the id
-            
+
         Returns:
-            The actual video URL or None if not available
+            VideoURLResult with YouTube-specific cache settings, or None if not available
         """
         if not entry.id:
             return None  # No video ID
-            
+
         # Construct YouTube URL from video ID
         youtube_url = f"https://www.youtube.com/watch?v={entry.id}"
-        return await self._get_raw_video_url(youtube_url)
+        video_url = await self._get_raw_video_url(youtube_url)
+
+        if video_url:
+            return VideoURLResult(
+                video_url=video_url,
+                cache_ttl_seconds=4 * 3600,  # 4 hours - YouTube URLs are stable
+                cacheable=True
+            )
+        else:
+            return VideoURLResult(
+                video_url=None,
+                cache_ttl_seconds=30 * 60,  # 30 minutes for failures
+                cacheable=True
+            )
 
     async def _get_raw_video_url(self, youtube_url: str, max_retries: int = 3, base_delay: float = 1.0) -> Optional[str]:
         """

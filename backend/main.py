@@ -2,6 +2,7 @@ from typing_extensions import Annotated
 from pathlib import Path
 from os import environ
 import time
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, WebSocket, Depends, HTTPException
 from fastapi.websockets import WebSocketDisconnect
@@ -16,6 +17,7 @@ from commands import ControllerCommands, DisplayCommands
 from websocket_errors import WebSocketErrorType, create_error_response
 from websocket_models import validate_websocket_message
 from session_manager import SessionManager
+from cache_store import get_cache_store, set_cache_store, clear_cache_store, CacheStore
 
 # Request/Response models
 class CreateRoomRequest(BaseModel):
@@ -27,7 +29,24 @@ class JoinRoomRequest(BaseModel):
     room_id: str
     password: str = None
 
-app = FastAPI()
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup
+    print("[STARTUP] Karaoke server starting up...")
+    cache = CacheStore()
+    set_cache_store(cache)
+    print(f"[STARTUP] Cache initialized: {cache.get_stats()}")
+
+    yield
+
+    # Shutdown
+    print("[SHUTDOWN] Karaoke server shutting down...")
+    cache = get_cache_store()
+    cache.cleanup()
+    clear_cache_store()
+    print("[SHUTDOWN] Cleanup completed")
+
+app = FastAPI(lifespan=lifespan)
 
 # Add CORS middleware
 app.add_middleware(
@@ -39,6 +58,10 @@ app.add_middleware(
 )
 
 session_manager = SessionManager()
+
+# Dependencies
+def get_cache() -> CacheStore:
+    return get_cache_store()
 
 # Mount static files from frontend build
 static_dir = Path(__file__).parent / "static"
@@ -53,9 +76,15 @@ async def get_video_url(entry: KaraokeEntry, service: Annotated[KaraokeService, 
     return await service.get_video_url(entry)
 
 @app.get("/health")
-async def get_health():
+async def get_health(cache: Annotated[CacheStore, Depends(get_cache)]):
     """Get WebSocket connection health metrics"""
-    return session_manager.get_health_metrics()
+    health_metrics = session_manager.get_health_metrics()
+    cache_stats = cache.get_stats()
+
+    return {
+        **health_metrics,
+        "cache": cache_stats
+    }
 
 @app.get("/heartbeat")
 async def heartbeat():

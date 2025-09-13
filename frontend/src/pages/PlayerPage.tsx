@@ -291,6 +291,7 @@ function VideoPlayerComponent({
       )}
 
       <video
+        key={playerState?.entry?.id}
         ref={videoRef}
         className="w-full h-full object-cover"
         autoPlay
@@ -480,7 +481,7 @@ function PlayingStateContent() {
     }
 
     return null;
-  }, [playerState, videoUrlData]);
+  }, [playerState?.entry, videoUrlData]);
 
   const handleNearingEnd = useCallback(({ timeRemaining }: { timeRemaining: number }) => {
     if (!upNextQueue || upNextQueue.items.length === 0) return;
@@ -505,8 +506,6 @@ function PlayingStateContent() {
   }, [upNextQueue, setUpNextStatus]);
 
   useEffect(() => {
-    console.log({ lastUpNextQueueCountRef: lastUpNextQueueVersion.current, upNextQueueVersion: upNextQueue?.version });
-
     if (lastUpNextQueueVersion.current && upNextQueue && upNextQueue.version > lastUpNextQueueVersion.current && upNextQueue.items.length > lastUpNextQueueLength.current) {
       const newSong = upNextQueue.items[upNextQueue.items.length - 1];
       setQueuedStatus(`${newSong.entry.artist} - ${newSong.entry.title}`, { duration: 3000 });
@@ -518,6 +517,10 @@ function PlayingStateContent() {
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [upNextQueue]);
+
+  useEffect(() => {
+    console.log(videoUrl);
+  }, [videoUrl])
 
   if (!playerState?.entry) return null;
 
@@ -539,8 +542,8 @@ function PlayingStateContent() {
       <div className="relative h-full w-full flex items-center justify-center">
         <VideoPlayerComponent
           videoUrl={videoUrl}
-          isLoadingVideoUrl={isLoadingVideoUrl}
-          error={videoUrlError}
+          isLoadingVideoUrl={videoUrl ? false : isLoadingVideoUrl}
+          error={videoUrl ? null : videoUrlError}
           canRetry={canRetry}
           onRetry={retry}
           retryCount={retryCount}

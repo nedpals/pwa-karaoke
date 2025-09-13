@@ -22,7 +22,7 @@ export function QueueItem({ entry, actions = [], showSource = false, className =
       {...props}
     >
       <KaraokeEntryCard entry={entry} showSource={showSource} />
-      <div className="flex flex-row space-x-1 sm:space-x-2 items-center">
+      <div className="flex flex-row space-x-1 sm:space-x-2 items-stretch">
         {actions.map((action, index) => (
           <IconButton
             key={`queue_action_${action.label || index}`}

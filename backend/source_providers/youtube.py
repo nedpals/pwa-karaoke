@@ -5,6 +5,8 @@ from pytubefix import YouTube, Search
 from core.search import KaraokeSourceProvider, KaraokeSearchResult, KaraokeEntry, VideoURLResult
 from config import config
 from urllib.parse import urlparse, urlunparse
+from concurrent.futures import ThreadPoolExecutor
+import asyncio
 
 class YTKaraokeSourceProvider(KaraokeSourceProvider):
     def __init__(self, allowed_channels: list[str] = None, karaoke_keywords: list[str] = None):
@@ -12,7 +14,7 @@ class YTKaraokeSourceProvider(KaraokeSourceProvider):
         # Examples: ["KaraFun", "Sing King", "Lucky Voice", "Karaoke Mugen"]
         self.allowed_channels = allowed_channels or []
         self.karaoke_keywords = karaoke_keywords or ["karaoke", "instrumental", "backing track", "sing along"]
-    
+
     @property
     def provider_id(self) -> str:
         return "youtube"
@@ -42,26 +44,34 @@ class YTKaraokeSourceProvider(KaraokeSourceProvider):
 
         return proxies
 
+    def _search_videos(self, query: str) -> list[KaraokeEntry]:
+        proxy_config = self._get_proxy_config()
+        search = Search(query, proxies=proxy_config)
+        entries = []
+        for video in search.videos:
+            if self.allowed_channels and not self._is_allowed_channel(video.author):
+                continue
+
+            entries.append(KaraokeEntry(
+                id=video.video_id,
+                title=video.title,
+                artist=video.author,
+                video_url=None,  # Will be loaded on demand
+                source=self.provider_id,
+                uploader=video.author,
+                duration=video.length
+            ))
+        return entries
+
     async def search(self, query: str) -> KaraokeSearchResult:
         try:
             enhanced_query = self._enhance_query_with_keywords(query)
-            proxy_config = self._get_proxy_config()
-            search = Search(enhanced_query, proxies=proxy_config)
-            entries = []
-            for video in search.videos:
-                if self.allowed_channels and not self._is_allowed_channel(video.author):
-                    continue
-
-                entries.append(KaraokeEntry(
-                    id=video.video_id,
-                    title=video.title,
-                    artist=video.author,
-                    video_url=None,  # Will be loaded on demand
-                    source=self.provider_id,
-                    uploader=video.author,
-                    duration=video.length
-                ))
-
+            loop = asyncio.get_event_loop()
+            if not loop.is_running():
+                return KaraokeSearchResult(entries=[])
+            with ThreadPoolExecutor() as executor:
+                # Run the search in a thread to avoid blocking the event loop
+                entries = await loop.run_in_executor(executor, self._search_videos, enhanced_query)
             return KaraokeSearchResult(entries=entries)
 
         except Exception as e:

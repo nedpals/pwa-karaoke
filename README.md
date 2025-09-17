@@ -13,7 +13,7 @@ A web-based karaoke application that transforms any device into a karaoke system
 - Use your phone or tablet as a controller and any web-capable device as a display
 - Easy to use and slick user interface
 - Search and queue songs video streaming platforms
-- Supports multiple rooms
+- Supports multiple rooms with password protection
 - Operate entirely within the browser
 
 ## Downloads
@@ -40,17 +40,20 @@ The recommended way to run PWA Karaoke is through Docker Compose. This method si
 docker-compose up -d
 ```
 
-Visit `http://localhost:8000` to access the application.
+This will start the backend and [Caddy](https://caddyserver.com/) web server.
+
+Visit `http://localhost` or `http://$DOMAIN` (where `$DOMAIN` is your configured domain) to access the application.
 
 ### Docker
-> [!IMPORTANT]
-> Be sure to setup Playwright and pass the `PLAYWRIGHT_ENABLED` and `PLAYWRIGHT_BROWSER_URL` environment variables if you are not using Docker Compose.
 
 If you have a custom setup that doesn't use Docker Compose, you can run the backend and frontend services separately using Docker.
 
 ```bash
-docker build -t pwa-karaoke-backend ./backend
-docker run -d -p 8000:8000 --name pwa-karaoke-backend 
+# Build the application
+docker build -t pwa-karaoke .
+
+# Run the container
+docker run -d -p 8000:8000 --name pwa-karaoke pwa-karaoke
 ```
 
 Visit `http://localhost:8000` to access the application.
@@ -60,7 +63,7 @@ A manual setup is also possible. This method requires more steps but allows for 
 
 #### Prerequisites
 Ensure you have the following installed:
-- Python 3.8+
+- Python 3.11+
 - Node.js 20+
 - Docker (optional, for containerized deployment)
 
@@ -76,7 +79,6 @@ npm run build:prod
 # Start the server
 cd ../backend
 pip install -r requirements.txt
-playwright install chromium
 python main.py
 ```
 
@@ -100,11 +102,9 @@ When asked, you will be prompted with the following details:
 - **Room Password**: Optionally, you can set a password for your room to restrict access.
 
 ### Modes
-> [!CAUTION]
-> PWA Karaoke supports having multiple controllers but not with multiple displays. We are only enabling this for cases such as connection issues or accidental refreshes. We encourage you to [file an issue](https://github.com/nedpals/pwa-karaoke/issues) if you ever tried this. Otherwise, please use a single display for the best experience.
 
 Once you create or join a room, you are prompted to enter the room in two modes:
-- **Display Mode:** For TVs or projectors to show the video playback and song queue.
+- **Display Mode:** For TVs, projectors, or multiple screens to show the video playback and song queue. It supports playing to multiple displays in near real-time.
 - **Controller Mode:** For phones or tablets to search for songs and control playback.
 
 ### Development

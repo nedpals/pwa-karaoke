@@ -26,7 +26,7 @@ A FastAPI-based WebSocket server for managing karaoke rooms, song queues, and pl
 
 ## Architecture Overview
 
-Simple, modular architecture for multi-room karaoke:
+Simple, modular architecture for multi-room karaoke with display leadership:
 
 ```
 FastAPI Server (/ws)
@@ -37,16 +37,55 @@ ClientManager  RoomManager
     │         │
 Connections   Room State
 Heartbeat     Queue & Player
+Display       Smart Sync
 Leadership    Versioning
 ```
 
 **Key Components:**
-- **SessionManager**: Coordinates everything, handles room-scoped operations
-- **ClientManager**: WebSocket connections, heartbeat, metrics  
+- **SessionManager**: Coordinates everything, handles room-scoped operations and display leadership
+- **ClientManager**: WebSocket connections, heartbeat, metrics
 - **RoomManager**: Room state, queue management, player state
-- **Commands**: Type-safe handlers for controller/display actions
+- **Commands**: Type-safe handlers for controller/display actions with leader validation
 
-**Flow:** WebSocket → Handshake → Join Room → Send Commands → Receive Updates
+**Flow:** WebSocket → Handshake → Join Room → Leader Election → Send Commands → Receive Updates
+
+### Display Leadership System
+
+PWA Karaoke uses a **display leadership architecture** for multi-screen synchronization:
+
+**Leader Display**: The first display to join a room becomes the leader
+- Controls actual video playback (`<video>` element)
+- Sends real-time state updates (current time, play state, volume)
+- Responds to controller commands
+- Updates sent via `update_player_state` commands
+
+**Non-Leader Displays**: Additional displays that mirror the leader
+- Receive state updates via WebSocket from leader
+- Use smart synchronization to minimize visual lag
+- Automatically promoted to leader if current leader disconnects
+- Cannot send playback state updates (filtered by backend)
+
+**Controllers**: Mobile/tablet interfaces for room control
+- Send commands (play, pause, volume, queue management)
+- Commands are broadcast to all displays in the room
+- Multiple controllers can connect to the same room
+
+**Leadership Election**: Managed by `SessionManager.ensure_room_display_leader()`
+- First display to join becomes leader
+- When leader disconnects, next available display is promoted
+- All displays in room are notified of leadership changes via `leader_status` message
+
+### Smart Synchronization
+
+Frontend implements intelligent synchronization for non-leader displays:
+
+- **State Interpolation**: Predicts current playback position between updates
+- **Selective Hard Sync**: Only forces immediate synchronization for critical changes:
+  - Play/pause commands from controllers
+  - Song changes
+  - Significant time drift (>2 seconds)
+  - Manual seeks or version changes
+- **Minimal Jitter**: Reduces micro-adjustments for smoother viewing experience
 
 ## Quick Start
 
@@ -300,7 +339,7 @@ The server processes incoming WebSocket messages by extracting the command name 
 #### Connection Status
 ```typescript
 ["client_count", number]
-["leader_status", {"is_leader": boolean}] // Controllers only
+["leader_status", {"is_leader": boolean}] // Displays only
 ["ping", {"timestamp": number}]
 ```
 

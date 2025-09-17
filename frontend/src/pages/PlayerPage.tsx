@@ -651,23 +651,19 @@ function PlayerStateProviderInternal({ children }: { children: React.ReactNode }
   // Use smart sync for non-leader displays
   const playerState = useSmartSync(rawPlayerState, isLeader);
 
-  // OSD management (single OSD for all messages, always top-left)
   const [osd, setOSD] = useTempState<OSDState>({
     message: "",
     visible: false
   });
 
-  // Compute app state
   const appState: AppState = useMemo(() => {
     if (!hasInteracted) return "awaiting-interaction";
     if (!connected) return "connecting";
-    if (connected && !playerState?.entry && clientCount <= 1) return "connected";
-    if (connected && !playerState?.entry && clientCount > 1) return "ready";
-    if (connected && playerState?.entry) return "playing";
-    return "connecting";
+    if (playerState?.entry) return "playing";
+    // If no entry is set, we are ready to play
+    return clientCount > 1 ? "ready" : "connected";
   }, [hasInteracted, connected, playerState?.entry, clientCount]);
 
-  // Handle OSD updates based on player state - use refs to track last states to avoid conflicts
   const lastPlayStateRef = useRef<string | null>(null);
   const lastVolumeRef = useRef<number | null>(null);
 
@@ -691,14 +687,10 @@ function PlayerStateProviderInternal({ children }: { children: React.ReactNode }
   // Handle volume changes (lower priority - only show if not in play/pause/buffering state)
   useEffect(() => {
     if (!playerState?.entry) return;
-
     const volume = playerState.volume ?? 0.5;
-
-    // Only show volume OSD if we're not currently showing a critical state message and volume actually changed
     if (volume !== lastVolumeRef.current && playerState.play_state === "playing") {
       lastVolumeRef.current = volume;
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [playerState?.volume, playerState?.play_state, playerState?.entry]);
 
   useEffect(() => {

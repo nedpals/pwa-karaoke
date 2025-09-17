@@ -25,7 +25,7 @@ class YTKaraokeSourceProvider(KaraokeSourceProvider):
         opts = {
             'quiet': True,
             'no_warnings': True,
-            'extract_flat': False,
+            'extract_flat': True,
             'noplaylist': True,
             'extractor_args': {
                 'youtube': {

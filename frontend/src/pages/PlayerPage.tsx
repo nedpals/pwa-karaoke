@@ -172,7 +172,6 @@ function VideoPlayerComponent({
     return () => clearInterval(interval);
   }, [playerState]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Add timeupdate listener to detect when video is nearing end
   useEffect(() => {
     const video = videoRef.current;
     if (!video || !playerState?.entry) return;
@@ -286,7 +285,6 @@ function VideoPlayerComponent({
 
   return (
     <div className="relative w-full h-full">
-      {/* Single OSD for all messages */}
       {osd.visible && (
         <OSD position="top-left" size="md" className="z-50">
           {osd.message}
@@ -445,16 +443,12 @@ function PlayingStateContent() {
   );
 
   const playerHeaderStatusText = useMemo(() => {
-    if (upNextStatus) {
-      return "Up Next";
+    if (upNextStatus) return "Up Next";
+    if (queuedStatus) return "Queued";
+    if (playerState?.entry && playerState.play_state === "playing") {
+      return "Playing";
     }
-    if (queuedStatus) {
-      return "Queued";
-    }
-    if (!playerState?.entry || playerState.play_state !== "playing") {
-      return "Paused";
-    }
-    return "Playing";
+    return "Paused";
   }, [upNextStatus, queuedStatus, playerState]);
 
   const playerHeaderStatusTitle = useMemo(() => {
@@ -476,10 +470,7 @@ function PlayingStateContent() {
     // Check if the entry already has a video URL
     if (playerState.entry.video_url) {
       return playerState.entry.video_url;
-    }
-
-    // Check if we fetched it via the API (including prefetched via SWR cache)
-    if (videoUrlData) {
+    } else if (videoUrlData) {
       return videoUrlData;
     }
 
@@ -509,7 +500,9 @@ function PlayingStateContent() {
   }, [upNextQueue, setUpNextStatus]);
 
   useEffect(() => {
-    if (lastUpNextQueueVersion.current && upNextQueue && upNextQueue.version > lastUpNextQueueVersion.current && upNextQueue.items.length > lastUpNextQueueLength.current) {
+    if (lastUpNextQueueVersion.current
+      && upNextQueue && upNextQueue.version > lastUpNextQueueVersion.current
+      && upNextQueue.items.length > lastUpNextQueueLength.current) {
       const newSong = upNextQueue.items[upNextQueue.items.length - 1];
       setQueuedStatus(`${newSong.entry.artist} - ${newSong.entry.title}`, { duration: 3000 });
     }

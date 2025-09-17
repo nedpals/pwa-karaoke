@@ -19,6 +19,7 @@ interface RetryOptions {
 
 class ApiClient {
   private baseUrl: string;
+  private roomCredentials: { roomId: string; password?: string } | null = null;
 
   constructor() {
     const protocol = window.location.protocol;
@@ -26,6 +27,25 @@ class ApiClient {
       ? 'localhost:8000'
       : window.location.host;
     this.baseUrl = `${protocol}//${host}`;
+  }
+
+  setRoomCredentials(roomId: string, password?: string) {
+    this.roomCredentials = { roomId, password };
+  }
+
+  clearRoomCredentials() {
+    this.roomCredentials = null;
+  }
+
+  private getAuthHeaders(): Record<string, string> {
+    if (!this.roomCredentials) {
+      return {};
+    }
+
+    const credentials = btoa(`${this.roomCredentials.roomId}:${this.roomCredentials.password || ''}`);
+    return {
+      'Authorization': `Basic ${credentials}`
+    };
   }
 
   private async delay(ms: number): Promise<void> {
@@ -114,7 +134,11 @@ class ApiClient {
   async search(query: string): Promise<KaraokeSearchResult> {
     const response = await this.fetchWithRetry(
       `${this.baseUrl}/search?query=${encodeURIComponent(query)}`,
-      {},
+      {
+        headers: {
+          ...this.getAuthHeaders(),
+        },
+      },
       {
         maxRetries: 2, // Fewer retries for search to keep it responsive
         baseDelay: 1000,
@@ -131,6 +155,7 @@ class ApiClient {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          ...this.getAuthHeaders(),
         },
         body: JSON.stringify(entry),
       },
@@ -182,16 +207,31 @@ class ApiClient {
   }
 
   async verifyRoomAccess(request: VerifyRoomRequest): Promise<VerifyRoomResponse> {
+    // Use HTTP Basic Auth with room_id as username and password as password
+    const credentials = btoa(`${request.room_id}:${request.password || ''}`);
+
     const response = await fetch(`${this.baseUrl}/rooms/verify`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        'Authorization': `Basic ${credentials}`,
       },
-      body: JSON.stringify(request),
     });
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({ detail: response.statusText }));
+
+      // Map HTTP status codes to meaningful error messages
+      if (response.status === 401) {
+        if (errorData.detail === 'Room not found') {
+          throw new Error('Room not found');
+        } else if (errorData.detail === 'Invalid room password') {
+          throw new Error('Invalid password');
+        } else {
+          throw new Error('Password required');
+        }
+      }
+
       throw new Error(errorData.detail || `Failed to verify room access: ${response.statusText}`);
     }
 

@@ -95,7 +95,7 @@ export function useWebSocket(clientType: ClientType, initalAutoConnect = true): 
       // Wait for 1 second to allow connection to establish
       await new Promise((resolve) => setTimeout(resolve, 1000));
     }
-    
+
     // Must be handshaken before joining room
     sendJsonMessage(["handshake", { client_type: clientType }]);
 
@@ -114,7 +114,7 @@ export function useWebSocket(clientType: ClientType, initalAutoConnect = true): 
         timestamp: Date.now(),
         command: "join_room",
       };
-      
+
       pendingRequests.set(requestId, joinRoomRequest);
       sendJsonMessage(["join_room", { room_id: roomId, request_id: requestId }]);
     });
@@ -147,7 +147,7 @@ export function useWebSocket(clientType: ClientType, initalAutoConnect = true): 
 
       // Store last message for room-specific handling
       setLastMessage([command, data]);
-      
+
       switch (command) {
         case "client_count":
           setClientCount(data as number);
@@ -166,7 +166,8 @@ export function useWebSocket(clientType: ClientType, initalAutoConnect = true): 
               pendingRequest.resolve(ackData);
             } else {
               console.error(ackData.error);
-              pendingRequest.reject(new Error(ackData.error || "Request failed"));
+              const errorMessage = typeof ackData.error === "object" ? (ackData.error as { message: string }).message : ackData.error;
+              pendingRequest.reject(new Error(errorMessage|| "Request failed"));
             }
             pendingRequests.delete(ackData.request_id);
           }
@@ -226,7 +227,7 @@ export function useWebSocket(clientType: ClientType, initalAutoConnect = true): 
         });
 
         const messageWithId = [command, { ...(payload as object || {}), request_id: requestId }];
-        
+
         if (hasJoinedRoom) {
           sendJsonMessage(messageWithId);
         } else {

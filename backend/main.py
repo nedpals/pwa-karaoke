@@ -4,13 +4,15 @@ from os import environ
 import time
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, WebSocket, Depends, HTTPException
+from fastapi import FastAPI, WebSocket, Depends, HTTPException, status
+from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.websockets import WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
+from core.room import Room
 from core.search import KaraokeEntry
 from services.karaoke_service import KaraokeService, KaraokeSearchResult, VideoURLResponse
 from commands import ControllerCommands, DisplayCommands
@@ -25,9 +27,24 @@ class CreateRoomRequest(BaseModel):
     is_public: bool = True
     password: str = None
 
-class JoinRoomRequest(BaseModel):
-    room_id: str
-    password: str = None
+class PublicRoomResponse(BaseModel):
+    id: str
+    is_public: bool
+    requires_password: bool
+    created_at: float
+
+    @staticmethod
+    def from_room(room: Room) -> "PublicRoomResponse":
+        return PublicRoomResponse(
+            id=room.id,
+            is_public=room.is_public,
+            requires_password=room.requires_password(),
+            created_at=room.created_at
+        )
+
+class RoomFoundResponse(BaseModel):
+    success: bool
+    room: PublicRoomResponse
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -48,31 +65,85 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 
-# Add CORS middleware
+# Add CORS middleware with proper security
+allowed_origins = [
+    "http://localhost:5173",  # Vite dev server
+    "http://localhost:8000",  # Self-hosting
+    "http://127.0.0.1:5173",
+    "http://127.0.0.1:8000",
+]
+
+# Add domain from environment if specified (matches Caddy service)
+domain = environ.get("DOMAIN")
+if domain and domain != "localhost":
+    print(f"[CORS] Added domain: {domain}")
+    allowed_origins.extend([
+        f"https://{domain}",
+        f"http://{domain}"
+    ])
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allow all origins for production hosting
+    allow_origins=allowed_origins,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type"],
 )
 
 session_manager = SessionManager()
+security = HTTPBasic()
 
 # Dependencies
 def get_cache() -> CacheStore:
     return get_cache_store()
+
+def get_current_room(credentials: HTTPBasicCredentials = Depends(security)) -> Room:
+    room_id = credentials.username
+    password = credentials.password
+
+    if not session_manager.room_manager.room_exists(room_id):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Room not found",
+            headers={"WWW-Authenticate": "Basic"},
+        )
+
+    try:
+        room = session_manager.room_manager.get_room(room_id)
+        if room.requires_password():
+            if not password or not room.verify_password(password):
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Invalid room password",
+                    headers={"WWW-Authenticate": "Basic"},
+                )
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+            headers={"WWW-Authenticate": "Basic"},
+        )
+
+    return room
 
 # Mount static files from frontend build
 static_dir = Path(__file__).parent / "static"
 app.mount("/assets", StaticFiles(directory=static_dir / "assets"), name="assets")
 
 @app.get("/search")
-async def search(query: str, service: Annotated[KaraokeService, Depends()]) -> KaraokeSearchResult:
+async def search(
+    query: str,
+    service: Annotated[KaraokeService, Depends()],
+    _: Annotated[str, Depends(get_current_room)]
+) -> KaraokeSearchResult:
     return await service.search(query)
 
 @app.post("/get_video_url")
-async def get_video_url(entry: KaraokeEntry, service: Annotated[KaraokeService, Depends()]) -> VideoURLResponse:
+async def get_video_url(
+    entry: KaraokeEntry,
+    service: Annotated[KaraokeService, Depends()],
+    _: Annotated[str, Depends(get_current_room)]
+) -> VideoURLResponse:
     return await service.get_video_url(entry)
 
 @app.get("/health")
@@ -90,7 +161,7 @@ async def get_health(cache: Annotated[CacheStore, Depends(get_cache)]):
 async def heartbeat():
     """Simple heartbeat endpoint for frontend server status monitoring"""
     return {
-        "status": "ok", 
+        "status": "ok",
         "timestamp": int(time.time() * 1000)  # milliseconds timestamp
     }
 
@@ -109,55 +180,31 @@ async def create_room(request: CreateRoomRequest):
             is_public=request.is_public,
             password=request.password
         )
-        
-        return {
-            "success": True,
-            "room": {
-                "id": room.id,
-                "is_public": room.is_public,
-                "requires_password": room.requires_password(),
-                "created_at": room.created_at
-            }
-        }
+        return RoomFoundResponse(
+            success=True,
+            room=PublicRoomResponse.from_room(room)
+        )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 @app.get("/rooms/{room_id}")
 async def get_room_details(room_id: str):
-    if not session_manager.room_manager.room_exists(room_id):
-        raise HTTPException(status_code=404, detail="Room not found")
-    
-    room = session_manager.room_manager.get_room(room_id)
-    
-    return {
-        "id": room.id,
-        "is_public": room.is_public,
-        "requires_password": room.requires_password(),
-        "created_at": room.created_at
-    }
+    try:
+        room = session_manager.room_manager.get_room(room_id)
+        return PublicRoomResponse.from_room(room)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+            headers={"WWW-Authenticate": "Basic"},
+        )
 
 @app.post("/rooms/verify")
-async def verify_room_access(request: JoinRoomRequest):
-    if not session_manager.room_manager.room_exists(request.room_id):
-        raise HTTPException(status_code=404, detail="Room not found")
-    
-    room = session_manager.room_manager.get_room(request.room_id)
-    
-    if room.requires_password():
-        if request.password is None or len(request.password) == 0:
-            raise HTTPException(status_code=401, detail="Password required")
-
-        if not room.verify_password(request.password):
-            raise HTTPException(status_code=401, detail="Invalid password")
-    
-    return {
-        "success": True,
-        "room": {
-            "id": room.id,
-            "is_public": room.is_public,
-            "requires_password": room.requires_password()
-        }
-    }
+async def verify_room_access(room: Annotated[Room, Depends(get_current_room)]):
+    return RoomFoundResponse(
+        success=True,
+        room=PublicRoomResponse.from_room(room)
+    )
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket, service: Annotated[KaraokeService, Depends()]):
@@ -174,12 +221,12 @@ async def websocket_endpoint(websocket: WebSocket, service: Annotated[KaraokeSer
         while True:
             command, payload = await client.receive()
             print(f"[DEBUG] Received command from {client.client_type}: {command}")
-            
+
             # Extract request_id if present for acknowledgment
             request_id = None
             if isinstance(payload, dict) and "request_id" in payload:
                 request_id = payload.pop("request_id")
-            
+
             # Validate message payload
             try:
                 validated_payload = validate_websocket_message(command, payload)
@@ -191,13 +238,13 @@ async def websocket_endpoint(websocket: WebSocket, service: Annotated[KaraokeSer
                     details={"command": command, "validation_error": str(e)},
                     request_id=request_id
                 )
-                
+
                 if request_id:
                     await client.send_command("ack", {"request_id": request_id, "success": False, "error": error_response})
                 else:
                     await client.send_command("error", error_response)
                 continue
-            
+
             if command.startswith("_") or not hasattr(commands, command):
                 print(f"[DEBUG] Unknown command: {command} for {client.client_type}")
                 error_response = create_error_response(
@@ -206,7 +253,7 @@ async def websocket_endpoint(websocket: WebSocket, service: Annotated[KaraokeSer
                     details={"command": command, "client_type": client.client_type},
                     request_id=request_id
                 )
-                
+
                 if request_id:
                     await client.send_command("ack", {"request_id": request_id, "success": False, "error": error_response})
                 else:
@@ -217,11 +264,11 @@ async def websocket_endpoint(websocket: WebSocket, service: Annotated[KaraokeSer
             print(f"[DEBUG] Executing command: {client.client_type}.{command}")
             try:
                 result = await getattr(commands, command)(validated_payload)
-                
+
                 # Send acknowledgment if request_id was provided
                 if request_id:
                     await client.send_command("ack", {"request_id": request_id, "success": True, "result": result})
-                    
+
             except Exception as e:
                 print(f"[ERROR] Command {command} failed: {e}")
                 error_response = create_error_response(
@@ -230,12 +277,12 @@ async def websocket_endpoint(websocket: WebSocket, service: Annotated[KaraokeSer
                     details={"command": command, "client_type": client.client_type, "error": str(e)},
                     request_id=request_id
                 )
-                
+
                 if request_id:
                     await client.send_command("ack", {"request_id": request_id, "success": False, "error": error_response})
                 else:
                     await client.send_command("error", error_response)
-                    
+
                 # Continue processing other commands instead of disconnecting
                 continue
     except (WebSocketDisconnect, Exception) as e:

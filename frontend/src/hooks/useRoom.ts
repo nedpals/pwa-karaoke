@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useWebSocket } from './useWebSocket';
 import { useServerStatus, useVerifyRoomMutation } from './useApi';
 import { getRoomPassword, storeRoomPassword } from '../lib/roomStorage';
+import { apiClient } from '../api/client';
 import type { DisplayPlayerState, KaraokeQueue, KaraokeEntry } from '../types';
 
 type ClientType = "controller" | "display";
@@ -13,11 +14,11 @@ export interface RoomState {
   isVerifying: boolean;
   verificationError: string | null;
   requiresPassword: boolean;
-  
+
   // WebSocket connection status
   connected: boolean;
   hasJoinedRoom: boolean;
-  
+
   // Room data
   clientCount: number;
   queue: KaraokeQueue | null;
@@ -34,12 +35,12 @@ export interface RoomState {
 export interface RoomActions {
   // Room management
   verifyAndJoinRoom: (roomId: string, password?: string) => Promise<void>;
-  
+
   // WebSocket actions (core functions from useWebSocket)
   sendCommand: (command: string, payload?: unknown) => void;
   sendCommandWithAck: (command: string, payload?: unknown, timeout?: number) => Promise<unknown>;
   joinRoom: (roomId: string) => Promise<unknown>;
-  
+
   // Controller commands (implemented here)
   queueSong: (entry: KaraokeEntry) => Promise<unknown>;
   removeSong: (id: string) => Promise<unknown>;
@@ -49,7 +50,7 @@ export interface RoomActions {
   queueNextSong: (entryId: string) => void;
   clearQueue: () => Promise<unknown>;
   setVolume: (volume: number) => Promise<unknown>;
-  
+
   // Display commands (implemented here)
   updatePlayerState: (state: DisplayPlayerState) => void;
 }
@@ -72,10 +73,10 @@ export function useRoom(clientType: ClientType): UseRoomReturn {
     data: unknown;
     timestamp: number;
   } | null>(null);
-  
+
   const ws = useWebSocket(clientType, false);
   const { trigger: verifyRoom } = useVerifyRoomMutation();
-  
+
   const upNextQueue = useMemo(() => {
     if (!queue || !queue.items.length) {
       return { items: [], version: 1, timestamp: Date.now() };
@@ -89,8 +90,8 @@ export function useRoom(clientType: ClientType): UseRoomReturn {
       timestamp: queue.timestamp,
     };
   }, [queue, playerState?.entry]);
-  
-  const verifyAndJoinRoom = useCallback(async (targetRoomId: string, password?: string) => {    
+
+  const verifyAndJoinRoom = useCallback(async (targetRoomId: string, password?: string) => {
     setIsVerifying(true);
 
     if (isOffline) {
@@ -98,22 +99,24 @@ export function useRoom(clientType: ClientType): UseRoomReturn {
       setIsVerifying(false);
       return;
     }
-    
+
     setVerificationError(null);
     setRequiresPassword(false);
-    
+
     try {
       const roomPassword = password || getRoomPassword(targetRoomId);
 
-      await verifyRoom({ 
-        room_id: targetRoomId, 
-        password: roomPassword || undefined 
+      await verifyRoom({
+        room_id: targetRoomId,
+        password: roomPassword || undefined
       });
-      
+
       if (password) {
         storeRoomPassword(targetRoomId, password);
       }
-      
+
+      apiClient.setRoomCredentials(targetRoomId, roomPassword || undefined);
+
       setIsVerified(true);
       setRoomId(targetRoomId);
 
@@ -123,7 +126,7 @@ export function useRoom(clientType: ClientType): UseRoomReturn {
       if (error instanceof TypeError && error.message === 'Failed to fetch') {
         errorMessage = 'Server is offline or unreachable. Please check your connection and try again.';
       }
-      
+
       // Check if the error indicates password is required
       if (error instanceof Error && (error.message === 'Password required' || error.message === 'Invalid password')) {
         setRequiresPassword(true);
@@ -133,9 +136,12 @@ export function useRoom(clientType: ClientType): UseRoomReturn {
           errorMessage = 'The password you entered is incorrect.';
         }
       }
-      
+
       setVerificationError(errorMessage);
       setIsVerified(false);
+
+      // Clear credentials on verification failure
+      apiClient.clearRoomCredentials();
 
       if (!(error instanceof Error)) {
         console.error('[useRoom] Unknown error during room verification:', error);
@@ -144,12 +150,12 @@ export function useRoom(clientType: ClientType): UseRoomReturn {
       setIsVerifying(false);
     }
   }, [isOffline, verifyRoom]); // eslint-disable-line react-hooks/exhaustive-deps
-  
+
   useEffect(() => {
     if (!ws.lastMessage) return;
-    
+
     const [command, data] = ws.lastMessage;
-    
+
     switch (command) {
       case "queue_update": {
         const incomingQueue = data as KaraokeQueue;
@@ -225,18 +231,19 @@ export function useRoom(clientType: ClientType): UseRoomReturn {
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ws.lastMessage, clientType]);
-  
+
   useEffect(() => {
     if (!ws.connected) {
       setQueue(null);
       setPlayerState(null);
       setIsLeader(false);
       setLastQueueCommand(null);
+      apiClient.clearRoomCredentials();
     } else if (ws.connected && clientType === "controller") {
       setIsLeader(false);
     }
   }, [ws.connected, clientType]);
-  
+
   return {
     // Room state
     roomId,
@@ -244,27 +251,27 @@ export function useRoom(clientType: ClientType): UseRoomReturn {
     isVerifying,
     verificationError,
     requiresPassword,
-    
+
     // WebSocket state (forwarded)
     connected: ws.connected,
     hasJoinedRoom: ws.hasJoinedRoom,
     clientCount: ws.clientCount,
-    
+
     // Room-specific state (managed here)
     queue,
     upNextQueue,
     playerState,
     isLeader,
     lastQueueCommand,
-    
+
     // Actions
     verifyAndJoinRoom,
-    
+
     // Core WebSocket actions (forwarded)
     sendCommand: ws.sendCommand,
     sendCommandWithAck: ws.sendCommandWithAck,
     joinRoom: ws.joinRoom,
-    
+
     // Action commands (implemented here)
     queueSong: (entry: KaraokeEntry) => ws.sendCommandWithAck("queue_song", entry),
     removeSong: (id: string) => ws.sendCommandWithAck("remove_song", { entry_id: id }),

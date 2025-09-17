@@ -7,8 +7,10 @@ services:
       - PROXY_USERNAME=${PROXY_USERNAME}
       - PROXY_PASSWORD=${PROXY_PASSWORD}
       - DOMAIN=${DOMAIN:-localhost}
-    ports:
-      - "8000:8000"
+    # Port 8000 is internal only - accessed via Caddy reverse proxy
+    # Uncomment the ports section below for development/debugging
+    # ports:
+    #   - "8000:8000"
     # Health check for the karaoke app
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]

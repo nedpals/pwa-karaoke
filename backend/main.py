@@ -295,6 +295,10 @@ async def websocket_endpoint(websocket: WebSocket, service: Annotated[KaraokeSer
 async def vite_svg():
     return FileResponse(static_dir / "vite.svg")
 
+@app.get("/registerSW.js")
+async def register_sw_js():
+    return FileResponse(static_dir / "registerSW.js")
+
 # Serve the main HTML for all frontend routes (must be last!)
 @app.get("/{full_path:path}")
 async def serve_frontend(full_path: str):

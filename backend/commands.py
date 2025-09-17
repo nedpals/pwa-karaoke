@@ -26,8 +26,8 @@ class ClientCommands:
         if self.room.player_state:
             await self.client.send_command("player_state", self.room.player_state.model_dump())
 
-        if self.client.client_type == "controller":
-            is_leader = self.session_manager.is_controller_leader(self.client)
+        if self.client.client_type == "display":
+            is_leader = self.session_manager.is_display_leader(self.client)
             await self.client.send_command("leader_status", {"is_leader": is_leader})
 
     async def pong(self, data):
@@ -168,10 +168,20 @@ class ControllerCommands(ClientCommands):
 
 class DisplayCommands(ClientCommands):
     async def update_player_state(self, _state):
+        # Only allow leader displays to update player state
+        if not self.session_manager.is_display_leader(self.client):
+            print(f"[DEBUG] Non-leader display {self.client.id} attempted to update player state - ignoring")
+            return
+
         await self._update_player_state(_state)
 
     async def queue_update(self, queue_data):
         await self.session_manager.broadcast_to_room_controllers(self.client.room_id, "queue_update", queue_data)
 
     async def video_loaded(self, payload):
+        # Only allow leader displays to broadcast video loaded state
+        if not self.session_manager.is_display_leader(self.client):
+            print(f"[DEBUG] Non-leader display {self.client.id} attempted to broadcast video loaded - ignoring")
+            return
+
         await self.session_manager.broadcast_to_room_controllers(self.client.room_id, "player_state", payload)

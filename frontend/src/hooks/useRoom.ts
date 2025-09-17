@@ -91,6 +91,11 @@ export function useRoom(clientType: ClientType): UseRoomReturn {
     };
   }, [queue, playerState?.entry]);
 
+  // Memoized check for whether this client can send playback commands
+  const canSendPlaybackCommands = useMemo(() => {
+    return clientType === "display" && isLeader;
+  }, [clientType, isLeader]);
+
   const verifyAndJoinRoom = useCallback(async (targetRoomId: string, password?: string) => {
     setIsVerifying(true);
 
@@ -215,7 +220,7 @@ export function useRoom(clientType: ClientType): UseRoomReturn {
         );
         break;
       case "leader_status":
-        if (clientType === "controller") {
+        if (clientType === "display") {
           setIsLeader((data as { is_leader: boolean }).is_leader);
         }
         break;
@@ -239,7 +244,7 @@ export function useRoom(clientType: ClientType): UseRoomReturn {
       setIsLeader(false);
       setLastQueueCommand(null);
       apiClient.clearRoomCredentials();
-    } else if (ws.connected && clientType === "controller") {
+    } else if (ws.connected && clientType === "display") {
       setIsLeader(false);
     }
   }, [ws.connected, clientType]);
@@ -277,10 +282,24 @@ export function useRoom(clientType: ClientType): UseRoomReturn {
     removeSong: (id: string) => ws.sendCommandWithAck("remove_song", { entry_id: id }),
     playSong: () => ws.sendCommandWithAck("play_song"),
     pauseSong: () => ws.sendCommandWithAck("pause_song"),
-    playNext: () => ws.sendCommandWithAck("play_next"),
+    playNext: () => {
+      // Only leader displays should trigger next song
+      if (!canSendPlaybackCommands) {
+        console.log(`[${clientType}] Non-leader display ignoring playNext request`);
+        return Promise.resolve({});
+      }
+      return ws.sendCommandWithAck("play_next");
+    },
     queueNextSong: (entryId: string) => ws.sendCommand("queue_next_song", { entry_id: entryId }),
     clearQueue: () => ws.sendCommandWithAck("clear_queue"),
     setVolume: (volume: number) => ws.sendCommandWithAck("set_volume", { volume }),
-    updatePlayerState: (state: DisplayPlayerState) => ws.sendCommand("update_player_state", state),
+    updatePlayerState: (state: DisplayPlayerState) => {
+      // Only leader displays should send player state updates
+      if (!canSendPlaybackCommands) {
+        console.log(`[${clientType}] Non-leader display ignoring updatePlayerState request`);
+        return;
+      }
+      return ws.sendCommand("update_player_state", state);
+    },
   };
 }

@@ -27,7 +27,7 @@ class SessionManager:
             
             if was_leader:
                 # Elect new leader if the disconnected client was the leader
-                await self.ensure_room_controller_leader(room_id)
+                await self.ensure_room_display_leader(room_id)
             
             await self.broadcast_room_client_count(room_id)
     
@@ -78,9 +78,9 @@ class SessionManager:
         client.room_id = room_id
         room = self.get_room(room_id)
         
-        # If controller, ensure leadership is handled
-        if client.client_type == "controller":
-            await self.ensure_room_controller_leader(room_id)
+        # If display, ensure leadership is handled
+        if client.client_type == "display":
+            await self.ensure_room_display_leader(room_id)
         
         # Broadcast updated client count to the room
         await self.broadcast_room_client_count(room_id)
@@ -91,32 +91,32 @@ class SessionManager:
         count = self.get_room_client_count(room_id)
         await self.broadcast_to_room(room_id, "client_count", count)
     
-    # Room-scoped controller leadership
-    def is_controller_leader(self, client: ConnectionClient) -> bool:
+    # Room-scoped display leadership
+    def is_display_leader(self, client: ConnectionClient) -> bool:
         if not client.room_id:
             return False  # Client not in any room
         return self.room_leaders.get(client.room_id) == client
     
-    async def ensure_room_controller_leader(self, room_id: str):
-        controllers = self.get_room_controllers(room_id)
-        if not controllers:
+    async def ensure_room_display_leader(self, room_id: str):
+        displays = self.get_room_displays(room_id)
+        if not displays:
             self.room_leaders[room_id] = None
             return
-            
+
         current_leader = self.room_leaders.get(room_id)
-        if current_leader and current_leader in controllers:
+        if current_leader and current_leader in displays:
             return  # Current leader still valid
-            
-        # Elect new leader (first controller)
-        self.room_leaders[room_id] = controllers[0]
-        
-        # Notify all controllers in this room about their leadership status
-        for controller in controllers:
-            is_leader = (controller == self.room_leaders[room_id])
+
+        # Elect new leader (first display)
+        self.room_leaders[room_id] = displays[0]
+
+        # Notify all displays in this room about their leadership status
+        for display in displays:
+            is_leader = (display == self.room_leaders[room_id])
             try:
-                await controller.send_command("leader_status", {"is_leader": is_leader})
+                await display.send_command("leader_status", {"is_leader": is_leader})
             except Exception:
-                # Controller disconnected, will be cleaned up later
+                # Display disconnected, will be cleaned up later
                 pass
     
     def get_active_rooms(self):
@@ -171,7 +171,7 @@ class SessionManager:
             room_leadership[room_id] = {
                 "has_leader": leader is not None,
                 "leader_id": leader.id if leader else None,
-                "controllers_count": len(self.get_room_controllers(room_id))
+                "displays_count": len(self.get_room_displays(room_id))
             }
         
         return {

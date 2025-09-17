@@ -1,7 +1,7 @@
 import time
 import random
 from typing import Optional, Union
-from pytubefix import YouTube, Search
+import yt_dlp
 from core.search import KaraokeSourceProvider, KaraokeSearchResult, KaraokeEntry, VideoURLResult
 from config import config
 from urllib.parse import urlparse, urlunparse
@@ -20,47 +20,71 @@ class YTKaraokeSourceProvider(KaraokeSourceProvider):
         return "youtube"
 
 
-    def _get_proxy_config(self) -> Optional[dict]:
-        """Get proxy configuration for pytubefix."""
-        if not config.PROXY_SERVER:
-            return None
-
-        # pytubefix expects proxies in requests format
-        proxies = {
-            "http": config.PROXY_SERVER,
-            "https": config.PROXY_SERVER
+    def _get_ydl_opts(self) -> dict:
+        """Get yt-dlp options including proxy configuration."""
+        opts = {
+            'quiet': True,
+            'no_warnings': True,
+            'extract_flat': False,
+            'noplaylist': True,
+            'extractor_args': {
+                'youtube': {
+                    'player_client': ['tv_simply']
+                }
+            }
         }
 
-        # If proxy has authentication, format it as username:password@server
-        if config.PROXY_USERNAME and config.PROXY_PASSWORD:
+        # Configure proxy if available
+        if config.PROXY_SERVER:
             parsed = urlparse(config.PROXY_SERVER)
-            # Reconstruct URL with authentication
-            netloc = f"{config.PROXY_USERNAME}:{config.PROXY_PASSWORD}@{parsed.hostname}:{parsed.port}"
-            auth_server = urlunparse((parsed.scheme, netloc, parsed.path, parsed.params, parsed.query, parsed.fragment))
-            proxies = {
-                "http": auth_server,
-                "https": auth_server
-            }
 
-        return proxies
+            if config.PROXY_USERNAME and config.PROXY_PASSWORD:
+                # Reconstruct URL with authentication
+                netloc = f"{config.PROXY_USERNAME}:{config.PROXY_PASSWORD}@{parsed.hostname}:{parsed.port}"
+                proxy_url = urlunparse((parsed.scheme, netloc, parsed.path, parsed.params, parsed.query, parsed.fragment))
+            else:
+                proxy_url = config.PROXY_SERVER
 
-    def _search_videos(self, query: str) -> list[KaraokeEntry]:
-        proxy_config = self._get_proxy_config()
-        search = Search(query, proxies=proxy_config)
+            opts['proxy'] = proxy_url
+
+        return opts
+
+    def _search_videos(self, query: str, max_results: int = 10) -> list[KaraokeEntry]:
+        """Search for videos using yt-dlp's ytsearch functionality."""
+        ydl_opts = self._get_ydl_opts()
         entries = []
-        for video in search.videos:
-            if self.allowed_channels and not self._is_allowed_channel(video.author):
-                continue
 
-            entries.append(KaraokeEntry(
-                id=video.video_id,
-                title=video.title,
-                artist=video.author,
-                video_url=None,  # Will be loaded on demand
-                source=self.provider_id,
-                uploader=video.author,
-                duration=video.length
-            ))
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                # Use ytsearch to get multiple results
+                search_query = f"ytsearch{max_results}:{query}"
+                search_results = ydl.extract_info(search_query, download=False)
+
+                if not search_results or 'entries' not in search_results:
+                    return entries
+
+                for video_info in search_results['entries']:
+                    if not video_info:
+                        continue
+
+                    # Filter by allowed channels if specified
+                    uploader = video_info.get('uploader', '')
+                    if self.allowed_channels and not self._is_allowed_channel(uploader):
+                        continue
+
+                    entries.append(KaraokeEntry(
+                        id=video_info.get('id', ''),
+                        title=video_info.get('title', 'Unknown Title'),
+                        artist=uploader,
+                        video_url=None,  # Will be loaded on demand
+                        source=self.provider_id,
+                        uploader=uploader,
+                        duration=video_info.get('duration')
+                    ))
+
+        except Exception as e:
+            print(f"Search failed: {e}")
+
         return entries
 
     async def search(self, query: str) -> KaraokeSearchResult:
@@ -122,41 +146,49 @@ class YTKaraokeSourceProvider(KaraokeSourceProvider):
 
     async def _get_raw_video_url(self, youtube_url: str, max_retries: int = 3, base_delay: float = 1.0) -> Optional[str]:
         """
-        Extract raw video URL using pytube2.
-        Returns the highest quality video stream URL.
+        Extract raw video URL using yt-dlp.
+        Returns the best quality video stream URL.
         """
         last_exception = None
 
         for attempt in range(max_retries + 1):
             try:
-                proxy_config = self._get_proxy_config()
-                if attempt == 0:
-                    print(f"Using proxy config: {proxy_config}")
+                ydl_opts = self._get_ydl_opts()
+                # Configure format selection for best quality mp4
+                ydl_opts.update({
+                    'format': 'best[ext=mp4]/best[ext=webm]/best',  # Prefer mp4, fallback to webm, then best available
+                    'noplaylist': True,
+                })
 
-                yt = YouTube(youtube_url, proxies=proxy_config)
-                stream = yt.streams.filter(progressive=True, file_extension='mp4').order_by('resolution').desc().first()
-                if not stream:
-                    stream = yt.streams.filter(adaptive=True, file_extension='mp4', only_video=False).order_by('resolution').desc().first()
-                if not stream:
-                    stream = yt.streams.first()
+                loop = asyncio.get_event_loop()
+                with ThreadPoolExecutor() as executor:
+                    def extract_url():
+                        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                            info = ydl.extract_info(youtube_url, download=False)
+                            return info.get('url') if info else None
 
-                return stream.url if stream else None
+                    video_url = await loop.run_in_executor(executor, extract_url)
+                    return video_url
+
             except Exception as e:
                 last_exception = e
                 error_message = str(e).lower()
 
                 # Check if this is a retryable error
-                is_proxy_auth_error = "407" in error_message or "proxy authentication required" in error_message
-                is_tunnel_error = "tunnel connection failed" in error_message
-                is_4xx_error = any(code in error_message for code in ["400", "401", "403", "404", "408", "429"])
-                is_connection_error = "connection" in error_message or "timeout" in error_message
-                should_retry = is_proxy_auth_error or is_tunnel_error or is_4xx_error or is_connection_error
+                is_proxy_error = "proxy" in error_message or "407" in error_message
+                is_connection_error = any(keyword in error_message for keyword in [
+                    "connection", "timeout", "network", "dns"
+                ])
+                is_rate_limit = "429" in error_message or "rate limit" in error_message
+                is_4xx_error = any(code in error_message for code in ["400", "401", "403", "404", "408"])
+
+                should_retry = is_proxy_error or is_connection_error or is_rate_limit or is_4xx_error
 
                 if attempt < max_retries and should_retry:
                     delay = base_delay * (2 ** attempt) + random.uniform(0, 1)
                     print(f"Attempt {attempt + 1} failed for {youtube_url}: {e}")
                     print(f"Retrying in {delay:.1f} seconds...")
-                    time.sleep(delay)
+                    await asyncio.sleep(delay)
                     continue
                 else:
                     print(f"Failed to extract video URL for {youtube_url} after {attempt + 1} attempts")
@@ -167,5 +199,5 @@ class YTKaraokeSourceProvider(KaraokeSourceProvider):
         return None
 
     async def close(self):
-        # No cleanup needed for pytubefix
+        # No cleanup needed for yt-dlp
         pass

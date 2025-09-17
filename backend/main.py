@@ -126,10 +126,6 @@ def get_current_room(credentials: HTTPBasicCredentials = Depends(security)) -> R
 
     return room
 
-# Mount static files from frontend build
-static_dir = Path(__file__).parent / "static"
-app.mount("/assets", StaticFiles(directory=static_dir / "assets"), name="assets")
-
 @app.get("/search")
 async def search(
     query: str,
@@ -291,19 +287,8 @@ async def websocket_endpoint(websocket: WebSocket, service: Annotated[KaraokeSer
         await session_manager.disconnect_client(client)
 
 # Serve other static files
-@app.get("/vite.svg")
-async def vite_svg():
-    return FileResponse(static_dir / "vite.svg")
-
-@app.get("/registerSW.js")
-async def register_sw_js():
-    return FileResponse(static_dir / "registerSW.js")
-
-# Serve the main HTML for all frontend routes (must be last!)
-@app.get("/{full_path:path}")
-async def serve_frontend(full_path: str):
-    # Serve index.html for all frontend routes (SPA routing)
-    return FileResponse(static_dir / "index.html")
+static_dir = Path(__file__).parent / "static"
+app.mount("/", StaticFiles(directory=static_dir, html=True), name="static")
 
 if __name__ == "__main__":
     import uvicorn

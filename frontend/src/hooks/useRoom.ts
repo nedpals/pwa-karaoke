@@ -284,7 +284,7 @@ export function useRoom(clientType: ClientType): UseRoomReturn {
     pauseSong: () => ws.sendCommandWithAck("pause_song"),
     playNext: () => {
       // Only leader displays should trigger next song
-      if (!canSendPlaybackCommands) {
+      if (clientType === "display" && !isLeader) {
         console.log(`[${clientType}] Non-leader display ignoring playNext request`);
         return Promise.resolve({});
       }

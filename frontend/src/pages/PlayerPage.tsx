@@ -23,6 +23,7 @@ import type {
   DisplayPlayerState,
 } from "../types";
 import { cn } from "../lib/utils";
+import useSmartSync from "../hooks/useSmartSync";
 
 type AppState = "awaiting-interaction" | "connecting" | "connected" | "ready" | "playing";
 
@@ -36,6 +37,9 @@ interface PlayerContextType {
   appState: AppState;
   hasInteracted: boolean;
   setHasInteracted: (value: boolean) => void;
+
+  // Player state (smart synced)
+  playerState: DisplayPlayerState | null;
 
   // OSD state (single OSD that handles all messages)
   osd: OSDState;
@@ -81,13 +85,12 @@ function VideoPlayerComponent({
   onNearingEnd: (params: { timeRemaining: number }) => void;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
-  const { playerState, updatePlayerState } = useRoomContext();
-  const { osd } = usePlayerState();
+  const { updatePlayerState } = useRoomContext();
+  const { osd, playerState } = usePlayerState(); // Get smart synced state from context
   const { playNext } = useRoomContext();
   const isBufferingRef = useRef(false);
   const hasNearingEndFiredRef = useRef(false);
 
-  // Versioned player state update
   const updateVersionedPlayerState = useCallback((partialState: Partial<DisplayPlayerState>) => {
     const versionedState = {
       entry: playerState?.entry || null,
@@ -401,7 +404,7 @@ function ClientCountDisplay() {
   const { isOffline } = useServerStatus();
   const { clientCount: initialClientCount } = useRoomContext();
   const clientCount = initialClientCount - 1; // Exclude self from count
-  
+
   return (
     <GlassPanel className="px-3 py-2">
       <div className="flex">
@@ -518,10 +521,6 @@ function PlayingStateContent() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [upNextQueue]);
 
-  useEffect(() => {
-    console.log(videoUrl);
-  }, [videoUrl])
-
   if (!playerState?.entry) return null;
 
   return (
@@ -558,7 +557,7 @@ function PlayingStateContent() {
 function ConnectedStateScreen() {
   const [searchParams] = useSearchParams();
   const roomId = searchParams.get("room");
-  
+
   if (!roomId) {
     return <Navigate to="/" replace />;
   }
@@ -566,7 +565,7 @@ function ConnectedStateScreen() {
   const controllerUrl = `${window.location.origin}/controller?room=${encodeURIComponent(roomId)}`;
 
   return (
-    <MessageTemplate 
+    <MessageTemplate
       size="auto"
       background={<FallbackBackground className="relative" />}
     >
@@ -642,11 +641,15 @@ function PlayerStateProviderInternal({ children }: { children: React.ReactNode }
 
   const {
     connected,
-    playerState,
+    playerState: rawPlayerState,
     clientCount,
     updatePlayerState,
     lastQueueCommand,
+    isLeader,
   } = useRoomContext();
+
+  // Use smart sync for non-leader displays
+  const playerState = useSmartSync(rawPlayerState, isLeader);
 
   // OSD management (single OSD for all messages, always top-left)
   const [osd, setOSD] = useTempState<OSDState>({
@@ -690,29 +693,30 @@ function PlayerStateProviderInternal({ children }: { children: React.ReactNode }
     if (!playerState?.entry) return;
 
     const volume = playerState.volume ?? 0.5;
-    const volumePercent = Math.round(volume * 100);
 
     // Only show volume OSD if we're not currently showing a critical state message and volume actually changed
     if (volume !== lastVolumeRef.current && playerState.play_state === "playing") {
       lastVolumeRef.current = volume;
-      setOSD({ message: `Volume: ${volumePercent}%`, visible: true }, { duration: 2000 });
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [playerState?.volume, playerState?.play_state, playerState?.entry]);
 
   useEffect(() => {
-    if (!lastQueueCommand || !playerState) return;
+    if (!lastQueueCommand || !rawPlayerState) return;
 
     const { command, data } = lastQueueCommand;
 
     if (command === "set_volume") {
       const newVolume = data as number;
       updatePlayerState({
-        ...playerState,
+        ...rawPlayerState,
         volume: newVolume,
         version: Date.now(),
         timestamp: Date.now(),
       });
+
+      const volumePercent = Math.round(newVolume * 100);
+      setOSD({ message: `Volume: ${volumePercent}%`, visible: true }, { duration: 2000 });
     }
   }, [lastQueueCommand]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -720,6 +724,7 @@ function PlayerStateProviderInternal({ children }: { children: React.ReactNode }
     appState,
     hasInteracted,
     setHasInteracted,
+    playerState,
     osd,
     setOSD,
   };

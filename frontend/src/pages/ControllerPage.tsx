@@ -170,7 +170,7 @@ function SongSelectTab() {
     setTextInput(value);
     setSearchError(null);
     setHasSearched(true);
-    
+
     try {
       await triggerSearch(value);
     } catch (error) {
@@ -181,10 +181,10 @@ function SongSelectTab() {
 
   const handleAddQueueItem = async (entry: KaraokeEntry) => {
     if (queueingStates[entry.id]) return; // Prevent duplicate requests
-    
+
     setQueueingStates(prev => ({ ...prev, [entry.id]: true }));
     setErrorMessage(null);
-    
+
     try {
       await queueSong(entry);
     } catch (error) {
@@ -250,13 +250,13 @@ function PlayerTab() {
   // Clear optimistic volume when server state matches our optimistic value
   useEffect(() => {
     console.log('[Volume Debug] PlayerState volume changed:', playerState?.volume);
-    
+
     if (optimisticVolume !== null && playerState?.volume !== undefined) {
       const serverVolume = Math.round(playerState.volume * 10) / 10; // Round to 1 decimal
       const optimisticRounded = Math.round(optimisticVolume * 10) / 10;
-      
+
       console.log('[Volume Debug] Server:', serverVolume, 'Optimistic:', optimisticRounded);
-      
+
       if (Math.abs(serverVolume - optimisticRounded) < 0.05) {
         // Server state matches optimistic state, clear optimistic
         console.log('[Volume Debug] Server state matches, clearing optimistic');
@@ -269,13 +269,13 @@ function PlayerTab() {
 
   const handlePlayerPlayback = async () => {
     if (isPlaybackLoading) return;
-    
+
     console.log('[Playback Debug] Current playerState volume:', playerState?.volume);
     console.log('[Playback Debug] Optimistic volume:', optimisticVolume);
-    
+
     setIsPlaybackLoading(true);
     setErrorMessage(null);
-    
+
     try {
       if (playerState?.play_state === "playing") {
         console.log('[Playback Debug] Pausing...');
@@ -295,15 +295,15 @@ function PlayerTab() {
 
   const adjustPlayerVolume = async (newVolumeDecimal: number) => {
     if (isVolumeLoading) return;
-    
+
     const currentVolume = optimisticVolume ?? playerState?.volume ?? 0.5;
     const newVolume = Math.max(0.0, currentVolume + newVolumeDecimal);
-    
+
     // Optimistic update
     setOptimisticVolume(newVolume);
     setIsVolumeLoading(true);
     setErrorMessage(null);
-    
+
     try {
       await setVolume(newVolume);
     } catch (error) {
@@ -319,10 +319,10 @@ function PlayerTab() {
 
   const handlePlayNext = async () => {
     if (isPlayNextLoading) return;
-    
+
     setIsPlayNextLoading(true);
     setErrorMessage(null);
-    
+
     try {
       await playNext();
     } catch (error) {
@@ -592,8 +592,8 @@ function ControllerPageContent() {
   const tabs: Tab[] = CONTROLLER_TABS.map((t) => ({
     id: t.id,
     label: t.label,
-    content: t.id === "song-select" ? <SongSelectTab /> : 
-             t.id === "player" ? <PlayerTab /> : 
+    content: t.id === "song-select" ? <SongSelectTab /> :
+             t.id === "player" ? <PlayerTab /> :
              <QueueTab />
   }));
 
@@ -619,6 +619,7 @@ export default function ControllerPage() {
     if (roomId) {
       room.verifyAndJoinRoom(roomId);
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Redirect to home if no room specified

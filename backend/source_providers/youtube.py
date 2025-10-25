@@ -29,7 +29,7 @@ class YTKaraokeSourceProvider(KaraokeSourceProvider):
             'noplaylist': True,
             'extractor_args': {
                 'youtube': {
-                    'player_client': ['tv_simply']
+                    'player_client': ['android_sdkless']
                 }
             }
         }

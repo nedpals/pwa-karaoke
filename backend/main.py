@@ -286,9 +286,18 @@ async def websocket_endpoint(websocket: WebSocket, service: Annotated[KaraokeSer
         # Handle all disconnection scenarios
         await session_manager.disconnect_client(client)
 
-# Serve other static files
+# Serve static files (must be after all API routes)
 static_dir = Path(__file__).parent / "static"
-app.mount("/", StaticFiles(directory=static_dir, html=True), name="static")
+app.mount("/", StaticFiles(directory=static_dir), name="static")
+
+# Catch-all route for React SPA client-side routing (must be last)
+@app.get("/{full_path:path}")
+async def serve_spa(full_path: str):
+    """Serve index.html for all unmatched routes to support React SPA routing"""
+    index_file = static_dir / "index.html"
+    if index_file.exists():
+        return FileResponse(index_file)
+    raise HTTPException(status_code=404, detail="Application not found")
 
 if __name__ == "__main__":
     import uvicorn

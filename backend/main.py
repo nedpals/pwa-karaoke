@@ -126,6 +126,14 @@ def get_current_room(credentials: HTTPBasicCredentials = Depends(security)) -> R
 
     return room
 
+@app.get("/")
+async def serve_spa_index():
+    """Serve index.html for all unmatched routes to support React SPA routing"""
+    index_file = static_dir / "index.html"
+    if index_file.exists():
+        return FileResponse(index_file)
+    raise HTTPException(status_code=404, detail="Application not found")
+
 @app.get("/search")
 async def search(
     query: str,
@@ -291,6 +299,7 @@ static_dir = Path(__file__).parent / "static"
 app.mount("/", StaticFiles(directory=static_dir), name="static")
 
 # Catch-all route for React SPA client-side routing (must be last)
+
 @app.get("/{full_path:path}")
 async def serve_spa(full_path: str):
     """Serve index.html for all unmatched routes to support React SPA routing"""

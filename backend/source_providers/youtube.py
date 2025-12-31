@@ -31,7 +31,8 @@ class YTKaraokeSourceProvider(KaraokeSourceProvider):
                 'youtube': {
                     'player_client': ['android_sdkless']
                 }
-            }
+            },
+            # 'js-runtimes': config.YTDLP_RUNTIME or 'bun'
         }
 
         # Configure proxy if available

@@ -20,6 +20,15 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
+# Install Bun (required by yt-dlp for JS runtime)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    unzip \
+    && curl -fsSL https://bun.sh/install | bash \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+ENV PATH="/root/.bun/bin:$PATH"
+
 # Copy backend requirements and install Python dependencies
 COPY backend/requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt

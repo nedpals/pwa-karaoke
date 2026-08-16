@@ -118,7 +118,6 @@ function useSongDialog() {
     actions,
     busyLabel,
     error,
-    title: reserved ? "Reserved Song" : "Reserve",
     open: setSelected,
     close: () => !busyLabel && setSelected(null),
   };
@@ -259,7 +258,6 @@ function SongSelectTab() {
 
       <SongActionsDialog
         entry={dialog.selected}
-        title={dialog.title}
         status={dialog.status}
         busy={dialog.busyLabel}
         onClose={dialog.close}
@@ -545,7 +543,6 @@ function QueueTab() {
 
       <SongActionsDialog
         entry={dialog.selected}
-        title={dialog.title}
         status={dialog.status}
         busy={dialog.busyLabel}
         onClose={dialog.close}

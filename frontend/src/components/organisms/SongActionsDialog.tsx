@@ -15,7 +15,7 @@ export interface SongAction {
 
 export interface SongActionsDialogProps {
   entry: KaraokeEntry | null;
-  title: string;
+  title?: string;
   status?: EntryStatus | null;
   actions: SongAction[];
   busy?: string | null;
@@ -30,7 +30,7 @@ function statusLine(status: EntryStatus) {
 
 export function SongActionsDialog({
   entry,
-  title,
+  title = "Song Options",
   status,
   actions,
   busy,

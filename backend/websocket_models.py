@@ -33,6 +33,14 @@ class SetVolumePayload(BaseModel):
     """Set volume command payload"""
     volume: float = Field(..., ge=0.0, le=1.0)
 
+class SetAutoplayPayload(BaseModel):
+    """Autoplay toggle command payload"""
+    enabled: bool
+
+class PlayNextPayload(BaseModel):
+    """Play next command payload. `auto` marks an end-of-song rollover."""
+    auto: bool = False
+
 class PlayerStatePayload(DisplayPlayerState):
     """Player state update payload - inherits from DisplayPlayerState"""
     pass
@@ -71,6 +79,8 @@ COMMAND_PAYLOAD_MAP = {
     "remove_song": EntryIDPayload,
     "queue_next_song": EntryIDPayload,
     "set_volume": SetVolumePayload,
+    "set_autoplay": SetAutoplayPayload,
+    "play_next": PlayNextPayload,
     "player_state": PlayerStatePayload,
     "update_player_state": PlayerStatePayload,
     "queue_update": QueueUpdatePayload,
@@ -80,7 +90,6 @@ COMMAND_PAYLOAD_MAP = {
     # Commands without payload validation
     "play_song": dict,
     "pause_song": dict,
-    "play_next": dict,
     "clear_queue": dict,
     "request_queue_update": dict,
 }

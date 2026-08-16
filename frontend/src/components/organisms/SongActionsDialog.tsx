@@ -1,8 +1,6 @@
-import { AlbumArt } from "../atoms/AlbumArt";
 import { Button } from "../atoms/Button";
-import { Text } from "../atoms/Text";
-import { TimeDisplay } from "../molecules/TimeDisplay";
 import { Dialog } from "./Dialog";
+import { SongDetails } from "./SongDetails";
 import type { EntryStatus } from "../../hooks/useEntryStatus";
 import type { KaraokeEntry } from "../../types";
 
@@ -20,12 +18,6 @@ export interface SongActionsDialogProps {
   actions: SongAction[];
   busy?: string | null;
   onClose: () => void;
-}
-
-function statusLine(status: EntryStatus) {
-  return status.kind === "playing"
-    ? { text: "Now Playing", className: "bg-ka-amber" }
-    : { text: `Reserved ${status.position.toString().padStart(2, "0")} in line`, className: "bg-ka-green" };
 }
 
 export function SongActionsDialog({
@@ -61,36 +53,7 @@ export function SongActionsDialog({
         </>
       }
     >
-      {entry && (
-        <div className="flex items-start gap-3">
-          <AlbumArt src={entry.thumbnail_url} alt="" size="lg" />
-
-          <div className="flex-1 min-w-0 space-y-1">
-            <div className="flex items-center gap-2 flex-wrap">
-              {status && (
-                <span className={`px-2 ${statusLine(status).className}`}>
-                  <Text font="display" size="sm" weight="bold" tone="inverse">
-                    {statusLine(status).text}
-                  </Text>
-                </span>
-              )}
-              <Text font="display" size="sm" tone="dim">
-                {entry.source}
-              </Text>
-            </div>
-
-            <Text size="lg" weight="bold" className="leading-tight break-words">
-              {entry.title}
-            </Text>
-            <Text tone="dim" truncate>
-              {entry.artist}
-            </Text>
-            {entry.duration !== null && (
-              <TimeDisplay seconds={entry.duration} size="sm" tone="dim" />
-            )}
-          </div>
-        </div>
-      )}
+      {entry && <SongDetails entry={entry} status={status} />}
     </Dialog>
   );
 }

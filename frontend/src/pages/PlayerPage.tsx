@@ -5,6 +5,7 @@ import { Panel } from "../components/atoms/Panel";
 import { useRoom } from "../hooks/useRoom";
 import { OSD } from "../components/molecules/OSD";
 import { NowPlayingBanner, type BannerTone } from "../components/organisms/NowPlayingBanner";
+import { UpNextCard } from "../components/organisms/UpNextCard";
 import { QRCode } from "../components/atoms/QRCode";
 import { Button } from "../components/atoms/Button";
 import { LoadingIndicator } from "../components/atoms/LoadingIndicator";
@@ -357,7 +358,7 @@ function VideoPlayerComponent({
             duration: video.duration || 0,
             volume: video.volume,
           });
-          playNext();
+          playNext({ auto: true });
         }}
       >
         <track kind="captions" />
@@ -378,7 +379,7 @@ function ReactionLayer() {
 
 function StatusStrip() {
   const { isOffline } = useServerStatus();
-  const { clientCount: rawClientCount, roomId } = useRoomContext();
+  const { clientCount: rawClientCount, roomId, autoplay } = useRoomContext();
   const clientCount = Math.max(rawClientCount - 1, 0);
 
   return (
@@ -407,6 +408,16 @@ function StatusStrip() {
           {clientCount.toString().padStart(2, "0")}
         </Text>
       </div>
+      {!autoplay && (
+        <div className="flex items-center gap-2 px-3 py-1">
+          <Text font="display" size="sm" tone="dim">
+            Autoplay
+          </Text>
+          <Text font="display" size="sm" tone="danger">
+            Off
+          </Text>
+        </div>
+      )}
     </Panel>
   );
 }
@@ -418,7 +429,7 @@ function PlayingStateContent() {
   const [upNextTitle, setUpNextTitle] = useTempState<string | null>(null);
   const [queuedTitle, setQueuedTitle] = useTempState<string | null>(null);
 
-  const { playerState, upNextQueue } = useRoomContext();
+  const { playerState, upNextQueue, autoplay } = useRoomContext();
   const { trigger: triggerVideoUrl } = useVideoUrlMutation();
   const {
     videoUrl: videoUrlData,
@@ -443,12 +454,25 @@ function PlayingStateContent() {
     if (!playerState?.entry) {
       return { status: "Stopped", tone: "paused", title: "No Song" };
     }
+
+    const title = `${playerState.entry.artist} - ${playerState.entry.title}`;
+    if (playerState.play_state === "finished") {
+      return { status: "Finished", tone: "paused", title };
+    }
+
     return {
       status: playerState.play_state === "playing" ? "Playing" : "Paused",
       tone: playerState.play_state === "playing" ? "playing" : "paused",
-      title: `${playerState.entry.artist} - ${playerState.entry.title}`,
+      title,
     };
   }, [upNextTitle, queuedTitle, playerState]);
+
+  // With autoplay off the song ends and the queue just sits there, so the
+  // display has to say what is waiting and how to start it.
+  const heldSong = useMemo(() => {
+    if (autoplay || playerState?.play_state !== "finished") return null;
+    return upNextQueue?.items[0] ?? null;
+  }, [autoplay, playerState?.play_state, upNextQueue]);
 
   const videoUrl = useMemo(() => {
     if (!playerState?.entry) return null;
@@ -466,10 +490,15 @@ function PlayingStateContent() {
     if (!upNextQueue || upNextQueue.items.length === 0) return;
 
     const nextSong = upNextQueue.items[0];
-    setUpNextTitle(
-      `${nextSong.entry.artist} - ${nextSong.entry.title}`,
-      { duration: timeRemaining * 1000 },
-    );
+
+    // Announce the rollover only when one is coming. The URL is still worth
+    // prefetching either way so a manual Next is not left waiting.
+    if (autoplay) {
+      setUpNextTitle(
+        `${nextSong.entry.artist} - ${nextSong.entry.title}`,
+        { duration: timeRemaining * 1000 },
+      );
+    }
 
     if (nextSong.entry.video_url) {
       // Skip prefetching if we already have the URL
@@ -484,7 +513,7 @@ function PlayingStateContent() {
         console.error('[Prefetch] Failed to prefetch URL for:', nextSong.entry.title, error);
       });
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [upNextQueue, setUpNextTitle]);
+  }, [autoplay, upNextQueue, setUpNextTitle]);
 
   useEffect(() => {
     if (lastUpNextQueueVersion.current
@@ -528,6 +557,12 @@ function PlayingStateContent() {
           onNearingEnd={handleNearingEnd}
         />
       </div>
+
+      {heldSong && (
+        <div className="absolute inset-0 z-20 flex items-center justify-center title-safe pointer-events-none">
+          <UpNextCard entry={heldSong.entry} />
+        </div>
+      )}
     </div>
   );
 }

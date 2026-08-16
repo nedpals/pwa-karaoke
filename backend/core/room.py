@@ -15,7 +15,8 @@ class Room(BaseModel):
     player_state: Optional[DisplayPlayerState] = None
     queue_version: int = 1
     player_version: int = 1
-    is_public: bool = True
+    autoplay: bool = True
+    settings_version: int = 1
     password_hash: Optional[str] = None
     created_at: float = time.time()
 
@@ -27,10 +28,8 @@ class Room(BaseModel):
     def set_password(self, password: str) -> None:
         if password:
             self.password_hash = hashlib.sha256(password.encode()).hexdigest()
-            self.is_public = False
         else:
             self.password_hash = None
-            self.is_public = True
 
     def verify_password(self, password: str) -> bool:
         if not self.password_hash:
@@ -80,8 +79,22 @@ class Room(BaseModel):
     def get_up_next_queue(self) -> list[KaraokeQueueItem]:
         return self.queue.items[1:] if len(self.queue.items) > 1 else []
 
+    def set_autoplay(self, enabled: bool) -> bool:
+        if self.autoplay == enabled:
+            return False
+
+        self.autoplay = enabled
+        self.settings_version += 1
+        return True
+
     def update_player_state(self, state: DisplayPlayerState) -> None:
-        state.version = int(time.time() * 1000)
+        # Keep versions monotonic. A client clock running ahead of the server would
+        # otherwise stamp a version that no later update can beat.
+        version = int(time.time() * 1000)
+        if self.player_state and version <= self.player_state.version:
+            version = self.player_state.version + 1
+
+        state.version = version
         state.timestamp = time.time()
         self.player_state = state
         self.player_version += 1
@@ -90,6 +103,13 @@ class Room(BaseModel):
         return {
             "items": [item.model_dump() for item in self.queue.items],
             "version": self.queue_version,
+            "timestamp": time.time()
+        }
+
+    def get_settings_payload(self) -> Dict[str, Any]:
+        return {
+            "autoplay": self.autoplay,
+            "version": self.settings_version,
             "timestamp": time.time()
         }
 
@@ -106,21 +126,17 @@ class RoomManager:
             raise ValueError(f"Room {room_id} does not exist")
         return self.rooms[room_id]
 
-    def create_room(self, room_id: str, is_public: bool = True, password: str = None) -> Room:
-        """Create a new room with privacy settings"""
+    def create_room(self, room_id: str, password: str = None) -> Room:
+        """Create a new room, optionally password protected"""
         if room_id in self.rooms:
             raise ValueError(f"Room {room_id} already exists")
 
-        room = Room(id=room_id, is_public=is_public)
+        room = Room(id=room_id)
         if password:
             room.set_password(password)
 
         self.rooms[room_id] = room
         return room
-
-    def get_public_rooms(self) -> Dict[str, Room]:
-        """Get only public rooms"""
-        return {room_id: room for room_id, room in self.rooms.items() if room.is_public}
 
     def room_exists(self, room_id: str) -> bool:
         """Check if a room exists"""

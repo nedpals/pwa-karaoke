@@ -23,12 +23,10 @@ from cache_store import get_cache_store, set_cache_store, clear_cache_store, Cac
 # Request/Response models
 class CreateRoomRequest(BaseModel):
     room_id: str
-    is_public: bool = True
     password: str = None
 
 class PublicRoomResponse(BaseModel):
     id: str
-    is_public: bool
     requires_password: bool
     created_at: float
 
@@ -36,7 +34,6 @@ class PublicRoomResponse(BaseModel):
     def from_room(room: Room) -> "PublicRoomResponse":
         return PublicRoomResponse(
             id=room.id,
-            is_public=room.is_public,
             requires_password=room.requires_password(),
             created_at=room.created_at
         )
@@ -193,19 +190,11 @@ async def heartbeat():
         "timestamp": int(time.time() * 1000)  # milliseconds timestamp
     }
 
-@app.get("/rooms")
-async def get_active_rooms():
-    return {
-        "rooms": session_manager.get_active_rooms(),
-        "timestamp": time.time()
-    }
-
 @app.post("/rooms/create")
 async def create_room(request: CreateRoomRequest):
     try:
         room = session_manager.room_manager.create_room(
             room_id=request.room_id,
-            is_public=request.is_public,
             password=request.password
         )
         return RoomFoundResponse(

@@ -90,12 +90,9 @@ Visit `http://localhost:8000` to access the application.
 Rooms let multiple groups run karaoke sessions independently. The home screen has a single room field, filled with a generated name you can replace with your own.
 
 Pressing **Join Room** opens a dialog whose contents depend on the name you entered:
-- **The room does not exist yet.** It gets created when you enter, and the dialog offers **Room Visibility** (shown in public listings, or private) and an optional **Room Password**.
+- **The room does not exist yet.** It gets created when you enter, and the dialog offers an optional **Room Password**.
 - **The room exists and is open.** You enter straight away.
 - **The room exists and is password protected.** The dialog asks for the password before letting you in.
-
-> [!TIP]
-> Public rooms can have passwords too, so a room can stay listed while still being restricted.
 
 ### Modes
 
@@ -104,6 +101,14 @@ The same dialog is where you pick what this device becomes:
 - **Enter as Controller:** For phones or tablets to search for songs and control playback.
 
 The quickest way to add a controller is to scan the QR code the display shows while it is waiting.
+
+### Autoplay
+
+Reserved songs play one after another by default: when the current song ends, the display moves straight on to the next one in the queue.
+
+The **Autoplay** toggle in the controller's Player tab turns that off. With it off, playback stops when the song ends and the queue is left untouched, so nothing starts until someone presses **Next**. The setting belongs to the room, so every controller and display in it stays in sync, and the display shows an `Autoplay Off` marker while it is disabled.
+
+Pressing **Next** always skips to the next reserved song, whatever the toggle is set to.
 
 ### Development
 

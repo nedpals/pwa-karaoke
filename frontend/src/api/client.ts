@@ -2,8 +2,7 @@ import type {
   KaraokeEntry, 
   KaraokeSearchResult, 
   VideoURLResponse, 
-  Room, 
-  RoomsResponse,
+  RoomDetails,
   CreateRoomRequest,
   CreateRoomResponse,
   VerifyRoomRequest,
@@ -168,16 +167,6 @@ class ApiClient {
     return response.json();
   }
 
-  async getRooms(): Promise<RoomsResponse> {
-    const response = await fetch(`${this.baseUrl}/rooms`);
-    
-    if (!response.ok) {
-      throw new Error(`Failed to fetch rooms: ${response.statusText}`);
-    }
-    
-    return response.json();
-  }
-
   async createRoom(request: CreateRoomRequest): Promise<CreateRoomResponse> {
     const response = await fetch(`${this.baseUrl}/rooms/create`, {
       method: 'POST',
@@ -195,7 +184,7 @@ class ApiClient {
     return response.json();
   }
 
-  async getRoomDetails(roomId: string): Promise<Room> {
+  async getRoomDetails(roomId: string): Promise<RoomDetails> {
     const response = await fetch(`${this.baseUrl}/rooms/${roomId}`);
     
     if (!response.ok) {

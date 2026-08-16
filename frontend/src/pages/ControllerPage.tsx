@@ -281,10 +281,14 @@ function VolumeMeter({ value }: { value: number }) {
 }
 
 function PlayerTab() {
-  const { playerState, playSong, pauseSong, playNext, setVolume, sendReaction, connected } = useRoomContext();
+  const {
+    playerState, playSong, pauseSong, playNext, setVolume,
+    sendReaction, connected, autoplay, setAutoplay,
+  } = useRoomContext();
   const [isPlaybackLoading, setIsPlaybackLoading] = useState(false);
   const [isVolumeLoading, setIsVolumeLoading] = useState(false);
   const [isPlayNextLoading, setIsPlayNextLoading] = useState(false);
+  const [isAutoplayLoading, setIsAutoplayLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [optimisticVolume, setOptimisticVolume] = useState<number | null>(null);
   const volume = optimisticVolume ?? playerState?.volume ?? 0.5;
@@ -342,6 +346,23 @@ function PlayerTab() {
       setIsVolumeLoading(false);
     }
   }
+
+  const handleAutoplayChange = async (enabled: boolean) => {
+    if (isAutoplayLoading || enabled === autoplay) return;
+
+    setIsAutoplayLoading(true);
+    setErrorMessage(null);
+
+    try {
+      await setAutoplay(enabled);
+    } catch (error) {
+      console.error("Failed to change autoplay:", error);
+      setErrorMessage("Could not change autoplay.");
+      setTimeout(() => setErrorMessage(null), 3000);
+    } finally {
+      setIsAutoplayLoading(false);
+    }
+  };
 
   const handlePlayNext = async () => {
     if (isPlayNextLoading) return;
@@ -421,6 +442,16 @@ function PlayerTab() {
         />
       </div>
 
+      <Button
+        onClick={() => handleAutoplayChange(!autoplay)}
+        active={autoplay}
+        aria-pressed={autoplay}
+        disabled={isAutoplayLoading}
+        className="w-full"
+      >
+        Autoplay: {autoplay ? "On" : "Off"}
+      </Button>
+
       <Panel className="p-3">
         <div className="flex items-center gap-3 mb-2">
           <Text font="display" size="lg" tone="dim" className="flex-1">
@@ -455,7 +486,7 @@ function PlayerTab() {
 }
 
 function QueueTab() {
-  const { queue, upNextQueue, playerState, playNext, clearQueue, queueNextSong } = useRoomContext();
+  const { upNextQueue, playerState, autoplay, playNext, clearQueue, queueNextSong } = useRoomContext();
   const entryStatus = useEntryStatus();
   const dialog = useSongDialog();
   const [isClearingQueue, setIsClearingQueue] = useState(false);
@@ -510,12 +541,16 @@ function QueueTab() {
         <Text font="display" size="lg" weight="bold" tone="accent" className="flex-1">
           Up Next
         </Text>
-        {queue && queue.items.length > (playerState?.entry ? 1 : 0) && (
+        {upNextItems.length > 0 && (
           <Button onClick={handleClearQueue} variant="danger" size="sm" disabled={isClearingQueue}>
             Clear All
           </Button>
         )}
       </div>
+
+      {!autoplay && upNextItems.length > 0 && (
+        <Notice tone="dim">Autoplay is off. Press Next to start the song at the top.</Notice>
+      )}
 
       {upNextItems.length === 0 ? (
         <div className="py-10 text-center">

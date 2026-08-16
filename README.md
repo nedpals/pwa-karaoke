@@ -125,6 +125,8 @@ A controller opens with a **Mic Check** screen, the same way a display opens wit
 
 After that there is no control for it, only a footnote in the Player tab saying whether it is on. Skipping it, denying the browser prompt, or reaching the app over plain `http` on a LAN address where microphones are unavailable all leave scoring running without one.
 
+Skipping a song scores nothing, it just moves on. A song that ends inside its first fifteen seconds takes the floor of 60 whatever a microphone made of it, since there was not enough of it to have judged.
+
 The score belongs to the room, so every display shows the same number, and a display that joins while a score is up receives it.
 
 ### Development

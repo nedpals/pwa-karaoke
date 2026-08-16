@@ -6,7 +6,7 @@ from nanoid import generate as generate_nanoid
 
 from core.search import KaraokeEntry
 from core.player import DisplayPlayerState
-from core.score import SongScore, roll_score, score_from_performance
+from core.score import SCORE_FLOOR, SongScore, roll_score, score_from_performance
 from services.karaoke_service import KaraokeService
 from client_manager import ConnectionClient
 from session_manager import SessionManager
@@ -25,6 +25,10 @@ SCORE_RATE_WINDOW = 10.0
 # How long a controller with a microphone has to report before the machine
 # makes something up. The display holds the finished song for longer than this.
 SCORE_GRACE_SECONDS = 1.0
+
+# A song that ends this early was never really sung, whatever a microphone
+# thought it heard, so it takes the floor instead of a score.
+MIN_SCORED_SECONDS = 15.0
 
 class ClientCommands:
     def __init__(self, client: ConnectionClient, session_manager: SessionManager, service: KaraokeService) -> None:
@@ -73,16 +77,23 @@ class ClientCommands:
         await self.session_manager.broadcast_to_room(self.client.room_id, "player_state", self.room.player_state.model_dump())
 
         if entry_id and state.play_state == "finished":
-            asyncio.create_task(self._settle_score(self.room, self.client.room_id, entry_id))
+            asyncio.create_task(
+                self._settle_score(self.room, self.client.room_id, entry_id, state.current_time)
+            )
 
     async def _broadcast_score(self, room_id: str, score: SongScore):
         await self.session_manager.broadcast_to_room(room_id, "score", score.model_dump())
 
-    async def _settle_score(self, room, room_id: str, entry_id: str):
+    async def _settle_score(self, room, room_id: str, entry_id: str, played_seconds: float):
         if not room.begin_score_settle(entry_id):
             return
 
         try:
+            if played_seconds < MIN_SCORED_SECONDS:
+                score = room.set_score(entry_id, SCORE_FLOOR, "auto")
+                await self._broadcast_score(room_id, score)
+                return
+
             await asyncio.sleep(SCORE_GRACE_SECONDS)
             if room.has_score_for(entry_id):
                 return
@@ -268,11 +279,15 @@ class ControllerCommands(ClientCommands):
             return
 
         entry_id = payload["entry_id"]
-        current = self.room.player_state.entry if self.room.player_state else None
+        state = self.room.player_state
+        current = state.entry if state else None
 
         # Only the song on screen can be scored, and only once. A second
         # controller arriving late loses to the one already counted.
         if not current or current.id != entry_id:
+            return
+
+        if state.current_time < MIN_SCORED_SECONDS:
             return
 
         if self.room.has_score_for(entry_id):

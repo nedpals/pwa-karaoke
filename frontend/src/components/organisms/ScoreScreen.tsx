@@ -8,6 +8,9 @@ import { ratingFor } from "../../lib/scoring";
 const STENCIL_SHADOW =
   "-2px -2px 0 #000, 2px -2px 0 #000, -2px 2px 0 #000, 2px 2px 0 #000, 0 3px 0 rgb(0 0 0 / 0.6)";
 
+// text-6xl is 3.75rem with a line height of 1
+const RATING_SLOT = "h-[3.75rem]";
+
 const ROLL_TICK_MIN_MS = 55;
 const ROLL_TICK_MAX_MS = 320;
 const LANDING_MS = 1500;
@@ -85,8 +88,6 @@ export interface ScoreScreenProps {
 
 export function ScoreScreen({ score, className }: ScoreScreenProps) {
   const { value, settled } = useScoreReveal(score);
-  // Worked out as soon as the score lands so the slot it will occupy is
-  // already the right height, but kept hidden until the digits stop moving.
   const rating = score === null ? null : ratingFor(score);
   const revealed = settled && rating !== null;
 
@@ -106,16 +107,20 @@ export function ScoreScreen({ score, className }: ScoreScreenProps) {
         {value.toString().padStart(2, "0")}
       </Text>
 
-      <Text
-        font="display"
-        size="6xl"
-        weight="bold"
-        tone={rating?.tone ?? "dim"}
-        className={cn("text-center max-w-[85vw]", !revealed && "invisible")}
-        style={{ textShadow: STENCIL_SHADOW }}
-      >
-        {rating?.label ?? "\u00A0"}
-      </Text>
+      {/* A slot the height of one 6xl line, held whatever the rating says, so
+          the digits above it never move. */}
+      <div className={cn("flex items-center justify-center", RATING_SLOT)}>
+        <Text
+          font="display"
+          size="6xl"
+          weight="bold"
+          tone={rating?.tone ?? "dim"}
+          className={cn("text-center max-w-[85vw]", !revealed && "opacity-0")}
+          style={{ textShadow: STENCIL_SHADOW }}
+        >
+          {rating?.label ?? "\u00A0"}
+        </Text>
+      </div>
     </div>
   );
 }

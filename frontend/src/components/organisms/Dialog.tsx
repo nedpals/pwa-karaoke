@@ -36,7 +36,7 @@ export function Dialog({ open, title, onClose, children, footer, className }: Di
       <Card title={title} size="auto">
         <div className="w-full space-y-4">
           {children}
-          {footer && <div className="flex gap-2 pt-1">{footer}</div>}
+          {footer && <div className="flex flex-col gap-2 pt-1">{footer}</div>}
         </div>
       </Card>
     </dialog>

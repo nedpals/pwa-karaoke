@@ -639,7 +639,7 @@ function MicCheckScreen({ onAllow, onSkip }: { onAllow: () => void; onSkip: () =
   return (
     <SystemMessage
       title="Mic Check"
-      subtitle="Scoring listens through this device's microphone while a song plays. The audio stays on the phone and only the score is sent."
+      subtitle="To score your performance, we use your device's microphone. Only the score is sent."
       actions={() => (
         <div className="flex flex-col items-center gap-3 w-full">
           <Button onClick={onAllow} variant="accent" size="xl" className="w-full">

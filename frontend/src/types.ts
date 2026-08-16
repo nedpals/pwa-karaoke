@@ -19,6 +19,7 @@ export interface VideoURLResponse {
 
 export interface DisplayPlayerState {
   entry: KaraokeEntry | null;
+  singer?: string | null;
   play_state: "playing" | "paused" | "finished" | "buffering";
   current_time: number;
   duration: number;
@@ -38,6 +39,7 @@ export interface ReactionEvent {
 export interface KaraokeQueueItem {
   id: string;
   entry: KaraokeEntry;
+  singer?: string | null;
 }
 
 export interface KaraokeQueue {

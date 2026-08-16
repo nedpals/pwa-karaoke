@@ -24,6 +24,10 @@ export const Default: Story = {
   args: { entry: second },
 };
 
+export const WithSinger: Story = {
+  args: { entry: second, singer: 'Tita Beth' },
+};
+
 export const LongTitle: Story = {
   args: { entry: SAMPLE_ENTRIES[2] },
 };

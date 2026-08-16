@@ -109,9 +109,10 @@ class ClientCommands:
 
     async def join_room(self, payload):
         room_id = payload.get("room_id", "default")
-        self.room = await self.session_manager.join_room(self.client, room_id)
+        nickname = payload.get("nickname")
+        self.room = await self.session_manager.join_room(self.client, room_id, nickname)
         await self._receive_current_state()
-        return {"room_id": room_id, "success": True}
+        return {"room_id": room_id, "nickname": nickname, "success": True}
     
     async def play_next(self, payload=None):
         # Only a display rolling over at the end of a song is gated by autoplay.
@@ -169,7 +170,7 @@ class ControllerCommands(ClientCommands):
         is_previously_empty = self.room.is_empty
         is_currently_playing = self.room.player_state and self.room.player_state.entry is not None
 
-        self.room.add_song(entry)
+        self.room.add_song(entry, self.client.nickname)
         await asyncio.sleep(0.1)  # Small delay to ensure state consistency
         await self._broadcast_room_state()
         
@@ -245,5 +246,10 @@ class DisplayCommands(ClientCommands):
         if not self.session_manager.is_display_leader(self.client):
             print(f"[DEBUG] Non-leader display {self.client.id} attempted to broadcast video loaded - ignoring")
             return
+
+        # The display does not track the singer, so re-stamp it rather than
+        # let this update blank it on every remote.
+        if isinstance(payload, dict):
+            payload = {**payload, "singer": self.room.current_singer if payload.get("entry") else None}
 
         await self.session_manager.broadcast_to_room_controllers(self.client.room_id, "player_state", payload)

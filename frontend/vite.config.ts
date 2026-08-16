@@ -17,8 +17,22 @@ export default defineConfig({
     tailwindcss(),
     VitePWA({
       registerType: 'autoUpdate',
+      // Registered from main.tsx, so it lands in the hashed entry chunk instead
+      // of a separate /registerSW.js request.
+      injectRegister: null,
       workbox: {
-        globPatterns: ['**/*.{js,css,html,ico,png,svg}']
+        globPatterns: ['**/*.{js,css,html,ico,png,svg}'],
+        // A new deploy must take over instead of waiting for every tab to close.
+        skipWaiting: true,
+        clientsClaim: true,
+        cleanupOutdatedCaches: true,
+        // /player and /controller have no file behind them, so the controlling
+        // service worker needs the shell to resolve them.
+        navigateFallback: '/index.html',
+        navigateFallbackDenylist: [
+          /^\/ws(\/|$)/,
+          /^\/(search|get_video_url|health|heartbeat|rooms)(\/|$)/,
+        ],
       },
       manifest: {
         name: 'PWA Karaoke',
@@ -28,6 +42,8 @@ export default defineConfig({
         background_color: '#ffffff',
         display: 'standalone',
         orientation: 'portrait',
+        id: '/',
+        scope: '/',
         start_url: '/',
         icons: [
           {

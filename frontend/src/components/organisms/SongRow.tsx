@@ -56,7 +56,8 @@ export function SongRow({
       <div className="flex-1 min-w-0 px-3 py-2 flex flex-col overflow-hidden">
         <Text
           weight="bold"
-          className="text-base sm:text-lg leading-tight line-clamp-2 break-words h-[2lh]"
+          truncate
+          className="text-base sm:text-lg leading-tight"
           tone={selected ? "inverse" : "default"}
         >
           {entry.title}

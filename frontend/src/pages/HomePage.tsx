@@ -6,7 +6,6 @@ import { Panel } from "../components/atoms/Panel";
 import { Text } from "../components/atoms/Text";
 import { Button } from "../components/atoms/Button";
 import { Input } from "../components/atoms/Input";
-import { ToggleButtonGroup } from "../components/molecules/ToggleButtonGroup";
 import { Dialog } from "../components/organisms/Dialog";
 import { useCreateRoomMutation, useRoomDetails, useVerifyRoomMutation } from "../hooks/useApi";
 import { useIsCompact } from "../hooks/useIsCompact";
@@ -30,7 +29,6 @@ export default function HomePage() {
   const [roomId, setRoomId] = useState(() => generateRoomId());
   const [debouncedRoomId] = useDebounce(roomId.trim(), 400);
   const [isOpen, setIsOpen] = useState(false);
-  const [isPublic, setIsPublic] = useState(true);
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState<Role | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -55,7 +53,7 @@ export default function HomePage() {
       if (exists) {
         await verifyRoom({ room_id: id, password });
       } else {
-        await createRoom({ room_id: id, is_public: isPublic, password });
+        await createRoom({ room_id: id, password });
       }
 
       if (password) storeRoomPassword(id, password);
@@ -159,27 +157,14 @@ export default function HomePage() {
         }
       >
         {!exists && (
-          <div className="space-y-3">
-            <div className="space-y-1">
-              <FieldLabel>Visibility</FieldLabel>
-              <ToggleButtonGroup
-                value={isPublic ? "public" : "private"}
-                onChange={(value) => setIsPublic(value === "public")}
-                options={[
-                  { value: "public", label: "Public" },
-                  { value: "private", label: "Private" },
-                ]}
-              />
-            </div>
-            <div className="space-y-1">
-              <FieldLabel>Set a password</FieldLabel>
-              <Input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="Leave blank for none"
-              />
-            </div>
+          <div className="space-y-1">
+            <FieldLabel>Set a password</FieldLabel>
+            <Input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="Leave blank for none"
+            />
           </div>
         )}
 

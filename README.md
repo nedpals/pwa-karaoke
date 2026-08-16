@@ -90,12 +90,9 @@ Visit `http://localhost:8000` to access the application.
 Rooms let multiple groups run karaoke sessions independently. The home screen has a single room field, filled with a generated name you can replace with your own.
 
 Pressing **Join Room** opens a dialog whose contents depend on the name you entered:
-- **The room does not exist yet.** It gets created when you enter, and the dialog offers **Room Visibility** (shown in public listings, or private) and an optional **Room Password**.
+- **The room does not exist yet.** It gets created when you enter, and the dialog offers an optional **Room Password**.
 - **The room exists and is open.** You enter straight away.
 - **The room exists and is password protected.** The dialog asks for the password before letting you in.
-
-> [!TIP]
-> Public rooms can have passwords too, so a room can stay listed while still being restricted.
 
 ### Modes
 

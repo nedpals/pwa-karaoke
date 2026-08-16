@@ -53,26 +53,6 @@ export function useVideoUrlMutation() {
   );
 }
 
-export function useRooms() {
-  const { data, error, mutate, isLoading } = useSWR(
-    'rooms',
-    () => apiClient.getRooms(),
-    {
-      refreshInterval: 5000, // Refresh every 5 seconds
-      revalidateOnFocus: true,
-      revalidateOnReconnect: true,
-    }
-  );
-
-  return {
-    rooms: data?.rooms || [],
-    timestamp: data?.timestamp,
-    error,
-    isLoading,
-    mutate,
-  };
-}
-
 export function useCreateRoomMutation() {
   return useSWRMutation(
     'create-room',

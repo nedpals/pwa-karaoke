@@ -16,17 +16,14 @@ class Room(BaseModel):
     player_version: int = 1
     autoplay: bool = True
     settings_version: int = 1
-    is_public: bool = True
     password_hash: Optional[str] = None
     created_at: float = time.time()
 
     def set_password(self, password: str) -> None:
         if password:
             self.password_hash = hashlib.sha256(password.encode()).hexdigest()
-            self.is_public = False
         else:
             self.password_hash = None
-            self.is_public = True
 
     def verify_password(self, password: str) -> bool:
         if not self.password_hash:
@@ -123,21 +120,17 @@ class RoomManager:
             raise ValueError(f"Room {room_id} does not exist")
         return self.rooms[room_id]
 
-    def create_room(self, room_id: str, is_public: bool = True, password: str = None) -> Room:
-        """Create a new room with privacy settings"""
+    def create_room(self, room_id: str, password: str = None) -> Room:
+        """Create a new room, optionally password protected"""
         if room_id in self.rooms:
             raise ValueError(f"Room {room_id} already exists")
 
-        room = Room(id=room_id, is_public=is_public)
+        room = Room(id=room_id)
         if password:
             room.set_password(password)
 
         self.rooms[room_id] = room
         return room
-
-    def get_public_rooms(self) -> Dict[str, Room]:
-        """Get only public rooms"""
-        return {room_id: room for room_id, room in self.rooms.items() if room.is_public}
 
     def room_exists(self, room_id: str) -> bool:
         """Check if a room exists"""

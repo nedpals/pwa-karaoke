@@ -19,12 +19,12 @@ const scales = {
 export interface SongDetailsProps extends React.HTMLAttributes<HTMLDivElement> {
   entry: KaraokeEntry;
   status?: EntryStatus | null;
-  /** `lg` scales the type up for the display; `md` suits the remote. */
+  /** `lg` scales the type up for the display; `md` suits the controller. */
   size?: keyof typeof scales;
 }
 
-/** Artwork, source, title, artist and duration. Shared by the remote's song
- *  dialog and the display, so both read the same. */
+/** Artwork, source, title, artist and duration. Shared by the controller's
+ *  song dialog and the display. */
 export function SongDetails({ entry, status, size = "md", className, ...props }: SongDetailsProps) {
   const scale = scales[size];
 

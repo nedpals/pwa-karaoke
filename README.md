@@ -106,7 +106,7 @@ The quickest way to add a controller is to scan the QR code the display shows wh
 
 Reserved songs play one after another by default: when the current song ends, the display moves straight on to the next one in the queue.
 
-The **Autoplay** toggle in the controller's Player tab turns that off. With it off, playback stops when the song ends and the queue is left untouched, so nothing starts until someone presses **Next**. The setting belongs to the room, so every controller and display in it stays in sync, and the display shows an `Autoplay Off` marker while it is disabled.
+The **Autoplay** toggle in the controller's Player tab turns that off. With it off, a song that ends leaves the queue untouched and the display holds, showing what is up next until someone presses **Next**. If nothing is reserved there is nothing to hold back, so the display returns to its idle screen instead. The setting belongs to the room, so every controller and display in it stays in sync, and the display shows an `Autoplay Off` marker while it is disabled.
 
 Pressing **Next** always skips to the next reserved song, whatever the toggle is set to.
 

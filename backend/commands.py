@@ -108,7 +108,9 @@ class ClientCommands:
         # Manual skips from a remote always advance.
         is_auto = bool(payload.get("auto")) if isinstance(payload, dict) else False
 
-        if is_auto and not self.room.autoplay:
+        # Nothing reserved means nothing is being held back, so let it fall
+        # through and clear the room the same way an autoplaying one does.
+        if is_auto and not self.room.autoplay and self.room.queue.items:
             print(f"[DEBUG] Autoplay is off for room {self.client.room_id} - holding the queue")
             await self._hold_at_end_of_song()
             return {"advanced": False, "autoplay": False}

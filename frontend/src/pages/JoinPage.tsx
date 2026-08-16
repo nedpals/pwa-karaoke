@@ -116,7 +116,7 @@ export default function JoinPage() {
 
               {!isLoading && !error && rooms.length > 0 && filteredRooms.length === 0 && (
                 <Text size="sm" tone="dim" className="py-4 text-center">
-                  No room matches "{selectedRoomId}". Join anyway to create it.
+                  No room named "{selectedRoomId}". Make it on the Create Room page first.
                 </Text>
               )}
 
@@ -136,7 +136,7 @@ export default function JoinPage() {
                             : "bg-ka-panel border-ka-line text-ka-ink bevel"
                         }`}
                       >
-                        <div className="flex items-center px-2 border-r-2 border-ka-line-dim">
+                        <div className="flex items-center px-2 border-r border-ka-line-dim">
                           <Text font="mono" size="sm" tone={selected ? "inverse" : "dim"}>
                             {(index + 1).toString().padStart(2, "0")}
                           </Text>
@@ -151,7 +151,7 @@ export default function JoinPage() {
                             </Text>
                           )}
                         </div>
-                        <div className="flex items-center gap-3 px-3 border-l-2 border-ka-line-dim">
+                        <div className="flex items-center gap-3 px-3 border-l border-ka-line-dim">
                           <Text font="mono" size="sm" tone={selected ? "inverse" : "dim"}>
                             {room.client_count.toString().padStart(2, "0")}p
                           </Text>

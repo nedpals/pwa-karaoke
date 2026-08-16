@@ -143,19 +143,15 @@ function SearchResults({
           No Results
         </Text>
         <Text size="sm" tone="dim">
-          Nothing matched "{searchQuery}". Try the artist name instead.
+          Nothing matched "{searchQuery}".
         </Text>
       </div>
     );
   }
 
-  return (
-    <div className="py-12 text-center">
-      <Text font="display" size="2xl" weight="bold" tone="dim">
-        Enter a Song or Artist
-      </Text>
-    </div>
-  );
+  // The field's own placeholder already says what to type; repeating it here
+  // just fills the panel with a second copy of the same sentence.
+  return null;
 }
 
 function SongSelectTab() {
@@ -182,7 +178,7 @@ function SongSelectTab() {
       await triggerSearch(value);
     } catch (error) {
       console.error("Search error:", error);
-      setSearchError("Failed to search. Please check your connection and try again.");
+      setSearchError("Search failed. Check the connection.");
     }
   };
 
@@ -196,7 +192,7 @@ function SongSelectTab() {
       await queueSong(entry);
     } catch (error) {
       console.error(error);
-      setErrorMessage(`Failed to reserve "${entry.title}". Please try again.`);
+      setErrorMessage(`Could not reserve "${entry.title}".`);
       setTimeout(() => setErrorMessage(null), 5000);
     } finally {
       setQueueingStates(prev => ({ ...prev, [entry.id]: false }));
@@ -278,7 +274,7 @@ function PlayerTab() {
       }
     } catch (error) {
       console.error("Failed to control playback:", error);
-      setErrorMessage("Failed to control playback. Please try again.");
+      setErrorMessage("Playback command failed.");
       setTimeout(() => setErrorMessage(null), 3000);
     } finally {
       setIsPlaybackLoading(false);
@@ -299,7 +295,7 @@ function PlayerTab() {
     } catch (error) {
       console.error("Failed to set volume:", error);
       setOptimisticVolume(null);
-      setErrorMessage("Failed to adjust volume. Please try again.");
+      setErrorMessage("Volume command failed.");
       setTimeout(() => setErrorMessage(null), 3000);
     } finally {
       setIsVolumeLoading(false);
@@ -316,7 +312,7 @@ function PlayerTab() {
       await playNext();
     } catch (error) {
       console.error("Failed to play next:", error);
-      setErrorMessage("Failed to play next song. Please try again.");
+      setErrorMessage("Skip failed.");
       setTimeout(() => setErrorMessage(null), 3000);
     } finally {
       setIsPlayNextLoading(false);
@@ -440,7 +436,7 @@ function QueueTab() {
       await clearQueue();
     } catch (error) {
       console.error("Failed to clear queue:", error);
-      setErrorMessage("Failed to clear queue. Please try again.");
+      setErrorMessage("Could not clear the queue.");
       setTimeout(() => setErrorMessage(null), 3000);
     } finally {
       setIsClearingQueue(false);
@@ -457,7 +453,7 @@ function QueueTab() {
       await removeSong(item.id);
     } catch (error) {
       console.error("Failed to remove song:", error);
-      setErrorMessage(`Failed to remove "${item.entry.title}". Please try again.`);
+      setErrorMessage(`Could not remove "${item.entry.title}".`);
       setTimeout(() => setErrorMessage(null), 3000);
     } finally {
       setRemovingStates(prev => ({ ...prev, [item.id]: false }));
@@ -491,12 +487,10 @@ function QueueTab() {
         </div>
       )}
 
+      {/* No count here: the header strip already carries RESERVED nn. */}
       <div className="flex items-center gap-3 border-b-2 border-ka-line pb-1 mb-2">
-        <Text font="display" size="lg" weight="bold" tone="accent">
-          Reserved
-        </Text>
-        <Text font="mono" size="lg" weight="bold" tone="dim" className="flex-1">
-          {upNextItems.length.toString().padStart(2, "0")}
+        <Text font="display" size="lg" weight="bold" tone="accent" className="flex-1">
+          Up Next
         </Text>
         {queue && queue.items.length > (playerState?.entry ? 1 : 0) && (
           <Button onClick={handleClearQueue} variant="danger" size="sm" disabled={isClearingQueue}>
@@ -508,7 +502,7 @@ function QueueTab() {
       {upNextItems.length === 0 ? (
         <div className="py-10 text-center">
           <Text font="display" size="xl" tone="dim">
-            Nothing Reserved
+            Empty
           </Text>
         </div>
       ) : (
@@ -551,12 +545,12 @@ function RemoteHeader() {
           {isOffline ? "Offline" : connected ? "Linked" : "Connecting"}
         </Text>
       </div>
-      <div className="flex-1 flex items-center px-3 border-l-2 border-ka-line-dim min-w-0">
+      <div className="flex-1 flex items-center px-3 border-l border-ka-line-dim min-w-0">
         <Text font="mono" size="sm" truncate>
           {roomId}
         </Text>
       </div>
-      <div className="flex items-center gap-2 px-3 border-l-2 border-ka-line-dim">
+      <div className="flex items-center gap-2 px-3 border-l border-ka-line-dim">
         <Text font="display" size="sm" tone="dim">
           Reserved
         </Text>

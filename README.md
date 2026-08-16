@@ -102,6 +102,14 @@ The same dialog is where you pick what this device becomes:
 
 The quickest way to add a controller is to scan the QR code the display shows while it is waiting.
 
+### Nicknames
+
+A controller asks who is holding it before it joins, and that nickname rides along with every song reserved from it. Reserved songs carry the name in the controller's Reserved tab, and the display shows it beside the song in the banner and on the Up Next card, so a room full of people can tell whose turn is coming.
+
+The name is remembered on the device, so the prompt comes back filled in the next time that phone joins a room. Change it there whenever the phone changes hands.
+
+Displays are never asked for a name. Each one generates its own (`Stage 42` and the like) and shows it in the corner status strip, which is handy when several screens share a room.
+
 ### Autoplay
 
 Reserved songs play one after another by default: when the current song ends, the display moves straight on to the next one in the queue.

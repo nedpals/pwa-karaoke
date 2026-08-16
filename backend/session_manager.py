@@ -74,8 +74,9 @@ class SessionManager:
         await self.client_manager.broadcast_command(command, data, clients=displays)
     
     # Client room management
-    async def join_room(self, client: ConnectionClient, room_id: str):
+    async def join_room(self, client: ConnectionClient, room_id: str, nickname: Optional[str] = None):
         client.room_id = room_id
+        client.nickname = nickname
         room = self.get_room(room_id)
         
         # If display, ensure leadership is handled

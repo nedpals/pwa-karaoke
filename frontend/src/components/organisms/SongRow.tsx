@@ -7,6 +7,7 @@ import type { KaraokeEntry } from "../../types";
 export interface SongRowProps extends Omit<React.HTMLAttributes<HTMLDivElement>, "onClick"> {
   entry: KaraokeEntry;
   index?: number;
+  singer?: string | null;
   showSource?: boolean;
   selected?: boolean;
   status?: EntryStatus | null;
@@ -33,9 +34,20 @@ function StatusBadge({ status, muted }: { status: EntryStatus; muted: boolean })
   );
 }
 
+function SingerBadge({ singer, muted }: { singer: string; muted: boolean }) {
+  return (
+    <span className={cn("px-1.5 shrink-0 max-w-32", muted ? "bg-ka-void/25" : "bg-ka-cyan")}>
+      <Text font="display" size="xs" weight="bold" tone="inverse" truncate className="block">
+        {singer}
+      </Text>
+    </span>
+  );
+}
+
 export function SongRow({
   entry,
   index,
+  singer,
   showSource = false,
   selected = false,
   status,
@@ -64,6 +76,7 @@ export function SongRow({
         </Text>
         <div className="flex items-center gap-2 mt-0.5">
           {status && <StatusBadge status={status} muted={selected} />}
+          {singer && <SingerBadge singer={singer} muted={selected} />}
           <Text size="sm" truncate tone={selected ? "inverse" : "dim"}>
             {entry.artist}
           </Text>

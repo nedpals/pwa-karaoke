@@ -1,3 +1,5 @@
+from typing import Optional
+
 from core.search import KaraokeEntry
 from pydantic import BaseModel, Field
 
@@ -6,12 +8,13 @@ from nanoid import generate as generate_nanoid
 class KaraokeQueueItem(BaseModel):
     entry: KaraokeEntry
     id: str = Field(default_factory=generate_nanoid)
+    singer: Optional[str] = None
 
 class KaraokeQueue(BaseModel):
     items: list[KaraokeQueueItem]
 
-    def enqueue(self, entry: KaraokeEntry):
-        self.items.append(KaraokeQueueItem(entry=entry))
+    def enqueue(self, entry: KaraokeEntry, singer: Optional[str] = None):
+        self.items.append(KaraokeQueueItem(entry=entry, singer=singer))
 
     def dequeue(self, id_to_delete: str):
         for queue_item in self.items:

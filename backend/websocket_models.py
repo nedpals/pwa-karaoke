@@ -3,6 +3,8 @@ from pydantic import BaseModel, Field, validator
 from core.search import KaraokeEntry
 from core.player import DisplayPlayerState
 
+MAX_NICKNAME_LENGTH = 20
+
 class WebSocketMessage(BaseModel):
     """Base WebSocket message structure"""
     command: str
@@ -61,6 +63,14 @@ class AckPayload(BaseModel):
 class JoinRoomPayload(BaseModel):
     """Join room command payload"""
     room_id: str
+    nickname: Optional[str] = None
+
+    @validator('nickname')
+    def normalize_nickname(cls, v):
+        if v is None:
+            return None
+        nickname = ' '.join(v.split())[:MAX_NICKNAME_LENGTH]
+        return nickname or None
 
 # Mapping of commands to their expected payload types
 COMMAND_PAYLOAD_MAP = {

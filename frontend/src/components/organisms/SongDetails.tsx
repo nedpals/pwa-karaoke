@@ -19,13 +19,14 @@ const scales = {
 export interface SongDetailsProps extends React.HTMLAttributes<HTMLDivElement> {
   entry: KaraokeEntry;
   status?: EntryStatus | null;
+  singer?: string | null;
   /** `lg` scales the type up for the display; `md` suits the remote. */
   size?: keyof typeof scales;
 }
 
 /** Artwork, source, title, artist and duration. Shared by the remote's song
  *  dialog and the display, so both read the same. */
-export function SongDetails({ entry, status, size = "md", className, ...props }: SongDetailsProps) {
+export function SongDetails({ entry, status, singer, size = "md", className, ...props }: SongDetailsProps) {
   const scale = scales[size];
 
   return (
@@ -38,6 +39,13 @@ export function SongDetails({ entry, status, size = "md", className, ...props }:
             <span className={`px-2 ${statusLine(status).className}`}>
               <Text font="display" size={scale.label} weight="bold" tone="inverse">
                 {statusLine(status).text}
+              </Text>
+            </span>
+          )}
+          {singer && (
+            <span className="px-2 bg-ka-cyan">
+              <Text font="display" size={scale.label} weight="bold" tone="inverse">
+                {singer}
               </Text>
             </span>
           )}

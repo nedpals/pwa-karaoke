@@ -10,6 +10,7 @@ type ClientType = "controller" | "display";
 export interface RoomState {
   // Room status
   roomId: string | null;
+  nickname: string | null;
   isVerified: boolean;
   isVerifying: boolean;
   verificationError: string | null;
@@ -40,7 +41,7 @@ export interface RoomActions {
   // WebSocket actions (core functions from useWebSocket)
   sendCommand: (command: string, payload?: unknown) => void;
   sendCommandWithAck: (command: string, payload?: unknown, timeout?: number) => Promise<unknown>;
-  joinRoom: (roomId: string) => Promise<unknown>;
+  joinRoom: (roomId: string, nickname?: string | null) => Promise<unknown>;
 
   // Controller commands (implemented here)
   queueSong: (entry: KaraokeEntry) => Promise<unknown>;
@@ -59,7 +60,7 @@ export interface RoomActions {
 
 export type UseRoomReturn = RoomState & RoomActions;
 
-export function useRoom(clientType: ClientType): UseRoomReturn {
+export function useRoom(clientType: ClientType, nickname?: string | null): UseRoomReturn {
   const { isOffline } = useServerStatus();
   const [roomId, setRoomId] = useState<string | null>(null);
   const [isVerified, setIsVerified] = useState(false);
@@ -120,7 +121,7 @@ export function useRoom(clientType: ClientType): UseRoomReturn {
       setIsVerified(true);
       setRoomId(targetRoomId);
 
-      await ws.joinRoom(targetRoomId);
+      await ws.joinRoom(targetRoomId, nickname);
     } catch (error) {
       let errorMessage = error instanceof Error ? error.message : 'This room may be private or require a password. Please check with the room creator.';
       if (error instanceof TypeError && error.message === 'Failed to fetch') {
@@ -149,7 +150,7 @@ export function useRoom(clientType: ClientType): UseRoomReturn {
     } finally {
       setIsVerifying(false);
     }
-  }, [isOffline, verifyRoom]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [isOffline, verifyRoom, nickname]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!ws.lastMessage) return;
@@ -268,6 +269,7 @@ export function useRoom(clientType: ClientType): UseRoomReturn {
   return {
     // Room state
     roomId,
+    nickname: nickname || null,
     isVerified,
     isVerifying,
     verificationError,

@@ -13,6 +13,7 @@ export interface QueueItemAction {
 export interface QueueItemProps extends Omit<React.HTMLAttributes<HTMLDivElement>, "onSelect"> {
   entry: KaraokeEntry;
   index?: number;
+  singer?: string | null;
   actions?: QueueItemAction[];
   showSource?: boolean;
   selected?: boolean;
@@ -23,6 +24,7 @@ export interface QueueItemProps extends Omit<React.HTMLAttributes<HTMLDivElement
 export function QueueItem({
   entry,
   index,
+  singer,
   actions = [],
   showSource = false,
   selected = false,
@@ -36,6 +38,7 @@ export function QueueItem({
       <SongRow
         entry={entry}
         index={index}
+        singer={singer}
         showSource={showSource}
         selected={selected}
         status={status}

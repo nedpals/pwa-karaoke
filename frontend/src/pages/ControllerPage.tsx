@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useSearchParams, Navigate } from "react-router";
 import type { KaraokeEntry, KaraokeQueueItem } from "../types";
 import { useRoom } from "../hooks/useRoom";
@@ -26,6 +26,8 @@ import { useEntryStatus, type EntryStatus } from "../hooks/useEntryStatus";
 import { ControllerLayout } from "../components/templates/ControllerLayout";
 import { SystemMessage } from "../components/templates/SystemMessage";
 import { PasswordInput } from "../components/organisms/PasswordInput";
+import { NicknameInput } from "../components/organisms/NicknameInput";
+import { getNickname } from "../lib/nicknameStorage";
 import { TimeDisplay } from "../components/molecules/TimeDisplay";
 
 const CONTROLLER_TABS = [
@@ -513,6 +515,7 @@ function QueueTab() {
           <SectionLabel>Now Playing</SectionLabel>
           <QueueItem
             entry={playerState.entry}
+            singer={playerState.singer}
             selected
             actions={[
               {
@@ -558,6 +561,7 @@ function QueueTab() {
             <QueueItem
               key={`queue_item_${item.id}`}
               entry={item.entry}
+              singer={item.singer}
               index={index + 1}
               status={entryStatus(item.entry)}
               onSelect={() => dialog.open(item.entry)}
@@ -586,7 +590,7 @@ function QueueTab() {
 
 function RemoteHeader() {
   const { isOffline } = useServerStatus();
-  const { roomId, upNextQueue, connected } = useRoomContext();
+  const { roomId, nickname, upNextQueue, connected } = useRoomContext();
 
   return (
     <div className="flex items-stretch border-b-2 border-ka-line bg-ka-panel shrink-0">
@@ -596,10 +600,17 @@ function RemoteHeader() {
           {isOffline ? "Offline" : connected ? "Linked" : "Connecting"}
         </Text>
       </div>
-      <div className="flex-1 flex items-center px-3 border-l-2 border-ka-line-dim min-w-0">
+      <div className="flex-1 flex items-center gap-2 px-3 border-l-2 border-ka-line-dim min-w-0">
         <Text font="mono" size="sm" truncate>
           {roomId}
         </Text>
+        {nickname && (
+          <span className="px-1.5 shrink-0 max-w-28 bg-ka-cyan">
+            <Text font="display" size="xs" weight="bold" tone="inverse" truncate className="block">
+              {nickname}
+            </Text>
+          </span>
+        )}
       </div>
       <div className="flex items-center gap-2 px-3 border-l-2 border-ka-line-dim">
         <Text font="display" size="sm" tone="dim">
@@ -640,18 +651,34 @@ function ControllerPageContent() {
 export default function ControllerPage() {
   const [searchParams] = useSearchParams();
   const roomId = searchParams.get("room");
-  const room = useRoom("controller");
+  const [nickname, setNickname] = useState<string | null>(null);
+  const room = useRoom("controller", nickname);
+  const hasRequestedJoin = useRef(false);
 
+  // Held until the nickname is known, so the room learns it on the same join.
   useEffect(() => {
-    if (roomId) {
-      room.verifyAndJoinRoom(roomId);
-    }
+    if (!roomId || !nickname || hasRequestedJoin.current) return;
+
+    hasRequestedJoin.current = true;
+    room.verifyAndJoinRoom(roomId);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [roomId, nickname]);
 
   // Redirect to home if no room specified
   if (!roomId) {
     return <Navigate to="/" replace />;
+  }
+
+  if (!nickname) {
+    return (
+      <SystemMessage
+        title="Who Is Singing?"
+        subtitle="Your nickname shows on the display next to the songs you reserve."
+        variant="controller"
+      >
+        <NicknameInput defaultValue={getNickname()} onSubmit={setNickname} />
+      </SystemMessage>
+    );
   }
 
   if (room.isVerifying) {

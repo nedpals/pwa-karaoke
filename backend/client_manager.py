@@ -13,6 +13,7 @@ class ConnectionClient:
     websocket: WebSocket
     client_type: Literal["controller", "display"]
     room_id: Optional[str]
+    nickname: Optional[str]
     last_pong: float
     heartbeat_task: asyncio.Task | None
 
@@ -21,6 +22,7 @@ class ConnectionClient:
         self.websocket = websocket
         self.client_type = client_type
         self.room_id = room_id
+        self.nickname = None
         self.last_pong = time.time()
         self.heartbeat_task = None
 

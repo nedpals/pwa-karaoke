@@ -22,12 +22,13 @@ import { useVideoUrlWithRetry } from "../hooks/useVideoUrlWithRetry";
 import type { DisplayPlayerState } from "../types";
 import useSmartSync from "../hooks/useSmartSync";
 
-type AppState = "awaiting-interaction" | "connecting" | "connected" | "ready" | "playing";
+type AppState = "awaiting-interaction" | "connecting" | "connected" | "ready" | "scoring" | "playing";
 
-// How long the finished song stays on screen showing its score before the
-// display rolls over. Longer than the server's grace window, so a controller
-// with a microphone always beats the fallback roll.
-const SCORE_HOLD_MS = 5000;
+// How long the scoring screen holds before the display rolls over. The score
+// takes about 2.5s to arrive and land, so this leaves it up for a beat after
+// that. Comfortably longer than the server's grace window either way, so a
+// controller with a microphone always beats the fallback roll.
+const SCORE_HOLD_MS = 7000;
 
 interface OSDState {
   label: string;
@@ -41,6 +42,7 @@ interface PlayerContextType {
   hasInteracted: boolean;
   setHasInteracted: (value: boolean) => void;
   playerState: DisplayPlayerState | null;
+  beginScoring: () => void;
   osd: OSDState;
   setOSD: (osd: OSDState, options?: TempStateSetterOptions<OSDState>) => void;
 }
@@ -436,10 +438,9 @@ function PlayingStateContent() {
   const [upNextTitle, setUpNextTitle] = useTempState<string | null>(null);
   const [queuedTitle, setQueuedTitle] = useTempState<string | null>(null);
 
-  const { playerState, upNextQueue, autoplay, score, playNext } = useRoomContext();
+  const { playerState, upNextQueue, autoplay } = useRoomContext();
+  const { beginScoring } = usePlayerState();
   const { trigger: triggerVideoUrl } = useVideoUrlMutation();
-  const [isScoring, setIsScoring] = useState(false);
-  const scoreTimer = useRef<number | null>(null);
   const {
     videoUrl: videoUrlData,
     isLoading: isLoadingVideoUrl,
@@ -479,42 +480,9 @@ function PlayingStateContent() {
   // With autoplay off the song ends and the queue just sits there, so the
   // display has to say what is waiting and how to start it.
   const heldSong = useMemo(() => {
-    if (isScoring || autoplay || playerState?.play_state !== "finished") return null;
+    if (autoplay || playerState?.play_state !== "finished") return null;
     return upNextQueue?.items[0] ?? null;
-  }, [isScoring, autoplay, playerState?.play_state, upNextQueue]);
-
-  // The room's score only belongs to the song still on screen. Anything left
-  // over from an earlier one is ignored rather than shown against the wrong
-  // performance.
-  const shownScore = useMemo(() => {
-    if (!score || !playerState?.entry) return null;
-    return score.entry_id === playerState.entry.id ? score.score : null;
-  }, [score, playerState?.entry]);
-
-  const clearScoreTimer = useCallback(() => {
-    if (scoreTimer.current === null) return;
-
-    window.clearTimeout(scoreTimer.current);
-    scoreTimer.current = null;
-  }, []);
-
-  const handleSongEnded = useCallback(() => {
-    setIsScoring(true);
-    clearScoreTimer();
-
-    scoreTimer.current = window.setTimeout(() => {
-      scoreTimer.current = null;
-      setIsScoring(false);
-      playNext({ auto: true });
-    }, SCORE_HOLD_MS);
-  }, [clearScoreTimer, playNext]);
-
-  useEffect(() => {
-    setIsScoring(false);
-    clearScoreTimer();
-  }, [playerState?.entry?.id, clearScoreTimer]);
-
-  useEffect(() => clearScoreTimer, [clearScoreTimer]);
+  }, [autoplay, playerState?.play_state, upNextQueue]);
 
   const videoUrl = useMemo(() => {
     if (!playerState?.entry) return null;
@@ -597,18 +565,9 @@ function PlayingStateContent() {
           onRetry={retry}
           retryCount={retryCount}
           onNearingEnd={handleNearingEnd}
-          onSongEnded={handleSongEnded}
+          onSongEnded={beginScoring}
         />
       </div>
-
-      {isScoring && (
-        <div className="absolute inset-0 z-30 flex items-center justify-center title-safe pointer-events-none">
-          <ScoreScreen
-            score={shownScore}
-            title={`${playerState.entry.artist} - ${playerState.entry.title}`}
-          />
-        </div>
-      )}
 
       {heldSong && (
         <div className="absolute inset-0 z-20 flex items-center justify-center title-safe pointer-events-none">
@@ -655,6 +614,25 @@ function ConnectedStateScreen() {
         </div>
       </div>
     </MessageTemplate>
+  );
+}
+
+function ScoringStateScreen() {
+  const { playerState, score } = useRoomContext();
+  const entry = playerState?.entry;
+
+  // A score left over from an earlier song is ignored rather than shown
+  // against the wrong performance.
+  const shownScore = score && entry && score.entry_id === entry.id ? score.score : null;
+
+  return (
+    <div className="relative h-screen w-screen">
+      <Backdrop name="idle" />
+
+      <div className="relative z-10 h-full w-full flex items-center justify-center title-safe">
+        <ScoreScreen score={shownScore} />
+      </div>
+    </div>
   );
 }
 
@@ -722,6 +700,8 @@ function AwaitingInteractionStateScreen() {
 
 function PlayerStateProviderInternal({ children }: { children: React.ReactNode }) {
   const [hasInteracted, setHasInteracted] = useState(false);
+  const [isScoring, setIsScoring] = useState(false);
+  const scoreTimer = useRef<number | null>(null);
 
   const {
     connected,
@@ -730,6 +710,7 @@ function PlayerStateProviderInternal({ children }: { children: React.ReactNode }
     updatePlayerState,
     lastQueueCommand,
     isLeader,
+    playNext,
   } = useRoomContext();
 
   // Use smart sync for non-leader displays
@@ -743,10 +724,38 @@ function PlayerStateProviderInternal({ children }: { children: React.ReactNode }
   const appState: AppState = useMemo(() => {
     if (!hasInteracted) return "awaiting-interaction";
     if (!connected) return "connecting";
+    // The finished song gets the screen to itself, so the video and its banner
+    // come down before the score goes up.
+    if (isScoring) return "scoring";
     if (playerState?.entry) return "playing";
     // If no entry is set, we are ready to play
     return clientCount > 1 ? "ready" : "connected";
-  }, [hasInteracted, connected, playerState?.entry, clientCount]);
+  }, [hasInteracted, connected, isScoring, playerState?.entry, clientCount]);
+
+  const clearScoreTimer = useCallback(() => {
+    if (scoreTimer.current === null) return;
+
+    window.clearTimeout(scoreTimer.current);
+    scoreTimer.current = null;
+  }, []);
+
+  const beginScoring = useCallback(() => {
+    setIsScoring(true);
+    clearScoreTimer();
+
+    scoreTimer.current = window.setTimeout(() => {
+      scoreTimer.current = null;
+      setIsScoring(false);
+      playNext({ auto: true });
+    }, SCORE_HOLD_MS);
+  }, [clearScoreTimer, playNext]);
+
+  useEffect(() => {
+    setIsScoring(false);
+    clearScoreTimer();
+  }, [playerState?.entry?.id, clearScoreTimer]);
+
+  useEffect(() => clearScoreTimer, [clearScoreTimer]);
 
   const lastPlayStateRef = useRef<string | null>(null);
 
@@ -797,6 +806,7 @@ function PlayerStateProviderInternal({ children }: { children: React.ReactNode }
     hasInteracted,
     setHasInteracted,
     playerState,
+    beginScoring,
     osd,
     setOSD,
   };
@@ -818,6 +828,8 @@ function PlayerPageContent() {
       return <ConnectedStateScreen />;
     case "ready":
       return <ReadyStateScreen />;
+    case "scoring":
+      return <ScoringStateScreen />;
     case "playing":
       return <PlayingStateContent />;
     default:

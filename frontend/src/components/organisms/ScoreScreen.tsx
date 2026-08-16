@@ -1,12 +1,10 @@
 import { useEffect, useState } from "react";
-import { Panel } from "../atoms/Panel";
 import { Text } from "../atoms/Text";
 import { cn } from "../../lib/utils";
 import { ratingFor } from "../../lib/scoring";
 
-// Applied inline rather than through the text-hard and text-stencil utilities,
-// which tailwind-merge reads as text colours and would drop the rating tone.
-const HARD_SHADOW = "2px 2px 0 rgb(0 0 0 / 0.85)";
+// Applied inline rather than through the text-stencil utility, which
+// tailwind-merge reads as a text colour and would drop the rating tone.
 const STENCIL_SHADOW =
   "-2px -2px 0 #000, 2px -2px 0 #000, -2px 2px 0 #000, 2px 2px 0 #000, 0 3px 0 rgb(0 0 0 / 0.6)";
 
@@ -82,38 +80,25 @@ function useScoreReveal(target: number | null) {
 export interface ScoreScreenProps {
   /** Null while the room is still waiting for a score to land. */
   score: number | null;
-  title?: string;
   className?: string;
 }
 
-export function ScoreScreen({ score, title, className }: ScoreScreenProps) {
+export function ScoreScreen({ score, className }: ScoreScreenProps) {
   const { value, settled } = useScoreReveal(score);
   const rating = settled && score !== null ? ratingFor(score) : null;
 
   return (
-    <Panel
-      tone="overlay"
-      className={cn(
-        "score-pop px-[6vw] py-[5vh] min-w-[50vw] flex flex-col items-center gap-[2vh]",
-        className,
-      )}
-    >
-      <Text font="display" size="3xl" tone="dim">
+    <div className={cn("score-pop flex flex-col items-center gap-[2vh]", className)}>
+      <Text font="display" size="3xl" tone="dim" style={{ textShadow: STENCIL_SHADOW }}>
         Your Score
       </Text>
-
-      {title && (
-        <Text size="lg" truncate className="max-w-[60vw] text-center">
-          {title}
-        </Text>
-      )}
 
       <Text
         font="mono"
         weight="bold"
         tone={rating?.tone ?? "dim"}
         className={cn("leading-none", settled && "score-land")}
-        style={{ fontSize: "26vh", textShadow: HARD_SHADOW }}
+        style={{ fontSize: "34vh", textShadow: STENCIL_SHADOW }}
       >
         {value.toString().padStart(2, "0")}
       </Text>
@@ -121,7 +106,7 @@ export function ScoreScreen({ score, title, className }: ScoreScreenProps) {
       {rating ? (
         <Text
           font="display"
-          size="5xl"
+          size="6xl"
           weight="bold"
           tone={rating.tone}
           style={{ textShadow: STENCIL_SHADOW }}
@@ -129,10 +114,10 @@ export function ScoreScreen({ score, title, className }: ScoreScreenProps) {
           {rating.label}
         </Text>
       ) : (
-        <Text font="display" size="3xl" tone="dim">
+        <Text font="display" size="4xl" tone="dim" style={{ textShadow: STENCIL_SHADOW }}>
           Scoring
         </Text>
       )}
-    </Panel>
+    </div>
   );
 }

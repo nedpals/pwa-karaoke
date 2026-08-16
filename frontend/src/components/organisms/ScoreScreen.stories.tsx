@@ -5,10 +5,9 @@ const meta: Meta<typeof ScoreScreen> = {
   title: "Organisms/ScoreScreen",
   component: ScoreScreen,
   tags: ["autodocs"],
-  args: { title: "Frank Sinatra - My Way" },
   decorators: [
     (Story) => (
-      <div className="bg-ka-void p-8 flex items-center justify-center">
+      <div className="bg-ka-void p-8 flex items-center justify-center h-[80vh]">
         <Story />
       </div>
     ),

@@ -112,7 +112,7 @@ Pressing **Next** always skips to the next reserved song, whatever the toggle is
 
 ### Scoring
 
-Every song gets a score when it ends. The display holds the finished song for five seconds, spins through digits, and lands on a number with a rating under it.
+Every song gets a score when it ends. The video and its banner come down, the display switches to a scoring screen, and it spins through digits before landing on a number with a rating under it. After a few seconds it moves on to the next reserved song, or back to the idle screen when nothing is waiting.
 
 Where that number comes from depends on whether a controller is listening:
 

@@ -33,6 +33,6 @@ export const NotBad: Story = {
   args: { score: 78 },
 };
 
-export const TryAgain: Story = {
+export const BetterLuck: Story = {
   args: { score: 61 },
 };

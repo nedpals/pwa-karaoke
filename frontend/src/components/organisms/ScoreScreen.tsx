@@ -85,7 +85,10 @@ export interface ScoreScreenProps {
 
 export function ScoreScreen({ score, className }: ScoreScreenProps) {
   const { value, settled } = useScoreReveal(score);
-  const rating = settled && score !== null ? ratingFor(score) : null;
+  // Worked out as soon as the score lands so the slot it will occupy is
+  // already the right height, but kept hidden until the digits stop moving.
+  const rating = score === null ? null : ratingFor(score);
+  const revealed = settled && rating !== null;
 
   return (
     <div className={cn("score-pop flex flex-col items-center gap-[2vh]", className)}>
@@ -96,28 +99,23 @@ export function ScoreScreen({ score, className }: ScoreScreenProps) {
       <Text
         font="mono"
         weight="bold"
-        tone={rating?.tone ?? "dim"}
+        tone={revealed ? rating.tone : "dim"}
         className={cn("leading-none", settled && "score-land")}
         style={{ fontSize: "34vh", textShadow: STENCIL_SHADOW }}
       >
         {value.toString().padStart(2, "0")}
       </Text>
 
-      {rating ? (
-        <Text
-          font="display"
-          size="6xl"
-          weight="bold"
-          tone={rating.tone}
-          style={{ textShadow: STENCIL_SHADOW }}
-        >
-          {rating.label}
-        </Text>
-      ) : (
-        <Text font="display" size="4xl" tone="dim" style={{ textShadow: STENCIL_SHADOW }}>
-          Scoring
-        </Text>
-      )}
+      <Text
+        font="display"
+        size="6xl"
+        weight="bold"
+        tone={rating?.tone ?? "dim"}
+        className={cn("text-center max-w-[85vw]", !revealed && "invisible")}
+        style={{ textShadow: STENCIL_SHADOW }}
+      >
+        {rating?.label ?? "\u00A0"}
+      </Text>
     </div>
   );
 }

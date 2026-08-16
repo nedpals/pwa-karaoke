@@ -5,6 +5,8 @@ import type { ReactionEvent } from "../../types";
 
 const PARTICLE_LIFETIME_MS = 4000;
 const MAX_PARTICLES = 40;
+// Matches the point where kaReactionFloat starts fading a particle out
+const FADE_TAIL_MS = PARTICLE_LIFETIME_MS * 0.3;
 
 interface Particle {
   key: string;
@@ -55,7 +57,19 @@ export function ReactionOverlay({ event, className }: ReactionOverlayProps) {
     setParticles((prev) => {
       const now = Date.now();
       const alive = prev.filter((p) => p.expiresAt > now);
-      return [...alive, particle].slice(-MAX_PARTICLES);
+
+      if (alive.length < MAX_PARTICLES) {
+        return [...alive, particle];
+      }
+
+      // At the cap, only retire a particle that is already fading out, so
+      // nothing ever disappears mid flight. If none is, drop the new one.
+      const retiring = alive.findIndex((p) => p.expiresAt - now < FADE_TAIL_MS);
+      if (retiring === -1) {
+        return alive;
+      }
+
+      return [...alive.slice(0, retiring), ...alive.slice(retiring + 1), particle];
     });
   }, [event]);
 

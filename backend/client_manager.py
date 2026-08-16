@@ -1,13 +1,13 @@
 import asyncio
 import time
-from collections import deque
 from typing import Literal, Optional
 from fastapi import WebSocket, WebSocketDisconnect
 from fastapi.websockets import WebSocketState
 
 from nanoid import generate as generate_nanoid
+from rate_limit import SlidingWindowLimiter
 from websocket_errors import WebSocketErrorType, create_error_response
-from websocket_models import HandshakePayload
+from websocket_models import HandshakePayload, QUIET_COMMANDS
 
 class ConnectionClient:
     id: str
@@ -24,21 +24,10 @@ class ConnectionClient:
         self.room_id = room_id
         self.last_pong = time.time()
         self.heartbeat_task = None
-        self.action_times: dict[str, deque] = {}
+        self.limiter = SlidingWindowLimiter()
 
     def allow_action(self, key: str, limit: int, per_seconds: float) -> bool:
-        """Sliding window rate limit for spammable commands. False means drop it."""
-        now = time.time()
-        window = self.action_times.setdefault(key, deque())
-
-        while window and now - window[0] > per_seconds:
-            window.popleft()
-
-        if len(window) >= limit:
-            return False
-
-        window.append(now)
-        return True
+        return self.limiter.allow(key, limit, per_seconds)
 
     async def send_command(self, command: str, data):
         if self.websocket.client_state != WebSocketState.CONNECTED:
@@ -189,13 +178,17 @@ class ClientManager:
         # Use provided clients list or all active connections
         connections = list(clients if clients is not None else self.active_connections)
         disconnected_clients = []
+        verbose = command not in QUIET_COMMANDS
 
-        print(f"[DEBUG] broadcast_command: {command} to {len(connections)} clients")
+        if verbose:
+            print(f"[DEBUG] broadcast_command: {command} to {len(connections)} clients")
         for i, connection in enumerate(connections):
-            print(f"[DEBUG] Sending {command} to client {i}: {connection.client_type} ({connection.id})")
+            if verbose:
+                print(f"[DEBUG] Sending {command} to client {i}: {connection.client_type} ({connection.id})")
             try:
                 await connection.send_command(command, data)
-                print(f"[DEBUG] Successfully sent {command} to {connection.client_type}")
+                if verbose:
+                    print(f"[DEBUG] Successfully sent {command} to {connection.client_type}")
             except Exception as e:
                 print(f"[DEBUG] Failed to send {command} to {connection.client_type}: {e}")
                 # Mark for removal

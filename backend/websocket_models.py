@@ -85,6 +85,9 @@ COMMAND_PAYLOAD_MAP = {
     "request_queue_update": dict,
 }
 
+# High frequency commands that would otherwise flood the logs
+QUIET_COMMANDS = {"send_reaction", "reaction"}
+
 def validate_websocket_message(command: str, payload: Any) -> Dict[str, Any]:
     """Validate WebSocket message payload against expected schema"""
     if command not in COMMAND_PAYLOAD_MAP:

@@ -13,6 +13,11 @@ from session_manager import SessionManager
 REACTION_RATE_LIMIT = 8
 REACTION_RATE_WINDOW = 3.0
 
+# Room wide ceiling so a crowded room cannot scale the flood past what a
+# display can show, and so reconnecting cannot buy a fresh budget
+ROOM_REACTION_RATE_LIMIT = 20
+ROOM_REACTION_RATE_WINDOW = 3.0
+
 class ClientCommands:
     def __init__(self, client: ConnectionClient, session_manager: SessionManager, service: KaraokeService) -> None:
         self.service = service
@@ -172,8 +177,13 @@ class ControllerCommands(ClientCommands):
         await self.session_manager.broadcast_to_room_displays(self.client.room_id, "set_volume", payload["volume"])
 
     async def send_reaction(self, payload):
+        if not self.room:
+            return
+
         if not self.client.allow_action("send_reaction", REACTION_RATE_LIMIT, REACTION_RATE_WINDOW):
-            print(f"[DEBUG] Rate limited reaction from controller {self.client.id}")
+            return
+
+        if not self.room.allow_action("reaction", ROOM_REACTION_RATE_LIMIT, ROOM_REACTION_RATE_WINDOW):
             return
 
         await self.session_manager.broadcast_to_room_displays(

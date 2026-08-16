@@ -9,6 +9,13 @@ from concurrent.futures import ThreadPoolExecutor
 import asyncio
 
 class YTKaraokeSourceProvider(KaraokeSourceProvider):
+    # A karaoke display gains nothing above 1080p, and the 1440p/2160p rungs are
+    # AV1-only, which cheap TV browsers and SBCs cannot decode in real time.
+    MAX_VIDEO_HEIGHT = 1080
+
+    # avc1 is hardware-decoded essentially everywhere; av01 rarely is.
+    VIDEO_CODEC_PREFERENCE = ('avc1', 'vp09', 'vp9', 'av01')
+
     def __init__(self, allowed_channels: list[str] = None, karaoke_keywords: list[str] = None):
         super().__init__()
         # Examples: ["KaraFun", "Sing King", "Lucky Voice", "Karaoke Mugen"]
@@ -175,12 +182,24 @@ class YTKaraokeSourceProvider(KaraokeSourceProvider):
         return None
 
     @classmethod
+    def _pick_video_only(cls, formats: list[dict]) -> Optional[str]:
+        """Decodability beats resolution: a hardware-decoded 720p plays, a 4K AV1 stutters."""
+        for codec in cls.VIDEO_CODEC_PREFERENCE:
+            matching = [f for f in formats if (f.get('vcodec') or '').startswith(codec)]
+            if matching:
+                return max(matching, key=cls._format_rank).get('url')
+        return max(formats, key=cls._format_rank).get('url') if formats else None
+
+    @classmethod
     def _select_media_urls(cls, info: dict) -> tuple[Optional[str], Optional[str]]:
         """
-        Split an extractor result into a playable video URL and a standalone audio URL.
+        Split an extractor result into (video_url, audio_url).
 
-        video_url stays muxed so it remains playable on its own; audio_url is the
-        best audio-only track.
+        A populated audio_url means video_url carries no audio of its own and the
+        two are meant to be played together. That pairing is only used when the
+        separate video track actually beats the muxed one, so the player never
+        pays the sync cost for no quality gain; otherwise the muxed stream is
+        returned alone.
         """
         formats = [f for f in (info.get('formats') or []) if f.get('url')]
 
@@ -192,15 +211,30 @@ class YTKaraokeSourceProvider(KaraokeSourceProvider):
             f for f in formats
             if f.get('vcodec', 'none') == 'none' and f.get('acodec', 'none') != 'none'
         ]
+        video_only = [
+            f for f in formats
+            if f.get('vcodec', 'none') != 'none' and f.get('acodec', 'none') == 'none'
+        ]
 
-        video_url = cls._pick_format(muxed, ('mp4', 'webm'))
+        muxed_url = cls._pick_format(muxed, ('mp4', 'webm'))
         # m4a before webm: Safari has no Opus-in-WebM support.
         audio_url = cls._pick_format(audio_only, ('m4a', 'mp4', 'webm'))
 
-        if not video_url and not audio_url:
-            video_url = info.get('url')
+        best_muxed_height = max((f.get('height') or 0 for f in muxed), default=0)
+        worthwhile = [
+            f for f in video_only
+            if best_muxed_height < (f.get('height') or 0) <= cls.MAX_VIDEO_HEIGHT
+        ]
+        paired_video_url = cls._pick_video_only(worthwhile) if audio_url else None
 
-        return video_url, audio_url
+        if paired_video_url:
+            return paired_video_url, audio_url
+        if muxed_url:
+            return muxed_url, None
+        if audio_url:
+            return None, audio_url
+
+        return info.get('url'), None
 
     async def _extract_media_urls(self, youtube_url: str, max_retries: int = 3, base_delay: float = 1.0) -> tuple[Optional[str], Optional[str]]:
         """

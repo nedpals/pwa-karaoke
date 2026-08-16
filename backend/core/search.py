@@ -6,7 +6,7 @@ class KaraokeEntry(BaseModel):
     title: str
     artist: str
     video_url: Optional[str] = None  # Now optional for lazy loading
-    audio_url: Optional[str] = None  # Separate audio track, when the source exposes one
+    audio_url: Optional[str] = None  # When set, video_url carries no audio of its own
     source: str
     uploader: str
     duration: Optional[float]

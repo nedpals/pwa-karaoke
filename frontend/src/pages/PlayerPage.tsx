@@ -16,6 +16,7 @@ import { RoomProvider, useRoomContext } from "../providers/RoomProvider";
 import { useTempState, type TempStateSetterOptions } from "../hooks/useTempState";
 import { useVideoUrlMutation, useServerStatus } from "../hooks/useApi";
 import { useVideoUrlWithRetry } from "../hooks/useVideoUrlWithRetry";
+import { useDualTrackSync } from "../hooks/useDualTrackSync";
 import type { DisplayPlayerState } from "../types";
 import useSmartSync from "../hooks/useSmartSync";
 
@@ -49,6 +50,7 @@ function usePlayerState() {
 
 function VideoPlayerComponent({
   videoUrl,
+  audioUrl,
   isLoadingVideoUrl,
   error,
   canRetry,
@@ -57,6 +59,7 @@ function VideoPlayerComponent({
   onNearingEnd,
 }: {
   videoUrl: string | null;
+  audioUrl: string | null;
   isLoadingVideoUrl: boolean;
   error: Error | null;
   canRetry: boolean;
@@ -65,11 +68,26 @@ function VideoPlayerComponent({
   onNearingEnd: (params: { timeRemaining: number }) => void;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const audioRef = useRef<HTMLAudioElement>(null);
   const { updatePlayerState } = useRoomContext();
   const { osd, playerState } = usePlayerState();
   const { playNext } = useRoomContext();
   const isBufferingRef = useRef(false);
   const hasNearingEndFiredRef = useRef(false);
+  const [mediaError, setMediaError] = useState<Error | null>(null);
+
+  // A populated audio_url means video_url carries no audio of its own.
+  const separateAudio = Boolean(audioUrl);
+  const entryId = playerState?.entry?.id;
+  const mediaKey = `${entryId ?? "none"}:${separateAudio ? "paired" : "muxed"}`;
+
+  const { play, pause, seek, getMaster, isHolding } = useDualTrackSync({
+    videoRef,
+    audioRef,
+    separateAudio,
+    shouldPlay: playerState?.play_state === "playing",
+    mediaKey,
+  });
 
   const updateVersionedPlayerState = useCallback((partialState: Partial<DisplayPlayerState>) => {
     const versionedState = {
@@ -88,76 +106,72 @@ function VideoPlayerComponent({
 
   // Handle play/pause state changes from controller commands
   useEffect(() => {
-    if (!videoRef.current || !playerState) return;
+    const master = getMaster();
+    if (!master || !playerState) return;
 
-    const video = videoRef.current;
     const shouldPlay = playerState.play_state === "playing";
     const shouldPause = playerState.play_state === "paused";
 
-    // Set video time to match playerState (for reload/sync)
+    // Set media time to match playerState (for reload/sync)
     // Only sync forward to prevent regression loops on reconnection
     if (
       playerState.current_time &&
-      playerState.current_time > video.currentTime &&
-      Math.abs(video.currentTime - playerState.current_time) > 2
+      playerState.current_time > master.currentTime &&
+      Math.abs(master.currentTime - playerState.current_time) > 2
     ) {
-      video.currentTime = playerState.current_time;
+      seek(playerState.current_time);
     }
 
-    if (shouldPlay && video.paused) {
-      video.play().catch((error) => {
-        if (error.name !== "AbortError") {
-          console.error("Video play failed:", error);
-        }
-      });
-    } else if (shouldPause && !video.paused) {
-      video.pause();
+    if (shouldPlay && master.paused) {
+      play();
+    } else if (shouldPause && !master.paused) {
+      pause();
     }
   }, [playerState?.play_state, playerState?.current_time]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Handle volume changes from controller
+  // Handle volume changes from controller. In paired mode the video is muted,
+  // so volume belongs to the audio element.
   useEffect(() => {
-    if (!videoRef.current || !playerState) return;
+    const master = getMaster();
+    if (!master || !playerState) return;
 
-    const video = videoRef.current;
-    video.volume = playerState.volume ?? 0.5;
-  }, [playerState?.volume]); // eslint-disable-line react-hooks/exhaustive-deps
+    master.volume = playerState.volume ?? 0.5;
+  }, [playerState?.volume, getMaster]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Send periodic updates while playing
   useEffect(() => {
+    const master = getMaster();
     if (
-      !videoRef.current ||
+      !master ||
       !playerState?.entry ||
       playerState.play_state !== "playing"
     ) {
       return;
     }
 
-    const video = videoRef.current;
-
     const interval = setInterval(() => {
-      if (!video || video.paused || video.ended || !playerState?.entry) {
+      if (master.paused || master.ended || !playerState?.entry) {
         return;
       }
 
       updateVersionedPlayerState({
         entry: playerState.entry,
         play_state: "playing",
-        current_time: video.currentTime,
-        duration: video.duration || 0,
-        volume: video.volume,
+        current_time: master.currentTime,
+        duration: master.duration || 0,
+        volume: master.volume,
       });
     }, 1000);
     return () => clearInterval(interval);
   }, [playerState]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    const video = videoRef.current;
-    if (!video || !playerState?.entry) return;
+    const master = getMaster();
+    if (!master || !playerState?.entry) return;
 
     const handleTimeUpdate = () => {
-      if (!hasNearingEndFiredRef.current && video.duration > 0) {
-        const timeRemaining = video.duration - video.currentTime;
+      if (!hasNearingEndFiredRef.current && master.duration > 0) {
+        const timeRemaining = master.duration - master.currentTime;
         const shouldFireNearingEnd = (timeRemaining <= 15 && timeRemaining > 0); // Fire when 15 seconds or less remain
 
         if (shouldFireNearingEnd) {
@@ -167,26 +181,27 @@ function VideoPlayerComponent({
       }
     };
 
-    video.addEventListener('timeupdate', handleTimeUpdate);
-    return () => video.removeEventListener('timeupdate', handleTimeUpdate);
-  }, [playerState?.entry, onNearingEnd]);
+    master.addEventListener('timeupdate', handleTimeUpdate);
+    return () => master.removeEventListener('timeupdate', handleTimeUpdate);
+  }, [playerState?.entry, onNearingEnd, getMaster, mediaKey]);
 
-  // Reset nearing end flag when song changes
+  // Reset per-song flags when the song changes
   useEffect(() => {
     hasNearingEndFiredRef.current = false;
-  }, [playerState?.entry?.id]);
+    setMediaError(null);
+  }, [entryId]);
 
-  // Handle page unload/reload - save current video state
+  // Handle page unload/reload - save current playback state
   useEffect(() => {
     const handleBeforeUnload = () => {
-      if (videoRef.current && playerState?.entry) {
-        const video = videoRef.current;
+      const master = getMaster();
+      if (master && playerState?.entry) {
         updateVersionedPlayerState({
           entry: playerState.entry,
-          play_state: video.paused ? "paused" : "playing",
-          current_time: video.currentTime,
-          duration: video.duration || 0,
-          volume: video.volume,
+          play_state: master.paused ? "paused" : "playing",
+          current_time: master.currentTime,
+          duration: master.duration || 0,
+          volume: master.volume,
         });
       }
     };
@@ -214,8 +229,10 @@ function VideoPlayerComponent({
     );
   }
 
-  if (!videoUrl) {
+  if ((!videoUrl && !audioUrl) || mediaError) {
     if (!playerState?.entry) return null;
+
+    const shownError = mediaError ?? error;
 
     return (
       <div className="h-full w-full flex items-center justify-center">
@@ -229,9 +246,9 @@ function VideoPlayerComponent({
           <Text tone="dim">
             No stream available from {playerState.entry.source}
           </Text>
-          {error && (
+          {shownError && (
             <Text size="sm" tone="danger" font="mono">
-              {error.message}
+              {shownError.message}
             </Text>
           )}
           {retryCount > 0 && (
@@ -255,6 +272,94 @@ function VideoPlayerComponent({
     );
   }
 
+  // Bound to whichever element owns the clock, so `ev.currentTarget` is the
+  // audio element when paired and the video element when muxed.
+  const masterEvents = {
+    onPlay: (ev: React.SyntheticEvent<HTMLMediaElement>) => {
+      if (!playerState?.entry) return;
+      const master = ev.currentTarget;
+      updateVersionedPlayerState({
+        entry: playerState.entry,
+        play_state: "playing",
+        current_time: master.currentTime,
+        duration: master.duration || 0,
+        volume: master.volume,
+      });
+    },
+    onPause: (ev: React.SyntheticEvent<HTMLMediaElement>) => {
+      // A buffering hold pauses both tracks; that is not a user pause.
+      if (isHolding() || !playerState?.entry) return;
+      const master = ev.currentTarget;
+      updateVersionedPlayerState({
+        entry: playerState.entry,
+        play_state: "paused",
+        current_time: master.currentTime,
+        duration: master.duration || 0,
+        volume: master.volume,
+      });
+    },
+    onWaiting: (ev: React.SyntheticEvent<HTMLMediaElement>) => {
+      if (isBufferingRef.current) return;
+
+      const master = ev.currentTarget;
+      updateVersionedPlayerState({
+        entry: playerState?.entry ?? null,
+        play_state: "buffering",
+        current_time: master.currentTime || 0,
+        duration: master.duration || 0,
+        volume: master.volume,
+      });
+
+      isBufferingRef.current = true;
+    },
+    onCanPlay: (ev: React.SyntheticEvent<HTMLMediaElement>) => {
+      isBufferingRef.current = false;
+
+      if (playerState?.entry && playerState.play_state !== "playing") {
+        const master = ev.currentTarget;
+        updateVersionedPlayerState({
+          entry: playerState.entry,
+          play_state: "playing",
+          current_time: master.currentTime || 0,
+          duration: master.duration || 0,
+          volume: master.volume,
+        });
+      }
+    },
+    onCanPlayThrough: (ev: React.SyntheticEvent<HTMLMediaElement>) => {
+      if (!playerState) return;
+      const master = ev.currentTarget;
+
+      // Set media time to match playerState (for reload/sync)
+      // Only sync forward to prevent regression loops on reconnection
+      if (
+        playerState.current_time &&
+        playerState.current_time > master.currentTime &&
+        Math.abs(master.currentTime - playerState.current_time) > 2
+      ) {
+        seek(playerState.current_time - 1);
+      }
+
+      if (playerState.play_state === "playing" && master.paused) {
+        play();
+      } else if (playerState.play_state === "paused" && !master.paused) {
+        pause();
+      }
+    },
+    onEnded: (ev: React.SyntheticEvent<HTMLMediaElement>) => {
+      if (!playerState?.entry) return;
+      const master = ev.currentTarget;
+      updateVersionedPlayerState({
+        entry: playerState.entry,
+        play_state: "finished" as const,
+        current_time: master.currentTime || 0,
+        duration: master.duration || 0,
+        volume: master.volume,
+      });
+      playNext();
+    },
+  };
+
   return (
     <div className="relative w-full h-full">
       {osd.visible && (
@@ -263,106 +368,32 @@ function VideoPlayerComponent({
         </OSD>
       )}
 
-      <video
-        key={playerState?.entry?.id}
-        ref={videoRef}
-        className="w-full h-full object-contain"
-        autoPlay
-        onPlay={(ev) => {
-          if (playerState?.entry) {
-            const video = ev.currentTarget;
-            updateVersionedPlayerState({
-              entry: playerState.entry,
-              play_state: "playing",
-              current_time: video.currentTime,
-              duration: video.duration || 0,
-              volume: video.volume,
-            });
-          }
-        }}
-        onPause={(ev) => {
-          if (playerState?.entry) {
-            const video = ev.currentTarget;
-            updateVersionedPlayerState({
-              entry: playerState.entry,
-              play_state: "paused",
-              current_time: video.currentTime,
-              duration: video.duration || 0,
-              volume: video.volume,
-            });
-          }
-        }}
-        onWaiting={(ev) => {
-          if (isBufferingRef.current) return;
+      {videoUrl && (
+        <video
+          key={`${mediaKey}:video`}
+          ref={videoRef}
+          className="w-full h-full object-contain"
+          autoPlay
+          muted={separateAudio}
+          src={videoUrl}
+          onError={() => setMediaError(new Error("Video track failed to load"))}
+          {...(separateAudio ? {} : masterEvents)}
+        >
+          <track kind="captions" />
+          <p className="text-center">Your browser does not support the video tag.</p>
+        </video>
+      )}
 
-          const video = ev.currentTarget;
-          updateVersionedPlayerState({
-            entry: playerState?.entry ?? null,
-            play_state: "buffering",
-            current_time: video.currentTime || 0,
-            duration: video.duration || 0,
-            volume: video.volume,
-          });
-
-          isBufferingRef.current = true;
-        }}
-        onCanPlay={(ev) => {
-          isBufferingRef.current = false;
-
-          if (playerState?.entry && playerState.play_state !== "playing") {
-            const video = ev.currentTarget;
-            updateVersionedPlayerState({
-              entry: playerState.entry,
-              play_state: "playing",
-              current_time: video.currentTime || 0,
-              duration: video.duration || 0,
-              volume: video.volume,
-            });
-          }
-        }}
-        onCanPlayThrough={(ev) => {
-          if (!playerState) return;
-          const video = ev.currentTarget;
-          const shouldPlay = playerState.play_state === "playing";
-          const shouldPause = playerState.play_state === "paused";
-
-          // Set video time to match playerState (for reload/sync)
-          // Only sync forward to prevent regression loops on reconnection
-          if (
-            playerState.current_time &&
-            playerState.current_time > video.currentTime &&
-            Math.abs(video.currentTime - playerState.current_time) > 2
-          ) {
-            video.currentTime = playerState.current_time - 1;
-          }
-
-          if (shouldPlay && video.paused) {
-            video.play().catch((error) => {
-              if (error.name !== "AbortError") {
-                console.error("Video play failed:", error);
-              }
-            });
-          } else if (shouldPause && !video.paused) {
-            video.pause();
-          }
-        }}
-        onEnded={(ev) => {
-          if (!playerState?.entry) return;
-          const video = ev.currentTarget;
-          updateVersionedPlayerState({
-            entry: playerState.entry,
-            play_state: "finished" as const,
-            current_time: video.currentTime || 0,
-            duration: video.duration || 0,
-            volume: video.volume,
-          });
-          playNext();
-        }}
-      >
-        <track kind="captions" />
-        <source src={videoUrl} type="video/mp4" />
-        <p className="text-center">Your browser does not support the video tag.</p>
-      </video>
+      {separateAudio && (
+        <audio
+          key={`${mediaKey}:audio`}
+          ref={audioRef}
+          autoPlay
+          src={audioUrl ?? undefined}
+          onError={() => setMediaError(new Error("Audio track failed to load"))}
+          {...masterEvents}
+        />
+      )}
     </div>
   );
 }
@@ -413,6 +444,7 @@ function PlayingStateContent() {
   const { trigger: triggerVideoUrl } = useVideoUrlMutation();
   const {
     videoUrl: videoUrlData,
+    audioUrl: audioUrlData,
     isLoading: isLoadingVideoUrl,
     error: videoUrlError,
     canRetry,
@@ -441,17 +473,18 @@ function PlayingStateContent() {
     };
   }, [upNextTitle, queuedTitle, playerState]);
 
-  const videoUrl = useMemo(() => {
-    if (!playerState?.entry) return null;
+  // Both tracks must come from the same resolution, otherwise a muxed video_url
+  // could be paired with a separately fetched audio_url and play doubled audio.
+  const { videoUrl, audioUrl } = useMemo(() => {
+    const entry = playerState?.entry;
+    if (!entry) return { videoUrl: null, audioUrl: null };
 
-    if (playerState.entry.video_url) {
-      return playerState.entry.video_url;
-    } else if (videoUrlData) {
-      return videoUrlData;
+    if (entry.video_url || entry.audio_url) {
+      return { videoUrl: entry.video_url ?? null, audioUrl: entry.audio_url ?? null };
     }
 
-    return null;
-  }, [playerState?.entry, videoUrlData]);
+    return { videoUrl: videoUrlData, audioUrl: audioUrlData };
+  }, [playerState?.entry, videoUrlData, audioUrlData]);
 
   const handleNearingEnd = useCallback(({ timeRemaining }: { timeRemaining: number }) => {
     if (!upNextQueue || upNextQueue.items.length === 0) return;
@@ -462,8 +495,8 @@ function PlayingStateContent() {
       { duration: timeRemaining * 1000 },
     );
 
-    if (nextSong.entry.video_url) {
-      // Skip prefetching if we already have the URL
+    if (nextSong.entry.video_url || nextSong.entry.audio_url) {
+      // Skip prefetching if we already have the URLs
       return;
     }
 
@@ -511,8 +544,9 @@ function PlayingStateContent() {
       <div className="relative h-full w-full flex items-center justify-center">
         <VideoPlayerComponent
           videoUrl={videoUrl}
-          isLoadingVideoUrl={videoUrl ? false : isLoadingVideoUrl}
-          error={videoUrl ? null : videoUrlError}
+          audioUrl={audioUrl}
+          isLoadingVideoUrl={videoUrl || audioUrl ? false : isLoadingVideoUrl}
+          error={videoUrl || audioUrl ? null : videoUrlError}
           canRetry={canRetry}
           onRetry={retry}
           retryCount={retryCount}

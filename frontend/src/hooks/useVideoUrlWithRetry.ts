@@ -71,8 +71,11 @@ export function useVideoUrlWithRetry(entry: KaraokeEntry | null): UseVideoUrlWit
     };
   }, [swrError, swrData, swrLoading, isManualRetry, manualRetryCount, entry, retry]);
 
-  const videoUrl = entry?.video_url || swrData?.video_url || null;
-  const audioUrl = entry?.audio_url || swrData?.audio_url || null;
+  // Take both tracks from one resolution. Mixing an entry's muxed video_url
+  // with a freshly fetched audio_url would play the audio twice.
+  const resolved = entry?.video_url || entry?.audio_url ? entry : swrData;
+  const videoUrl = resolved?.video_url ?? null;
+  const audioUrl = resolved?.audio_url ?? null;
   const isLoading = swrLoading || isMutating;
   const error = swrError || mutationError || null;
 

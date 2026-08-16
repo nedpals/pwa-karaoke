@@ -214,10 +214,15 @@ class LazyVideoProvider(KaraokeSourceProvider):
         )
 ```
 
-`audio_url` is optional and carries a standalone audio track. Sources that only
-serve audio may leave `video_url` unset; an entry counts as resolved when either
-field is populated. Returning a bare `str` is still supported and is treated as
-`video_url`.
+`audio_url` is optional and carries a standalone audio track. **A populated
+`audio_url` means `video_url` has no audio of its own** and the player runs the
+two elements together, keeping the video in sync with the audio clock. Leave
+`audio_url` unset when `video_url` is a muxed stream that already carries sound,
+otherwise the player will mute it and play silence.
+
+Sources that serve audio alone may leave `video_url` unset; an entry counts as
+resolved when either field is populated. Returning a bare `str` is still
+supported and is treated as a muxed `video_url`.
 
 ## HTTP Server
 

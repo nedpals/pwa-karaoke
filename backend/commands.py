@@ -207,12 +207,10 @@ class ClientCommands:
         if state.current_time < MIN_SCORED_SECONDS or self.room.has_score_for(entry.id):
             return False
 
-        # Nobody was going to report on a song no one let finish, so there is
-        # nothing to wait for
-        score = self.room.set_score(entry.id, roll_score(), "auto")
-
+        # Finishing on the skipped song opens the usual grace window, so a
+        # remote that measured most of it is still heard. Only when nothing
+        # reports does this fall through to a rolled score.
         await self._hold_at_end_of_song()
-        await self._broadcast_score(self.client.room_id, score)
         await self.session_manager.broadcast_to_room_displays(
             self.client.room_id, "scoring", {"entry_id": entry.id, "quick": True}
         )

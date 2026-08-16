@@ -135,7 +135,7 @@ There is no further control for it, only a footnote in the Player tab reporting 
 
 Mic scoring only measures the remote that reserved the song, matched by nickname, so several phones in one room do not all hear the same singer. The server refuses a reading from any other remote, and a song reserved without a nickname falls back to a generated score.
 
-A skipped song is scored from the server, since no display saw it end. Its reveal is shorter and silent. A song that played for less than five seconds is not scored at all.
+A skipped song is held on screen to be scored the same way one that ended is, so a remote that measured most of it is still heard. Its reveal is shorter and silent. A song that played for less than five seconds is not scored at all.
 
 The reveal is scored by the display with a short synthesised sting, built from oscillators rather than an audio file, so no asset ships with it.
 

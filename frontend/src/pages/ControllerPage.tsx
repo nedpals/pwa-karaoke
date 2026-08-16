@@ -15,7 +15,6 @@ import { MaterialSymbolsVolumeDownRounded } from "../components/icons/MaterialSy
 import { Text } from "../components/atoms/Text";
 import { Panel } from "../components/atoms/Panel";
 import { Button } from "../components/atoms/Button";
-import { SongNumber } from "../components/atoms/SongNumber";
 import { LoadingIndicator } from "../components/atoms/LoadingIndicator";
 import { MarqueeText } from "../components/molecules/MarqueeText";
 import { ProgressBar } from "../components/atoms/ProgressBar";
@@ -329,17 +328,15 @@ function PlayerTab() {
       {errorMessage && <Notice>{errorMessage}</Notice>}
 
       <Panel className="p-3">
-        <div className="flex items-center gap-3 mb-3">
-          {playerState?.entry ? (
-            <SongNumber entryId={playerState.entry.id} size="lg" />
-          ) : (
-            <Text font="mono" size="2xl" tone="dim" className="px-3">
-              -----
-            </Text>
-          )}
-          <Text font="display" size="lg" tone={isPlaying ? "accent" : "dim"}>
+        <div className="flex items-center gap-3 mb-3 border-b-2 border-ka-line pb-2">
+          <Text font="display" size="lg" weight="bold" tone={isPlaying ? "accent" : "dim"} className="flex-1">
             {isPlaying ? "Playing" : hasEntry ? "Paused" : "Stopped"}
           </Text>
+          {playerState?.entry?.uploader && (
+            <Text size="xs" tone="dim" truncate className="max-w-40">
+              {playerState.entry.uploader}
+            </Text>
+          )}
         </div>
 
         <MarqueeText size="2xl" weight="bold" pauseOnHover>
@@ -521,7 +518,6 @@ function QueueTab() {
               key={`queue_item_${item.id}`}
               entry={item.entry}
               index={index + 1}
-              showDuration={false}
               actions={[
                 {
                   icon: <MaterialSymbolsKeyboardArrowUpRounded className="text-2xl" />,

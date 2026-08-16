@@ -14,7 +14,6 @@ export interface QueueItemProps extends React.HTMLAttributes<HTMLDivElement> {
   index?: number;
   actions?: QueueItemAction[];
   showSource?: boolean;
-  showDuration?: boolean;
   selected?: boolean;
 }
 
@@ -23,20 +22,13 @@ export function QueueItem({
   index,
   actions = [],
   showSource = false,
-  showDuration = true,
   selected = false,
   className = "",
   ...props
 }: QueueItemProps) {
   return (
     <div className={`flex flex-row items-stretch gap-1 ${className}`.trim()} {...props}>
-      <SongRow
-        entry={entry}
-        index={index}
-        showSource={showSource}
-        showDuration={showDuration}
-        selected={selected}
-      />
+      <SongRow entry={entry} index={index} showSource={showSource} selected={selected} />
       {actions.map((action, i) => (
         <IconButton
           key={`queue_action_${action.label || i}`}

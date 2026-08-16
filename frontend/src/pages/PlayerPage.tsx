@@ -17,7 +17,6 @@ import { useTempState, type TempStateSetterOptions } from "../hooks/useTempState
 import { useVideoUrlMutation, useServerStatus } from "../hooks/useApi";
 import { useVideoUrlWithRetry } from "../hooks/useVideoUrlWithRetry";
 import type { DisplayPlayerState } from "../types";
-import { songNumber } from "../lib/utils";
 import useSmartSync from "../hooks/useSmartSync";
 
 type AppState = "awaiting-interaction" | "connecting" | "connected" | "ready" | "playing";
@@ -407,8 +406,8 @@ function PlayingStateContent() {
   // Make it null so it wont trigger the "queued" message on first load
   const lastUpNextQueueVersion = useRef<number | null>(null);
   const lastUpNextQueueLength = useRef<number>(0);
-  const [upNextEntry, setUpNextEntry] = useTempState<{ id: string; label: string } | null>(null);
-  const [queuedEntry, setQueuedEntry] = useTempState<{ id: string; label: string } | null>(null);
+  const [upNextTitle, setUpNextTitle] = useTempState<string | null>(null);
+  const [queuedTitle, setQueuedTitle] = useTempState<string | null>(null);
 
   const { playerState, upNextQueue } = useRoomContext();
   const { trigger: triggerVideoUrl } = useVideoUrlMutation();
@@ -425,23 +424,22 @@ function PlayingStateContent() {
       : null,
   );
 
-  const banner = useMemo<{ status: string; tone: BannerTone; title: string; entryId: string | null }>(() => {
-    if (upNextEntry) {
-      return { status: "Up Next", tone: "next", title: upNextEntry.label, entryId: upNextEntry.id };
+  const banner = useMemo<{ status: string; tone: BannerTone; title: string }>(() => {
+    if (upNextTitle) {
+      return { status: "Up Next", tone: "next", title: upNextTitle };
     }
-    if (queuedEntry) {
-      return { status: "Reserved", tone: "queued", title: queuedEntry.label, entryId: queuedEntry.id };
+    if (queuedTitle) {
+      return { status: "Reserved", tone: "queued", title: queuedTitle };
     }
     if (!playerState?.entry) {
-      return { status: "Stopped", tone: "paused", title: "No Song", entryId: null };
+      return { status: "Stopped", tone: "paused", title: "No Song" };
     }
     return {
       status: playerState.play_state === "playing" ? "Playing" : "Paused",
       tone: playerState.play_state === "playing" ? "playing" : "paused",
       title: `${playerState.entry.artist} - ${playerState.entry.title}`,
-      entryId: playerState.entry.id,
     };
-  }, [upNextEntry, queuedEntry, playerState]);
+  }, [upNextTitle, queuedTitle, playerState]);
 
   const videoUrl = useMemo(() => {
     if (!playerState?.entry) return null;
@@ -459,8 +457,8 @@ function PlayingStateContent() {
     if (!upNextQueue || upNextQueue.items.length === 0) return;
 
     const nextSong = upNextQueue.items[0];
-    setUpNextEntry(
-      { id: nextSong.entry.id, label: `${nextSong.entry.artist} - ${nextSong.entry.title}` },
+    setUpNextTitle(
+      `${nextSong.entry.artist} - ${nextSong.entry.title}`,
       { duration: timeRemaining * 1000 },
     );
 
@@ -477,15 +475,15 @@ function PlayingStateContent() {
         console.error('[Prefetch] Failed to prefetch URL for:', nextSong.entry.title, error);
       });
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [upNextQueue, setUpNextEntry]);
+  }, [upNextQueue, setUpNextTitle]);
 
   useEffect(() => {
     if (lastUpNextQueueVersion.current
       && upNextQueue && upNextQueue.version > lastUpNextQueueVersion.current
       && upNextQueue.items.length > lastUpNextQueueLength.current) {
       const newSong = upNextQueue.items[upNextQueue.items.length - 1];
-      setQueuedEntry(
-        { id: newSong.entry.id, label: `${newSong.entry.artist} - ${newSong.entry.title}` },
+      setQueuedTitle(
+        `${newSong.entry.artist} - ${newSong.entry.title}`,
         { duration: 3000 },
       );
     }
@@ -506,7 +504,6 @@ function PlayingStateContent() {
           status={banner.status}
           tone={banner.tone}
           title={banner.title}
-          songNumber={banner.entryId ? songNumber(banner.entryId) : undefined}
           reservedCount={upNextQueue?.items.length ?? 0}
         />
       </div>

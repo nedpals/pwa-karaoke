@@ -1,7 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { NowPlayingBanner } from './NowPlayingBanner';
 import { SAMPLE_ENTRIES } from '../fixtures';
-import { songNumber } from '../../lib/utils';
 
 const meta: Meta<typeof NowPlayingBanner> = {
   title: 'Organisms/NowPlayingBanner',
@@ -30,7 +29,6 @@ export const Playing: Story = {
     status: 'Playing',
     tone: 'playing',
     title: `${first.artist} - ${first.title}`,
-    songNumber: songNumber(first.id),
     reservedCount: 3,
   },
 };
@@ -40,7 +38,6 @@ export const Paused: Story = {
     status: 'Paused',
     tone: 'paused',
     title: `${first.artist} - ${first.title}`,
-    songNumber: songNumber(first.id),
     reservedCount: 3,
   },
 };
@@ -50,7 +47,6 @@ export const UpNext: Story = {
     status: 'Up Next',
     tone: 'next',
     title: `${second.artist} - ${second.title}`,
-    songNumber: songNumber(second.id),
     reservedCount: 2,
   },
 };
@@ -60,7 +56,6 @@ export const Reserved: Story = {
     status: 'Reserved',
     tone: 'queued',
     title: `${second.artist} - ${second.title}`,
-    songNumber: songNumber(second.id),
     reservedCount: 4,
   },
 };

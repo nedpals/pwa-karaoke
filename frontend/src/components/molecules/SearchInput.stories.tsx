@@ -33,10 +33,6 @@ export const Searching: Story = {
   args: { placeholder: 'Song title or artist', isSearching: true, onSearch: () => {} },
 };
 
-export const ByNumber: Story = {
-  args: { fieldLabel: 'No.', placeholder: '5 digit song number', onSearch: () => {} },
-};
-
 export const Controlled: Story = {
   render: () => {
     const [value, setValue] = useState('my way frank sinatra');

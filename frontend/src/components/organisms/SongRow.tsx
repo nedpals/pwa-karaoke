@@ -1,6 +1,5 @@
 import { cn } from "../../lib/utils";
 import { Text } from "../atoms/Text";
-import { SongNumber } from "../atoms/SongNumber";
 import { TimeDisplay } from "../molecules/TimeDisplay";
 import type { KaraokeEntry } from "../../types";
 
@@ -8,7 +7,6 @@ export interface SongRowProps extends React.HTMLAttributes<HTMLDivElement> {
   entry: KaraokeEntry;
   index?: number;
   showSource?: boolean;
-  showDuration?: boolean;
   selected?: boolean;
 }
 
@@ -16,7 +14,6 @@ export function SongRow({
   entry,
   index,
   showSource = false,
-  showDuration = true,
   selected = false,
   className,
   ...props
@@ -38,10 +35,6 @@ export function SongRow({
         </div>
       )}
 
-      <div className="flex items-center px-2 border-r-2 border-ka-line-dim">
-        <SongNumber entryId={entry.id} tone={selected ? "accent" : "plain"} size="md" className="border-0 px-0" />
-      </div>
-
       <div className="flex-1 min-w-0 px-3 py-2">
         <Text
           weight="bold"
@@ -62,7 +55,7 @@ export function SongRow({
         </div>
       </div>
 
-      {showDuration && entry.duration !== null && (
+      {entry.duration !== null && (
         <div className="flex items-center px-2 border-l-2 border-ka-line-dim">
           <TimeDisplay seconds={entry.duration} size="sm" tone={selected ? "inverse" : "dim"} />
         </div>

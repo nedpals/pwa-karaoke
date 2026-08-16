@@ -14,19 +14,6 @@ export function generateRoomId(): string {
   return `${adjective}-${noun}-${number}`;
 }
 
-/**
- * Karaoke decks address every track by a 5-digit songbook number. We have no
- * catalogue, so derive one from the entry id: same song, same number, on every
- * device in the room and across sessions.
- */
-export function songNumber(id: string): string {
-  let hash = 0;
-  for (let i = 0; i < id.length; i++) {
-    hash = (hash * 31 + id.charCodeAt(i)) >>> 0;
-  }
-  return String((hash % 90000) + 10000);
-}
-
 export function formatClock(seconds: number, showHours = false): string {
   if (!Number.isFinite(seconds) || seconds < 0) {
     return showHours ? "--:--:--" : "--:--";

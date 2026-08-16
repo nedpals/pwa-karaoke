@@ -30,6 +30,10 @@ interface UseDualTrackSyncOptions {
   shouldPlay: boolean;
   /** Changes whenever the underlying elements remount, so listeners rebind. */
   mediaKey: string;
+  /** The audio track could not start. Nothing is playing when this fires. */
+  onAudioFailure?: (error: unknown) => void;
+  /** Both tracks parked waiting to buffer, or released again. */
+  onHoldChange?: (holding: boolean) => void;
 }
 
 export interface DualTrackControls {
@@ -57,13 +61,28 @@ export function useDualTrackSync({
   separateAudio,
   shouldPlay,
   mediaKey,
+  onAudioFailure,
+  onHoldChange,
 }: UseDualTrackSyncOptions): DualTrackControls {
   const holdingRef = useRef(false);
   const shouldPlayRef = useRef(shouldPlay);
+  const onAudioFailureRef = useRef(onAudioFailure);
+  const onHoldChangeRef = useRef(onHoldChange);
 
   useEffect(() => {
     shouldPlayRef.current = shouldPlay;
   }, [shouldPlay]);
+
+  useEffect(() => {
+    onAudioFailureRef.current = onAudioFailure;
+    onHoldChangeRef.current = onHoldChange;
+  }, [onAudioFailure, onHoldChange]);
+
+  const setHolding = useCallback((value: boolean) => {
+    if (holdingRef.current === value) return;
+    holdingRef.current = value;
+    onHoldChangeRef.current?.(value);
+  }, []);
 
   const getMaster = useCallback(
     () => (separateAudio ? audioRef.current : videoRef.current),
@@ -83,21 +102,36 @@ export function useDualTrackSync({
     }
   }, [separateAudio, videoRef, audioRef]);
 
-  const play = useCallback(() => {
+  /**
+   * Starts the audio first and only brings the video in once it is actually
+   * playing. A muted video is always allowed to autoplay, so starting both at
+   * once would leave a silent video running whenever the audio is blocked.
+   */
+  const startPaired = useCallback(() => {
     const video = videoRef.current;
     const audio = audioRef.current;
+    if (!audio) return;
 
+    audio
+      .play()
+      .then(() => {
+        if (!video) return;
+        alignVideo();
+        video.play().catch(reportPlayFailure);
+      })
+      .catch((error) => {
+        video?.pause();
+        onAudioFailureRef.current?.(error);
+      });
+  }, [videoRef, audioRef, alignVideo]);
+
+  const play = useCallback(() => {
     if (!separateAudio) {
-      video?.play().catch(reportPlayFailure);
+      videoRef.current?.play().catch(reportPlayFailure);
       return;
     }
-
-    audio?.play().catch(reportPlayFailure);
-    if (video) {
-      alignVideo();
-      video.play().catch(reportPlayFailure);
-    }
-  }, [separateAudio, videoRef, audioRef, alignVideo]);
+    startPaired();
+  }, [separateAudio, videoRef, startPaired]);
 
   const pause = useCallback(() => {
     videoRef.current?.pause();
@@ -161,7 +195,7 @@ export function useDualTrackSync({
 
     const hold = () => {
       if (!shouldPlayRef.current || holdingRef.current) return;
-      holdingRef.current = true;
+      setHolding(true);
       video.pause();
       audio.pause();
     };
@@ -169,15 +203,13 @@ export function useDualTrackSync({
     const release = () => {
       if (!holdingRef.current) return;
       if (!shouldPlayRef.current) {
-        holdingRef.current = false;
+        setHolding(false);
         return;
       }
       if (video.readyState < HAVE_FUTURE_DATA || audio.readyState < HAVE_FUTURE_DATA) return;
 
-      holdingRef.current = false;
-      alignVideo();
-      audio.play().catch(reportPlayFailure);
-      video.play().catch(reportPlayFailure);
+      setHolding(false);
+      startPaired();
     };
 
     video.addEventListener("waiting", hold);
@@ -199,7 +231,7 @@ export function useDualTrackSync({
       audio.removeEventListener("play", alignVideo);
       audio.removeEventListener("seeked", alignVideo);
     };
-  }, [separateAudio, videoRef, audioRef, alignVideo, mediaKey]);
+  }, [separateAudio, videoRef, audioRef, alignVideo, startPaired, setHolding, mediaKey]);
 
   return { play, pause, seek, getMaster, isHolding };
 }

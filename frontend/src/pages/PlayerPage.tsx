@@ -70,7 +70,7 @@ function VideoPlayerComponent({
   const videoRef = useRef<HTMLVideoElement>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
   const { updatePlayerState } = useRoomContext();
-  const { osd, playerState } = usePlayerState();
+  const { osd, setOSD, playerState } = usePlayerState();
   const { playNext } = useRoomContext();
   const isBufferingRef = useRef(false);
   const hasNearingEndFiredRef = useRef(false);
@@ -80,14 +80,6 @@ function VideoPlayerComponent({
   const separateAudio = Boolean(audioUrl);
   const entryId = playerState?.entry?.id;
   const mediaKey = `${entryId ?? "none"}:${separateAudio ? "paired" : "muxed"}`;
-
-  const { play, pause, seek, getMaster, isHolding } = useDualTrackSync({
-    videoRef,
-    audioRef,
-    separateAudio,
-    shouldPlay: playerState?.play_state === "playing",
-    mediaKey,
-  });
 
   const updateVersionedPlayerState = useCallback((partialState: Partial<DisplayPlayerState>) => {
     const versionedState = {
@@ -103,6 +95,54 @@ function VideoPlayerComponent({
 
     updatePlayerState(versionedState);
   }, [playerState?.entry, playerState?.volume, updatePlayerState]);
+
+  // The room's play_state has to describe the pair, not just the clock element.
+  // A stall on either track parks both, and only this reports it: the video's
+  // own `waiting` is not wired up, and the audio's resulting `pause` is
+  // deliberately suppressed so a buffer stall never looks like a user pause.
+  const handleHoldChange = useCallback((holding: boolean) => {
+    if (!playerState?.entry) return;
+
+    const master = separateAudio ? audioRef.current : videoRef.current;
+    isBufferingRef.current = holding;
+
+    updateVersionedPlayerState({
+      entry: playerState.entry,
+      play_state: holding ? "buffering" : "playing",
+      current_time: master?.currentTime ?? 0,
+      duration: master?.duration ?? 0,
+      volume: master?.volume ?? playerState.volume ?? 0.5,
+    });
+  }, [playerState?.entry, playerState?.volume, separateAudio, updateVersionedPlayerState]);
+
+  const handleAudioFailure = useCallback((error: unknown) => {
+    console.error("Audio track failed to start:", error);
+
+    setOSD({ label: "Audio Failed", visible: true });
+
+    if (!playerState?.entry) return;
+    updateVersionedPlayerState({
+      entry: playerState.entry,
+      play_state: "paused",
+      current_time: audioRef.current?.currentTime ?? 0,
+      duration: audioRef.current?.duration ?? 0,
+      volume: playerState.volume ?? 0.5,
+    });
+  }, [playerState?.entry, playerState?.volume, setOSD, updateVersionedPlayerState]);
+
+  const { play, pause, seek, getMaster, isHolding } = useDualTrackSync({
+    videoRef,
+    audioRef,
+    separateAudio,
+    // Buffering is an interrupted intent to play, not a pause. Treating it as
+    // a pause would deadlock the hold: reporting "buffering" would withdraw the
+    // very intent that release() needs to resume playback.
+    shouldPlay:
+      playerState?.play_state === "playing" || playerState?.play_state === "buffering",
+    mediaKey,
+    onAudioFailure: handleAudioFailure,
+    onHoldChange: handleHoldChange,
+  });
 
   // Handle play/pause state changes from controller commands
   useEffect(() => {
@@ -313,6 +353,8 @@ function VideoPlayerComponent({
       isBufferingRef.current = true;
     },
     onCanPlay: (ev: React.SyntheticEvent<HTMLMediaElement>) => {
+      // One track being ready says nothing while the pair is still parked.
+      if (isHolding()) return;
       isBufferingRef.current = false;
 
       if (playerState?.entry && playerState.play_state !== "playing") {
@@ -327,7 +369,8 @@ function VideoPlayerComponent({
       }
     },
     onCanPlayThrough: (ev: React.SyntheticEvent<HTMLMediaElement>) => {
-      if (!playerState) return;
+      // Resuming here would fight the hold, which owns restarting both tracks.
+      if (!playerState || isHolding()) return;
       const master = ev.currentTarget;
 
       // Set media time to match playerState (for reload/sync)

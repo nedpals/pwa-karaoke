@@ -6,7 +6,7 @@ from nanoid import generate as generate_nanoid
 
 from core.search import KaraokeEntry
 from core.player import DisplayPlayerState
-from core.score import SCORE_FLOOR, SongScore, roll_score, score_from_performance
+from core.score import SongScore, roll_score, score_from_performance
 from services.karaoke_service import KaraokeService
 from client_manager import ConnectionClient
 from session_manager import SessionManager
@@ -26,9 +26,8 @@ SCORE_RATE_WINDOW = 10.0
 # makes something up. The display holds the finished song for longer than this.
 SCORE_GRACE_SECONDS = 1.0
 
-# A song that ends this early was never really sung, whatever a microphone
-# thought it heard, so it takes the floor instead of a score.
-MIN_SCORED_SECONDS = 15.0
+# Nothing under this was sung at all, so it passes without a score.
+MIN_SCORED_SECONDS = 5.0
 
 class ClientCommands:
     def __init__(self, client: ConnectionClient, session_manager: SessionManager, service: KaraokeService) -> None:
@@ -90,8 +89,6 @@ class ClientCommands:
 
         try:
             if played_seconds < MIN_SCORED_SECONDS:
-                score = room.set_score(entry_id, SCORE_FLOOR, "auto")
-                await self._broadcast_score(room_id, score)
                 return
 
             await asyncio.sleep(SCORE_GRACE_SECONDS)
@@ -176,6 +173,10 @@ class ClientCommands:
             await self._hold_at_end_of_song()
             return {"advanced": False, "autoplay": False}
 
+        # A manual skip stops on the outgoing song long enough to score it
+        if not is_auto and await self._score_skipped_song():
+            return {"advanced": False, "scoring": True}
+
         next_song = self.room.play_next()
         print(f"[DEBUG] Playing next song: {next_song}")
 
@@ -191,6 +192,30 @@ class ClientCommands:
 
         await self._broadcast_room_state()
         return {"advanced": next_song is not None, "autoplay": self.room.autoplay}
+
+    async def _score_skipped_song(self) -> bool:
+        """Hold a skipped song on screen for its score. True when it did."""
+        state = self.room.player_state
+        entry = state.entry if state else None
+
+        # Already finished means this is the display coming back for the
+        # advance it was held off from
+        if not entry or state.play_state == "finished":
+            return False
+
+        if state.current_time < MIN_SCORED_SECONDS or self.room.has_score_for(entry.id):
+            return False
+
+        # Nobody was going to report on a song no one let finish, so there is
+        # nothing to wait for
+        score = self.room.set_score(entry.id, roll_score(), "auto")
+
+        await self._hold_at_end_of_song()
+        await self._broadcast_score(self.client.room_id, score)
+        await self.session_manager.broadcast_to_room_displays(
+            self.client.room_id, "scoring", {"entry_id": entry.id, "quick": True}
+        )
+        return True
 
     async def _hold_at_end_of_song(self):
         """Stop on the finished song and leave the queue untouched."""

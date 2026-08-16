@@ -30,6 +30,13 @@ type AppState = "awaiting-interaction" | "connecting" | "connected" | "ready" | 
 // controller with a microphone always beats the fallback roll.
 const SCORE_HOLD_MS = 7000;
 
+// A skip is not a performance anyone is waiting on, so its score comes and
+// goes faster than one earned by playing a song out.
+const SKIP_SCORE_HOLD_MS = 3500;
+
+// Below this nothing was sung, so the song passes without a score at all
+const MIN_SCORED_SECONDS = 5;
+
 interface OSDState {
   label: string;
   value?: string;
@@ -42,7 +49,8 @@ interface PlayerContextType {
   hasInteracted: boolean;
   setHasInteracted: (value: boolean) => void;
   playerState: DisplayPlayerState | null;
-  beginScoring: () => void;
+  scoring: { entryId: string; quick: boolean } | null;
+  finishSong: (entryId: string, playedSeconds: number) => void;
   osd: OSDState;
   setOSD: (osd: OSDState, options?: TempStateSetterOptions<OSDState>) => void;
 }
@@ -74,7 +82,7 @@ function VideoPlayerComponent({
   onRetry: () => void;
   retryCount: number;
   onNearingEnd: (params: { timeRemaining: number }) => void;
-  onSongEnded: () => void;
+  onSongEnded: (playedSeconds: number) => void;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const { updatePlayerState } = useRoomContext();
@@ -367,7 +375,7 @@ function VideoPlayerComponent({
             duration: video.duration || 0,
             volume: video.volume,
           });
-          onSongEnded();
+          onSongEnded(video.currentTime || 0);
         }}
       >
         <track kind="captions" />
@@ -439,7 +447,7 @@ function PlayingStateContent() {
   const [queuedTitle, setQueuedTitle] = useTempState<string | null>(null);
 
   const { playerState, upNextQueue, autoplay } = useRoomContext();
-  const { beginScoring } = usePlayerState();
+  const { finishSong } = usePlayerState();
   const { trigger: triggerVideoUrl } = useVideoUrlMutation();
   const {
     videoUrl: videoUrlData,
@@ -565,7 +573,7 @@ function PlayingStateContent() {
           onRetry={retry}
           retryCount={retryCount}
           onNearingEnd={handleNearingEnd}
-          onSongEnded={beginScoring}
+          onSongEnded={(playedSeconds) => finishSong(playerState.entry!.id, playedSeconds)}
         />
       </div>
 
@@ -618,19 +626,19 @@ function ConnectedStateScreen() {
 }
 
 function ScoringStateScreen() {
-  const { playerState, score } = useRoomContext();
-  const entry = playerState?.entry;
+  const { score } = useRoomContext();
+  const { scoring } = usePlayerState();
 
   // A score left over from an earlier song is ignored rather than shown
   // against the wrong performance.
-  const shownScore = score && entry && score.entry_id === entry.id ? score.score : null;
+  const shownScore = score && scoring && score.entry_id === scoring.entryId ? score.score : null;
 
   return (
     <div className="relative h-screen w-screen">
       <Backdrop name="idle" />
 
       <div className="relative z-10 h-full w-full flex items-center justify-center title-safe">
-        <ScoreScreen score={shownScore} />
+        <ScoreScreen score={shownScore} quick={scoring?.quick ?? false} />
       </div>
     </div>
   );
@@ -700,7 +708,7 @@ function AwaitingInteractionStateScreen() {
 
 function PlayerStateProviderInternal({ children }: { children: React.ReactNode }) {
   const [hasInteracted, setHasInteracted] = useState(false);
-  const [isScoring, setIsScoring] = useState(false);
+  const [scoring, setScoring] = useState<{ entryId: string; quick: boolean } | null>(null);
   const scoreTimer = useRef<number | null>(null);
 
   const {
@@ -711,6 +719,7 @@ function PlayerStateProviderInternal({ children }: { children: React.ReactNode }
     lastQueueCommand,
     isLeader,
     playNext,
+    scoringCue,
   } = useRoomContext();
 
   // Use smart sync for non-leader displays
@@ -726,11 +735,11 @@ function PlayerStateProviderInternal({ children }: { children: React.ReactNode }
     if (!connected) return "connecting";
     // The finished song gets the screen to itself, so the video and its banner
     // come down before the score goes up.
-    if (isScoring) return "scoring";
+    if (scoring) return "scoring";
     if (playerState?.entry) return "playing";
     // If no entry is set, we are ready to play
     return clientCount > 1 ? "ready" : "connected";
-  }, [hasInteracted, connected, isScoring, playerState?.entry, clientCount]);
+  }, [hasInteracted, connected, scoring, playerState?.entry, clientCount]);
 
   const clearScoreTimer = useCallback(() => {
     if (scoreTimer.current === null) return;
@@ -739,19 +748,40 @@ function PlayerStateProviderInternal({ children }: { children: React.ReactNode }
     scoreTimer.current = null;
   }, []);
 
-  const beginScoring = useCallback(() => {
-    setIsScoring(true);
+  const beginScoring = useCallback((entryId: string, quick: boolean) => {
+    setScoring({ entryId, quick });
     clearScoreTimer();
 
     scoreTimer.current = window.setTimeout(() => {
       scoreTimer.current = null;
-      setIsScoring(false);
-      playNext({ auto: true });
-    }, SCORE_HOLD_MS);
+      setScoring(null);
+      // A skip advances whatever autoplay says, since someone asked for it
+      playNext({ auto: !quick });
+    }, quick ? SKIP_SCORE_HOLD_MS : SCORE_HOLD_MS);
   }, [clearScoreTimer, playNext]);
 
+  const finishSong = useCallback((entryId: string, playedSeconds: number) => {
+    if (playedSeconds < MIN_SCORED_SECONDS) {
+      playNext({ auto: true });
+      return;
+    }
+
+    beginScoring(entryId, false);
+  }, [beginScoring, playNext]);
+
+  // The server scores a skip, since no display watched that song end. Keyed
+  // on the cue itself, so a re-render cannot restart a hold already running.
+  const handledCue = useRef<number | null>(null);
+
   useEffect(() => {
-    setIsScoring(false);
+    if (!scoringCue || handledCue.current === scoringCue.at) return;
+
+    handledCue.current = scoringCue.at;
+    beginScoring(scoringCue.entryId, scoringCue.quick);
+  }, [scoringCue, beginScoring]);
+
+  useEffect(() => {
+    setScoring(null);
     clearScoreTimer();
   }, [playerState?.entry?.id, clearScoreTimer]);
 
@@ -806,7 +836,8 @@ function PlayerStateProviderInternal({ children }: { children: React.ReactNode }
     hasInteracted,
     setHasInteracted,
     playerState,
-    beginScoring,
+    scoring,
+    finishSong,
     osd,
     setOSD,
   };

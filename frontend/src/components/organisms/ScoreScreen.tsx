@@ -14,6 +14,7 @@ const RATING_SLOT = "h-[3.75rem]";
 const ROLL_TICK_MIN_MS = 55;
 const ROLL_TICK_MAX_MS = 320;
 const LANDING_MS = 1500;
+const QUICK_LANDING_MS = 600;
 const MAX_SPREAD = 45;
 
 function prefersReducedMotion() {
@@ -28,7 +29,7 @@ function randomBetween(low: number, high: number) {
  * Spins through digits while the room waits, then slows down and closes in on
  * the real score rather than jumping to it.
  */
-function useScoreReveal(target: number | null) {
+function useScoreReveal(target: number | null, landingMs: number) {
   const [value, setValue] = useState(0);
   const [settled, setSettled] = useState(false);
 
@@ -50,7 +51,7 @@ function useScoreReveal(target: number | null) {
         landingStart = now;
       }
 
-      const progress = landingStart === null ? 0 : Math.min((now - landingStart) / LANDING_MS, 1);
+      const progress = landingStart === null ? 0 : Math.min((now - landingStart) / landingMs, 1);
       const eased = 1 - Math.pow(1 - progress, 3);
 
       if (target !== null && progress >= 1) {
@@ -75,7 +76,7 @@ function useScoreReveal(target: number | null) {
 
     frame = requestAnimationFrame(step);
     return () => cancelAnimationFrame(frame);
-  }, [target]);
+  }, [target, landingMs]);
 
   return { value, settled };
 }
@@ -83,11 +84,13 @@ function useScoreReveal(target: number | null) {
 export interface ScoreScreenProps {
   /** Null while the room is still waiting for a score to land. */
   score: number | null;
+  /** Lands sooner, for a score nobody stayed for. */
+  quick?: boolean;
   className?: string;
 }
 
-export function ScoreScreen({ score, className }: ScoreScreenProps) {
-  const { value, settled } = useScoreReveal(score);
+export function ScoreScreen({ score, quick = false, className }: ScoreScreenProps) {
+  const { value, settled } = useScoreReveal(score, quick ? QUICK_LANDING_MS : LANDING_MS);
   const rating = score === null ? null : ratingFor(score);
   const revealed = settled && rating !== null;
 

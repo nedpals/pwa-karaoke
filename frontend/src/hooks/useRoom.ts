@@ -28,6 +28,8 @@ export interface RoomState {
   isLeader: boolean;
   lastReaction: ReactionEvent | null;
   score: SongScore | null;
+  /** Server asking a display to score a song it did not watch end. */
+  scoringCue: { entryId: string; quick: boolean; at: number } | null;
   lastQueueCommand: {
     command: string;
     data: unknown;
@@ -77,6 +79,7 @@ export function useRoom(clientType: ClientType): UseRoomReturn {
   const [isLeader, setIsLeader] = useState(false);
   const [lastReaction, setLastReaction] = useState<ReactionEvent | null>(null);
   const [score, setScore] = useState<SongScore | null>(null);
+  const [scoringCue, setScoringCue] = useState<RoomState["scoringCue"]>(null);
   const [lastQueueCommand, setLastQueueCommand] = useState<{
     command: string;
     data: unknown;
@@ -253,6 +256,12 @@ export function useRoom(clientType: ClientType): UseRoomReturn {
       case "score":
         setScore(data as SongScore);
         break;
+      case "scoring":
+        if (clientType === "display") {
+          const cue = data as { entry_id: string; quick: boolean };
+          setScoringCue({ entryId: cue.entry_id, quick: cue.quick, at: Date.now() });
+        }
+        break;
       case "set_volume":
         if (clientType === "display") {
           console.log(
@@ -274,6 +283,7 @@ export function useRoom(clientType: ClientType): UseRoomReturn {
       setIsLeader(false);
       setLastReaction(null);
       setScore(null);
+      setScoringCue(null);
       setLastQueueCommand(null);
       apiClient.clearRoomCredentials();
     } else if (ws.connected && clientType === "display") {
@@ -302,6 +312,7 @@ export function useRoom(clientType: ClientType): UseRoomReturn {
     isLeader,
     lastReaction,
     score,
+    scoringCue,
     lastQueueCommand,
 
     // Actions

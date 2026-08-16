@@ -112,22 +112,22 @@ Pressing **Next** always skips to the next reserved song, whatever the toggle is
 
 ### Scoring
 
-Every song gets a score when it ends. The video and its banner come down, the display switches to a scoring screen, and it spins through digits before landing on a number with a rating under it. After a few seconds it moves on to the next reserved song, or back to the idle screen when nothing is waiting.
+A song is scored when it ends or when someone skips it. The video and its banner come down, the display switches to a scoring screen, and the digits spin before settling on a number with a rating under it. It then plays the next reserved song, or returns to the idle screen when nothing is waiting.
 
-Where that number comes from depends on whether a controller is listening:
+The score comes from one of two places:
 
-- **Mic scoring on.** The controller measures loudness through the phone's microphone. It spends the first few seconds of the song learning the room's noise floor, then scores how much of the song you spent above it and how far above you got. Nothing but the final number leaves the phone.
-- **Mic scoring off.** The server makes one up, weighted the way a videoke box feels.
+- **Mic scoring on.** The controller measures loudness through the device microphone. It samples the room's noise floor over the first few seconds of the song, then scores the share of the song spent above that floor and how far above it went. Only the resulting number is sent.
+- **Mic scoring off.** The server generates one, weighted towards the high end.
 
-Both land in the same range, so a room cannot tell which one it is looking at.
+Both use the same range, so the screen looks the same either way.
 
-A controller opens with a **Mic Check** screen, the same way a display opens with a Sound Check. It explains what the microphone is for and offers **Allow Mic** or **Not Now**. Browsers will not open a microphone without a gesture behind it, so that button is what asks for one, and the browser's own permission prompt still has the final say.
+A controller opens with a **Mic Check** screen, matching the Sound Check a display opens with. It states what the microphone is used for and offers **Allow Mic** or **Not Now**. A microphone cannot be opened without a user gesture, so that button is what requests one, and the browser permission prompt applies on top of it.
 
-After that there is no control for it, only a footnote in the Player tab saying whether it is on. Skipping it, denying the browser prompt, or reaching the app over plain `http` on a LAN address where microphones are unavailable all leave scoring running without one.
+There is no further control for it, only a footnote in the Player tab reporting whether it is on. Skipping the prompt, denying the browser, and plain `http` on a LAN address, where microphones are unavailable, all leave scoring running without one.
 
-Skipping a song scores nothing, it just moves on. A song that ends inside its first fifteen seconds takes the floor of 60 whatever a microphone made of it, since there was not enough of it to have judged.
+A skipped song is scored from the server, since no display saw it end, and its reveal is shorter. A song that played for less than five seconds is not scored at all.
 
-The score belongs to the room, so every display shows the same number, and a display that joins while a score is up receives it.
+The score is held by the room, so every display shows the same number, and a display that connects while one is up receives it.
 
 ### Development
 

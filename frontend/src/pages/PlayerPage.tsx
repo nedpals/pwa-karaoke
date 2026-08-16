@@ -5,6 +5,7 @@ import { Panel } from "../components/atoms/Panel";
 import { useRoom } from "../hooks/useRoom";
 import { OSD } from "../components/molecules/OSD";
 import { NowPlayingBanner, type BannerTone } from "../components/organisms/NowPlayingBanner";
+import { UpNextCard } from "../components/organisms/UpNextCard";
 import { QRCode } from "../components/atoms/QRCode";
 import { Button } from "../components/atoms/Button";
 import { LoadingIndicator } from "../components/atoms/LoadingIndicator";
@@ -457,6 +458,13 @@ function PlayingStateContent() {
     };
   }, [upNextTitle, queuedTitle, playerState]);
 
+  // With autoplay off the song ends and the queue just sits there, so the
+  // display has to say what is waiting and how to start it.
+  const heldSong = useMemo(() => {
+    if (autoplay || playerState?.play_state !== "finished") return null;
+    return upNextQueue?.items[0] ?? null;
+  }, [autoplay, playerState?.play_state, upNextQueue]);
+
   const videoUrl = useMemo(() => {
     if (!playerState?.entry) return null;
 
@@ -540,6 +548,12 @@ function PlayingStateContent() {
           onNearingEnd={handleNearingEnd}
         />
       </div>
+
+      {heldSong && (
+        <div className="absolute inset-0 z-20 flex items-center justify-center title-safe pointer-events-none">
+          <UpNextCard entry={heldSong.entry} remaining={(upNextQueue?.items.length ?? 1) - 1} />
+        </div>
+      )}
     </div>
   );
 }

@@ -19,7 +19,7 @@ export function UpNextCard({ entry, className, ...props }: UpNextCardProps) {
         <div className="flex items-center gap-3 border-t-2 border-ka-line pt-4">
           <MaterialSymbolsFastForwardRounded className="text-3xl text-ka-amber shrink-0" />
           <Text size="lg" tone="dim">
-            Press Next on the remote to continue.
+            Press Next on the controller to continue.
           </Text>
         </div>
       </div>

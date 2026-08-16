@@ -393,7 +393,7 @@ function StatusStrip() {
       </div>
       <div className="flex items-center gap-2 px-3 py-1">
         <Text font="display" size="sm" tone="dim">
-          Remotes
+          Controllers
         </Text>
         <Text font="mono" size="sm" tone="accent">
           {clientCount.toString().padStart(2, "0")}
@@ -569,7 +569,7 @@ function ConnectedStateScreen() {
   const controllerUrl = `${window.location.origin}/controller?room=${encodeURIComponent(roomId)}`;
 
   return (
-    <MessageTemplate title="Connect a Remote" backdrop="idle">
+    <MessageTemplate title="Connect a Controller" backdrop="idle">
       <div className="flex flex-col md:flex-row items-center gap-8 w-full">
         <div className="flex-1 space-y-4">
           <Text size="lg" tone="dim">

@@ -584,7 +584,7 @@ function QueueTab() {
   );
 }
 
-function RemoteHeader() {
+function ControllerHeader() {
   const { isOffline } = useServerStatus();
   const { roomId, upNextQueue, connected } = useRoomContext();
 
@@ -626,7 +626,7 @@ function ControllerPageContent() {
 
   return (
     <ControllerLayout>
-      <RemoteHeader />
+      <ControllerHeader />
       <TabNavigation
         className="flex-1 min-h-0"
         tabs={tabs}

@@ -55,12 +55,11 @@ export function ReactionPad({ onReact, disabled = false }: ReactionPadProps) {
             disabled={disabled}
             active={flashed === reaction.type}
             onClick={() => handleReact(reaction.type)}
-            className="flex flex-col items-center justify-center gap-1 py-3"
+            className="flex items-center justify-center py-3"
           >
-            <span className="text-3xl leading-none" aria-hidden>
+            <span className="text-4xl leading-none" aria-hidden>
               {reaction.glyph}
             </span>
-            <span className="text-[0.65rem] tracking-widest">{reaction.label}</span>
           </Button>
         ))}
       </div>

@@ -3,22 +3,22 @@ import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "../../lib/utils";
 
 const inputVariants = cva(
-  "w-full rounded-lg border focus:outline-none transition-colors disabled:opacity-50 disabled:cursor-not-allowed",
+  "w-full border-2 bg-ka-void border-ka-line-dim text-ka-ink placeholder-ka-dim caret-ka-amber bevel-in focus:outline-none focus:border-ka-amber disabled:opacity-40 disabled:cursor-not-allowed",
   {
     variants: {
       size: {
-        sm: "px-3 py-2 text-sm",
-        md: "px-4 py-3 text-base",
-        lg: "px-4 py-4 text-2xl",
+        sm: "px-2 py-1.5 text-sm",
+        md: "px-3 py-2.5 text-base",
+        lg: "px-4 py-3.5 text-2xl",
       },
-      glass: {
-        true: "bg-black/40 text-white placeholder-white/70 border-white/20 focus:border-white/60 text-shadow-sm text-shadow-black shadow-lg",
-        false: "bg-white text-black placeholder-gray-400 border-gray-300 focus:border-blue-500",
+      font: {
+        body: "font-body",
+        mono: "font-mono tracking-widest",
       },
     },
     defaultVariants: {
       size: "md",
-      glass: false,
+      font: "body",
     },
   }
 );
@@ -36,7 +36,7 @@ export interface InputProps<T extends ElementType = "input"> extends BaseInputPr
 export function Input<T extends ElementType = "input">({
   as,
   size,
-  glass,
+  font,
   className,
   ...rest
 }: InputProps<T> & Omit<React.ComponentPropsWithRef<T>, keyof InputProps<T>>) {
@@ -44,7 +44,7 @@ export function Input<T extends ElementType = "input">({
 
   return (
     <Component
-      className={cn(inputVariants({ size, glass }), className)}
+      className={cn(inputVariants({ size, font }), className)}
       {...rest}
     />
   );

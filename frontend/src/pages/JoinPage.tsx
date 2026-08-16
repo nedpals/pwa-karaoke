@@ -1,15 +1,25 @@
 import { Link, useNavigate } from "react-router";
 import { useState } from "react";
 import { FullScreenLayout } from "../components/templates/FullScreenLayout";
+import { Panel } from "../components/atoms/Panel";
 import { Text } from "../components/atoms/Text";
 import { Button } from "../components/atoms/Button";
 import { Input } from "../components/atoms/Input";
-import { LoadingSpinner } from "../components/atoms/LoadingSpinner";
+import { LoadingIndicator } from "../components/atoms/LoadingIndicator";
 import { useRooms, useRoomDetails, useVerifyRoomMutation } from "../hooks/useApi";
 import { storeRoomPassword } from "../lib/roomStorage";
 import { useDebounce } from "use-debounce";
 
-const backgroundImage = "https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?q=80&w=2070&auto=format&fit=crop&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D";
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex flex-col gap-1">
+      <Text font="display" size="sm" tone="dim">
+        {label}
+      </Text>
+      {children}
+    </div>
+  );
+}
 
 export default function JoinPage() {
   const [selectedRoomId, setSelectedRoomId] = useState("");
@@ -23,18 +33,10 @@ export default function JoinPage() {
   const { data: roomDetails, isLoading: isRoomDetailsLoading } = useRoomDetails(debouncedRoomId || null);
   const { trigger: verifyRoom } = useVerifyRoomMutation();
   const hasValidRoom = typeof roomDetails !== "undefined" || (selectedRoomId.trim().length > 0 && !isRoomDetailsLoading);
+  const isBusy = !hasValidRoom || isVerifying || selectedRoomId !== debouncedRoomId || isRoomDetailsLoading;
 
   const handleRoomInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setSelectedRoomId(e.target.value);
-  };
-
-  const handleRoomSelect = (roomId: string) => {
-    setSelectedRoomId(roomId);
-  };
-
-  const handlePasswordInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setPasswordInput(e.target.value);
-    setVerifyError(null);
   };
 
   const navigateToMode = async (mode: "player" | "controller") => {
@@ -50,12 +52,10 @@ export default function JoinPage() {
     try {
       await verifyRoom({ room_id: roomId, password });
 
-      // Store password if provided and verification successful
       if (password) {
         storeRoomPassword(roomId, password);
       }
 
-      // Navigate to the room
       const searchParams = new URLSearchParams();
       searchParams.set("room", roomId);
       navigate(`/${mode}?${searchParams.toString()}`);
@@ -71,153 +71,138 @@ export default function JoinPage() {
   );
 
   return (
-    <FullScreenLayout
-      background="image"
-      backgroundImage={backgroundImage}
-    >
-      <div className="flex flex-col items-center justify-center h-full bg-black/30 p-8">
-        <div className="max-w-4xl w-full space-y-8">
-          <div className="text-center space-y-4">
-            <Text as="h1" size="6xl" weight="bold" shadow className="text-white">
+    <FullScreenLayout background="image" backdrop="lobby" className="overflow-y-auto">
+      <div className="min-h-full w-full flex items-center justify-center title-safe">
+        <Panel className="w-full max-w-2xl">
+          <header className="px-4 py-2 bg-ka-raised border-b-2 border-ka-line">
+            <Text font="display" size="2xl" weight="bold" tone="accent">
               Join Room
             </Text>
-            <Text size="xl" shadow className="text-white/80 max-w-2xl mx-auto">
-              Browse active rooms or enter a room name to join.
-            </Text>
-          </div>
+          </header>
 
-          <div className="max-w-xl mx-auto w-full bg-black/60 p-8 rounded-xl border border-white/20">
+          <div className="p-4 space-y-4">
             <div>
-              <Text size="lg" shadow className="text-white mb-4 text-center">
-                Active Rooms
-              </Text>
+              <div className="flex items-center gap-3 border-b-2 border-ka-line pb-1 mb-2">
+                <Text font="display" size="lg" weight="bold">
+                  Active Rooms
+                </Text>
+                <Text font="mono" size="lg" tone="dim">
+                  {filteredRooms.length.toString().padStart(2, "0")}
+                </Text>
+              </div>
 
               {isLoading && (
-                <div className="flex justify-center py-8">
-                  <LoadingSpinner size="lg" />
+                <div className="flex justify-center py-6">
+                  <LoadingIndicator size="lg" />
                 </div>
               )}
 
               {error && (
-                <div className="text-center py-4">
-                  <Text size="base" className="text-red-400">
-                    Failed to load rooms. Please try again.
-                  </Text>
-                </div>
+                <Text size="sm" tone="danger" className="py-4 text-center">
+                  Failed to load rooms.
+                </Text>
               )}
 
-              {!isLoading && !error && filteredRooms.length === 0 && rooms.length === 0 && (
-                <div className="text-center py-8 space-y-8">
-                  <Text size="base" className="text-white/60">
-                    No active rooms found. Create a new room to get started!
+              {!isLoading && !error && rooms.length === 0 && (
+                <div className="py-6 flex flex-col items-center gap-4">
+                  <Text size="sm" tone="dim">
+                    No active rooms.
                   </Text>
-                  <Button
-                    as={Link}
-                    to="/create"
-                    variant="primary"
-                    size="lg"
-                  >
+                  <Button as={Link} to="/create" variant="accent" size="lg">
                     Create Room
                   </Button>
                 </div>
               )}
 
-              {!isLoading && !error && filteredRooms.length === 0 && rooms.length > 0 && selectedRoomId.length > 0 && (
-                <div className="text-center py-4">
-                  <Text size="base" className="text-white/60">
-                    No rooms match "{selectedRoomId}". Press enter to join/create this room.
-                  </Text>
-                </div>
+              {!isLoading && !error && rooms.length > 0 && filteredRooms.length === 0 && (
+                <Text size="sm" tone="dim" className="py-4 text-center">
+                  No room matches "{selectedRoomId}". Join anyway to create it.
+                </Text>
               )}
 
               {filteredRooms.length > 0 && (
-                <div className="space-y-2 max-h-48 overflow-y-auto">
-                  {filteredRooms.map((room) => (
-                    <Button
-                      key={room.id}
-                      onClick={() => handleRoomSelect(room.id)}
-                      variant={selectedRoomId === room.id ? "primary" : "glass"}
-                      className="w-full p-4 text-left hover:scale-[1.01] transition-transform"
-                    >
-                      <div className="flex justify-between items-center">
-                        <div className="flex flex-col">
-                          <Text size="lg" weight="bold" className={selectedRoomId === room.id ? "text-white" : "text-white"}>
+                <div className="flex flex-col gap-1 max-h-56 overflow-y-auto">
+                  {filteredRooms.map((room, index) => {
+                    const selected = selectedRoomId === room.id;
+
+                    return (
+                      <button
+                        key={room.id}
+                        type="button"
+                        onClick={() => setSelectedRoomId(room.id)}
+                        className={`flex items-stretch border-2 text-left active:translate-y-px ${
+                          selected
+                            ? "bg-ka-amber border-ka-amber text-ka-void"
+                            : "bg-ka-panel border-ka-line text-ka-ink bevel"
+                        }`}
+                      >
+                        <div className="flex items-center px-2 border-r-2 border-ka-line-dim">
+                          <Text font="mono" size="sm" tone={selected ? "inverse" : "dim"}>
+                            {(index + 1).toString().padStart(2, "0")}
+                          </Text>
+                        </div>
+                        <div className="flex-1 min-w-0 px-3 py-2">
+                          <Text weight="bold" truncate tone={selected ? "inverse" : "default"}>
                             {room.name}
                           </Text>
                           {room.current_song && (
-                            <Text size="sm" className={selectedRoomId === room.id ? "text-white/70" : "text-white/50"}>
-                              Playing: {room.current_song}
+                            <Text size="sm" truncate tone={selected ? "inverse" : "dim"}>
+                              {room.current_song}
                             </Text>
                           )}
                         </div>
-                        <div className="flex items-center space-x-2">
-                          <div className="w-2 h-2 bg-green-400 rounded-full"></div>
-                          <Text size="sm" className={selectedRoomId === room.id ? "text-white/80" : "text-white/60"}>
-                            {room.client_count} users
+                        <div className="flex items-center gap-3 px-3 border-l-2 border-ka-line-dim">
+                          <Text font="mono" size="sm" tone={selected ? "inverse" : "dim"}>
+                            {room.client_count.toString().padStart(2, "0")}p
                           </Text>
-                          {room.queue_length > 0 && (
-                            <Text size="sm" className={selectedRoomId === room.id ? "text-white/60" : "text-white/40"}>
-                              • {room.queue_length} songs
-                            </Text>
-                          )}
+                          <Text font="mono" size="sm" tone={selected ? "inverse" : "accent"}>
+                            {room.queue_length.toString().padStart(2, "0")}q
+                          </Text>
                         </div>
-                      </div>
-                    </Button>
-                  ))}
+                      </button>
+                    );
+                  })}
                 </div>
               )}
             </div>
 
-            <div className="mb-4">
-              <Text shadow className="text-white mb-2">
-                Or enter Room Name
-              </Text>
+            <Field label="Room Name">
               <Input
                 value={selectedRoomId}
                 onChange={handleRoomInputChange}
-                placeholder="Search rooms or enter room name"
-                size="md"
-                glass
+                placeholder="Search or type a room name"
+                font="mono"
               />
-            </div>
+            </Field>
 
-            <div className="mb-4">
-              <Text shadow className="text-white mb-2">
-                Room Password (If Required)
-              </Text>
+            <Field label="Password (if required)">
               <Input
                 value={passwordInput}
-                onChange={handlePasswordInputChange}
-                placeholder="Enter room password"
+                onChange={(e) => {
+                  setPasswordInput(e.target.value);
+                  setVerifyError(null);
+                }}
+                placeholder="Room password"
                 type="password"
-                glass
-                disabled={!roomDetails?.requires_password || isVerifying || selectedRoomId !== debouncedRoomId || isRoomDetailsLoading}
+                disabled={!roomDetails?.requires_password || isBusy}
               />
               {verifyError && (
-                <Text size="sm" className="text-red-400">
+                <Text size="sm" tone="danger">
                   {verifyError}
                 </Text>
               )}
-            </div>
+            </Field>
 
-            <div className="grid md:grid-cols-2 gap-4">
-              <Button
-                size="lg"
-                disabled={!hasValidRoom || isVerifying || selectedRoomId !== debouncedRoomId || isRoomDetailsLoading}
-                onClick={() => navigateToMode("player")}
-              >
-                {isVerifying && joiningAs === "player" ? "Joining..." : "Join as Player"}
+            <div className="grid grid-cols-2 gap-2 pt-1">
+              <Button size="lg" variant="accent" disabled={isBusy} onClick={() => navigateToMode("player")}>
+                {isVerifying && joiningAs === "player" ? "Joining" : "Enter as Display"}
               </Button>
-              <Button
-                size="lg"
-                disabled={!hasValidRoom || isVerifying || selectedRoomId !== debouncedRoomId || isRoomDetailsLoading}
-                onClick={() => navigateToMode("controller")}
-              >
-                {isVerifying && joiningAs === "controller" ? "Joining..." : "Join as Controller"}
+              <Button size="lg" disabled={isBusy} onClick={() => navigateToMode("controller")}>
+                {isVerifying && joiningAs === "controller" ? "Joining" : "Enter as Remote"}
               </Button>
             </div>
           </div>
-        </div>
+        </Panel>
       </div>
     </FullScreenLayout>
   );

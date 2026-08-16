@@ -1,17 +1,26 @@
 import { useNavigate } from "react-router";
 import { useEffect, useState } from "react";
 import { FullScreenLayout } from "../components/templates/FullScreenLayout";
+import { Panel } from "../components/atoms/Panel";
 import { Text } from "../components/atoms/Text";
 import { Button } from "../components/atoms/Button";
 import { Input } from "../components/atoms/Input";
-import { LoadingSpinner } from "../components/atoms/LoadingSpinner";
 import { ToggleButtonGroup } from "../components/molecules/ToggleButtonGroup";
 import { generateRoomId } from "../lib/utils";
 import { useCreateRoomMutation, useRoomDetails } from "../hooks/useApi";
 import { storeRoomPassword } from "../lib/roomStorage";
 import { useDebounce } from "use-debounce";
 
-const backgroundImage = "https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?q=80&w=2070&auto=format&fit=crop&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D";
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex flex-col gap-1">
+      <Text font="display" size="sm" tone="dim">
+        {label}
+      </Text>
+      {children}
+    </div>
+  );
+}
 
 export default function CreatePage() {
   const navigate = useNavigate();
@@ -31,10 +40,6 @@ export default function CreatePage() {
     setError(null);
   };
 
-  const handlePasswordChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setPassword(e.target.value);
-  };
-
   const navigateToMode = async (mode: "player" | "controller") => {
     if (isCreating) return;
 
@@ -52,7 +57,6 @@ export default function CreatePage() {
         storeRoomPassword(roomId, password);
       }
 
-      // Navigate to the mode
       const searchParams = new URLSearchParams();
       searchParams.set("room", roomId);
       navigate(`/${mode}?${searchParams.toString()}`);
@@ -64,45 +68,27 @@ export default function CreatePage() {
 
   useEffect(() => {
     if (roomDetails) {
-      setError("Room ID already exists. Please choose a different one.");
+      setError("Room name already taken. Pick another.");
       setIsCreating(false);
     }
   }, [roomDetails]);
 
   return (
-    <FullScreenLayout
-      background="image"
-      backgroundImage={backgroundImage}
-    >
-      <div className="flex flex-col items-center justify-center h-full bg-black/30 p-8">
-        <div className="max-w-4xl w-full space-y-8">
-          <div className="text-center space-y-4">
-            <Text as="h1" size="6xl" weight="bold" shadow className="text-white">
+    <FullScreenLayout background="image" backdrop="lobby" className="overflow-y-auto">
+      <div className="min-h-full w-full flex items-center justify-center title-safe">
+        <Panel className="w-full max-w-2xl">
+          <header className="px-4 py-2 bg-ka-raised border-b-2 border-ka-line">
+            <Text font="display" size="2xl" weight="bold" tone="accent">
               Create Room
             </Text>
-            <Text size="xl" shadow className="text-white/80 max-w-2xl mx-auto">
-              Start a new karaoke session for everyone to join.
-            </Text>
-          </div>
+          </header>
 
-          <div className="max-w-xl mx-auto w-full bg-black/60 p-8 rounded-xl border border-white/20 space-y-4">
-            <div>
-              <Text size="lg" shadow className="text-white mb-4 text-center">
-                Room Name
-              </Text>
-              <Input
-                value={roomId}
-                onChange={handleRoomChange}
-                placeholder="Enter custom room name or use generated name"
-                size="lg"
-                glass
-              />
-            </div>
+          <div className="p-4 space-y-4">
+            <Field label="Room Name">
+              <Input value={roomId} onChange={handleRoomChange} size="lg" font="mono" />
+            </Field>
 
-            <div>
-              <Text size="base" shadow className="text-white mb-2 text-center">
-                Select room visibility
-              </Text>
+            <Field label="Visibility">
               <ToggleButtonGroup
                 value={isPublic ? "public" : "private"}
                 onChange={(value) => setIsPublic(value === "public")}
@@ -111,84 +97,54 @@ export default function CreatePage() {
                   { value: "private", label: "Private" },
                 ]}
               />
-            </div>
+            </Field>
 
-            <div>
-              <Text size="base" shadow className="text-white mb-2 text-center">
-                Room Password
-              </Text>
+            <Field label="Password (optional)">
               <Input
                 value={password}
-                onChange={handlePasswordChange}
-                placeholder="Enter a password for your private room"
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="Leave blank for no password"
                 type="password"
-                glass
               />
-            </div>
+            </Field>
 
-            <div className="grid md:grid-cols-2 gap-8">
+            {error && (
+              <Panel tone="sunken" className="px-3 py-2">
+                <Text size="sm" tone="danger">
+                  {error}
+                </Text>
+              </Panel>
+            )}
+
+            <div className="grid grid-cols-2 gap-2 pt-1">
               <Button
                 onClick={() => navigateToMode("player")}
-                variant="glass"
+                variant="accent"
+                size="lg"
                 disabled={isCreating}
-                className="flex flex-col items-center justify-center space-y-4 text-center hover:scale-[1.02] transition-transform disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
+                className="flex flex-col py-3"
               >
-                {isCreating ? (
-                  <LoadingSpinner size="xl" />
-                ) : (
-                  <div className="text-6xl">🖥️</div>
-                )}
-                <div className="space-y-2">
-                  <Text size="xl" weight="bold" shadow className="text-white">
-                    {isCreating ? "Creating Room..." : "Enter as Display"}
-                  </Text>
-                  {!isCreating && (
-                    <Text shadow className="text-white/80">
-                      Connect to TV or projector to show videos
-                    </Text>
-                  )}
-                </div>
+                <span>{isCreating ? "Creating" : "Enter as Display"}</span>
+                <span className="text-xs tracking-widest opacity-70">TV or projector</span>
               </Button>
               <Button
                 onClick={() => navigateToMode("controller")}
-                variant="glass"
+                size="lg"
                 disabled={isCreating}
-                className="flex flex-col items-center justify-center space-y-4 text-center hover:scale-[1.02] transition-transform disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
+                className="flex flex-col py-3"
               >
-                {isCreating ? (
-                  <LoadingSpinner size="xl" />
-                ) : (
-                  <div className="text-6xl">📱</div>
-                )}
-                <div className="space-y-2">
-                  <Text size="xl" weight="bold" shadow className="text-white">
-                    {isCreating ? "Creating Room..." : "Enter as Controller"}
-                  </Text>
-                  {!isCreating && (
-                    <Text shadow className="text-white/80">
-                      Search songs and control the karaoke session
-                    </Text>
-                  )}
-                </div>
+                <span>{isCreating ? "Creating" : "Enter as Remote"}</span>
+                <span className="text-xs tracking-widest opacity-70">Phone or tablet</span>
               </Button>
             </div>
 
-            {error && (
-              <div className="text-center py-2">
-                <Text size="base" className="text-red-400">
-                  {error}
-                </Text>
-              </div>
-            )}
-
-            <Text size="sm" shadow className="text-white/60 text-center mt-8">
+            <Text size="sm" tone="dim">
               {isPublic
-                ? "Share this room name with others to join the same karaoke session"
-                : "Share both the room name and password with others to join"
-              }
+                ? "Anyone can find this room in the list."
+                : "Share the room name and password to let others in."}
             </Text>
           </div>
-        </div>
+        </Panel>
       </div>
     </FullScreenLayout>
   );

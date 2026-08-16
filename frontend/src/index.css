@@ -1,7 +1,58 @@
 @import "tailwindcss";
 
+@theme {
+  --font-body: "Noto Sans", sans-serif;
+  --font-display: "Barlow Condensed", "Noto Sans", sans-serif;
+  --font-mono: "Roboto Mono", ui-monospace, monospace;
+
+  --color-ka-void: #04070d;
+  --color-ka-panel: #0b1322;
+  --color-ka-raised: #16233a;
+  --color-ka-line: #38537f;
+  --color-ka-line-dim: #1f3050;
+  --color-ka-ink: #f2f6ff;
+  --color-ka-dim: #92a6c6;
+  --color-ka-amber: #ffc02e;
+  --color-ka-red: #ff3b30;
+  --color-ka-green: #37d67a;
+  --color-ka-cyan: #4fd8ef;
+}
+
 body {
-  font-family: "Noto Sans", sans-serif;
+  font-family: var(--font-body);
+  background-color: var(--color-ka-void);
+  color: var(--color-ka-ink);
+}
+
+::selection {
+  background-color: var(--color-ka-amber);
+  color: var(--color-ka-void);
+}
+
+@utility bevel {
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.14),
+    inset 0 -1px 0 rgb(0 0 0 / 0.55);
+}
+
+@utility bevel-in {
+  box-shadow:
+    inset 0 2px 4px rgb(0 0 0 / 0.7),
+    inset 0 -1px 0 rgb(255 255 255 / 0.06);
+}
+
+@utility text-hard {
+  text-shadow: 2px 2px 0 rgb(0 0 0 / 0.85);
+}
+
+@utility text-stencil {
+  text-shadow:
+    -2px -2px 0 #000, 2px -2px 0 #000, -2px 2px 0 #000, 2px 2px 0 #000,
+    0 3px 0 rgb(0 0 0 / 0.6);
+}
+
+@utility title-safe {
+  padding: 3.5vh 3.5vw;
 }
 
 @keyframes marqueeScroll {
@@ -16,5 +67,31 @@ body {
   }
   100% {
     transform: translateX(var(--scroll-distance));
+  }
+}
+
+@keyframes kaBlink {
+  0%,
+  50% {
+    opacity: 1;
+  }
+  51%,
+  100% {
+    opacity: 0.15;
+  }
+}
+
+@utility blink {
+  animation: kaBlink 1s steps(1, end) infinite;
+}
+
+@keyframes kaMarch {
+  0%,
+  33% {
+    opacity: 1;
+  }
+  34%,
+  100% {
+    opacity: 0.2;
   }
 }

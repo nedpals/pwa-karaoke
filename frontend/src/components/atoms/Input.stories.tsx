@@ -1,81 +1,44 @@
-import type { Meta, StoryObj } from '@storybook/react';
+import type { Meta, StoryObj } from '@storybook/react-vite';
 import { Input } from './Input';
 
 const meta: Meta<typeof Input> = {
   title: 'Atoms/Input',
   component: Input,
-  parameters: {
-    layout: 'centered',
-  },
+  parameters: { layout: 'centered' },
   tags: ['autodocs'],
   argTypes: {
-    size: {
-      control: { type: 'select' },
-      options: ['sm', 'md', 'lg'],
-    },
-    glass: {
-      control: { type: 'boolean' },
-    },
-    placeholder: {
-      control: { type: 'text' },
-    },
-    disabled: {
-      control: { type: 'boolean' },
-    },
+    size: { control: { type: 'select' }, options: ['sm', 'md', 'lg'] },
+    font: { control: { type: 'select' }, options: ['body', 'mono'] },
+    disabled: { control: { type: 'boolean' } },
   },
+  decorators: [
+    (Story) => (
+      <div style={{ width: '360px' }}>
+        <Story />
+      </div>
+    ),
+  ],
 };
 
 export default meta;
 type Story = StoryObj<typeof meta>;
 
 export const Default: Story = {
-  args: {
-    placeholder: 'Enter text...',
-    size: 'md',
-    glass: false,
-  },
+  args: { placeholder: 'Song title or artist' },
 };
 
-export const Glass: Story = {
-  args: {
-    placeholder: 'Search songs...',
-    size: 'md',
-    glass: true,
-  },
-  parameters: {
-    backgrounds: { default: 'dark' },
-  },
-};
-
-export const Small: Story = {
-  args: {
-    placeholder: 'Small input',
-    size: 'sm',
-    glass: false,
-  },
+export const Mono: Story = {
+  args: { placeholder: 'Room name', font: 'mono', defaultValue: 'epic-karaoke-482' },
 };
 
 export const Large: Story = {
-  args: {
-    placeholder: 'Large input',
-    size: 'lg',
-    glass: false,
-  },
+  args: { size: 'lg', placeholder: 'Room name' },
+};
+
+export const Password: Story = {
+  args: { type: 'password', defaultValue: 'secret' },
 };
 
 export const Disabled: Story = {
-  args: {
-    placeholder: 'Disabled input',
-    size: 'md',
-    glass: false,
-    disabled: true,
-  },
-};
-
-export const WithValue: Story = {
-  args: {
-    value: 'Some text content',
-    size: 'md',
-    glass: false,
-  },
+  args: { placeholder: 'Room password', disabled: true },
 };

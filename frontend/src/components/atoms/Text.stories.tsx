@@ -1,113 +1,58 @@
-import type { Meta, StoryObj } from '@storybook/react';
+import type { Meta, StoryObj } from '@storybook/react-vite';
 import { Text } from './Text';
 
 const meta: Meta<typeof Text> = {
   title: 'Atoms/Text',
   component: Text,
-  parameters: {
-    layout: 'centered',
-  },
+  parameters: { layout: 'centered' },
   tags: ['autodocs'],
   argTypes: {
-    variant: {
-      control: { type: 'select' },
-      options: ['heading', 'body', 'caption', 'display'],
-    },
-    size: {
-      control: { type: 'select' },
-      options: ['xs', 'sm', 'base', 'lg', 'xl', '2xl', '3xl', '4xl', '5xl', '6xl', '7xl', '8xl', '9xl'],
-    },
-    weight: {
-      control: { type: 'select' },
-      options: ['normal', 'medium', 'semibold', 'bold'],
-    },
-    shadow: {
-      control: { type: 'boolean' },
-    },
-    truncate: {
-      control: { type: 'boolean' },
-    },
-    children: {
-      control: { type: 'text' },
-    },
+    font: { control: { type: 'select' }, options: ['body', 'display', 'mono'] },
+    size: { control: { type: 'select' }, options: ['xs', 'sm', 'base', 'lg', 'xl', '2xl', '4xl', '6xl'] },
+    weight: { control: { type: 'select' }, options: ['normal', 'medium', 'semibold', 'bold'] },
+    tone: { control: { type: 'select' }, options: ['default', 'dim', 'accent', 'danger', 'ok', 'info', 'inverse'] },
   },
 };
 
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-export const Default: Story = {
-  args: {
-    children: 'This is default text',
-    variant: 'body',
-    size: 'base',
-    weight: 'normal',
-  },
-};
-
-export const Heading: Story = {
-  args: {
-    children: 'This is a heading',
-    variant: 'heading',
-    size: '2xl',
-    weight: 'bold',
-  },
+export const Body: Story = {
+  args: { children: 'Frank Sinatra - My Way (Karaoke Version)', font: 'body' },
 };
 
 export const Display: Story = {
-  args: {
-    children: 'Display Text',
-    variant: 'display',
-    size: '4xl',
-    weight: 'bold',
-  },
+  args: { children: 'Now Playing', font: 'display', size: '4xl', weight: 'bold' },
 };
 
-export const Caption: Story = {
-  args: {
-    children: 'This is caption text',
-    variant: 'caption',
-    size: 'sm',
-    weight: 'normal',
-  },
+export const Mono: Story = {
+  args: { children: '48213', font: 'mono', size: '4xl', weight: 'bold', tone: 'accent' },
 };
 
-export const WithShadow: Story = {
-  args: {
-    children: 'Text with shadow',
-    variant: 'heading',
-    size: 'xl',
-    weight: 'bold',
-    shadow: true,
-  },
-  parameters: {
-    backgrounds: { default: 'dark' },
-  },
+export const Fonts: Story = {
+  render: () => (
+    <div className="space-y-2">
+      <Text font="display" size="4xl" weight="bold">Display / chrome and headings</Text>
+      <Text font="body" size="lg">Body / titles, artists, prose</Text>
+      <Text font="mono" size="lg" tone="accent">Mono / 048213 · 03:41 · VOL 070</Text>
+    </div>
+  ),
 };
 
-export const Truncated: Story = {
-  args: {
-    children: 'This is a very long text that should be truncated when it exceeds the container width',
-    variant: 'body',
-    size: 'base',
-    weight: 'normal',
-    truncate: true,
-  },
-  decorators: [
-    (Story) => (
-      <div style={{ width: '200px' }}>
-        <Story />
-      </div>
-    ),
-  ],
+export const Tones: Story = {
+  render: () => (
+    <div className="space-y-1">
+      {(['default', 'dim', 'accent', 'danger', 'ok', 'info'] as const).map((tone) => (
+        <Text key={tone} font="display" size="xl" tone={tone}>{tone}</Text>
+      ))}
+    </div>
+  ),
 };
 
-export const AsHeading: Story = {
-  args: {
-    children: 'This is an H1 element',
-    variant: 'heading',
-    size: '3xl',
-    weight: 'bold',
-    as: 'h1',
-  },
+export const OverVideo: Story = {
+  render: () => (
+    <div className="bg-linear-to-br from-slate-300 to-slate-600 p-10">
+      <Text font="display" size="6xl" weight="bold" stencil>Select a Song</Text>
+    </div>
+  ),
 };

@@ -26,36 +26,32 @@ export function PasswordInput({ roomId, room }: PasswordInputProps) {
   };
 
   return (
-    <div className="flex flex-col items-center space-y-6 w-full max-w-md">
+    <form onSubmit={handleSubmit} className="w-full max-w-md space-y-3">
       {room.verificationError && (
-        <Text size="base" shadow className="text-gray-300 text-center">
+        <Text size="sm" tone="danger" className="text-center">
           {room.verificationError}
         </Text>
       )}
 
-      <form onSubmit={handleSubmit} className="w-full space-y-4">
-        <Input
-          type="password"
-          placeholder="Enter room password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          disabled={isSubmitting}
-          className="w-full text-center"
-          autoFocus
-        />
+      <Input
+        type="password"
+        placeholder="Room password"
+        value={password}
+        onChange={(e) => setPassword(e.target.value)}
+        disabled={isSubmitting}
+        className="text-center"
+        autoFocus
+      />
 
-        <div className="flex gap-4">
-          <Button
-            type="submit"
-            variant="primary"
-            size="lg"
-            disabled={isSubmitting || !password.trim()}
-            className="flex-1"
-          >
-            {isSubmitting ? 'Joining...' : 'Join Room'}
-          </Button>
-        </div>
-      </form>
-    </div>
+      <Button
+        type="submit"
+        variant="accent"
+        size="lg"
+        disabled={isSubmitting || !password.trim()}
+        className="w-full"
+      >
+        {isSubmitting ? 'Joining' : 'Enter'}
+      </Button>
+    </form>
   );
 }

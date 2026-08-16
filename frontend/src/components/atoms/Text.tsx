@@ -4,11 +4,10 @@ import { cn } from "../../lib/utils";
 
 const textVariants = cva("", {
   variants: {
-    variant: {
-      heading: "font-bold",
-      body: "",
-      caption: "opacity-70",
-      display: "font-bold",
+    font: {
+      body: "font-body",
+      display: "font-display uppercase tracking-wide",
+      mono: "font-mono tabular-nums",
     },
     size: {
       xs: "text-xs",
@@ -31,8 +30,21 @@ const textVariants = cva("", {
       semibold: "font-semibold",
       bold: "font-bold",
     },
+    tone: {
+      default: "",
+      dim: "text-ka-dim",
+      accent: "text-ka-amber",
+      danger: "text-ka-red",
+      ok: "text-ka-green",
+      info: "text-ka-cyan",
+      inverse: "text-ka-void",
+    },
     shadow: {
-      true: "text-shadow-md text-shadow-black",
+      true: "text-hard",
+      false: "",
+    },
+    stencil: {
+      true: "text-stencil",
       false: "",
     },
     truncate: {
@@ -41,17 +53,20 @@ const textVariants = cva("", {
     },
   },
   defaultVariants: {
-    variant: "body",
+    font: "body",
     size: "base",
     weight: "normal",
+    tone: "default",
     shadow: false,
+    stencil: false,
     truncate: false,
   },
 });
 
-export type TextVariant = "heading" | "body" | "caption" | "display";
+export type TextFont = "body" | "display" | "mono";
 export type TextSize = "xs" | "sm" | "base" | "lg" | "xl" | "2xl" | "3xl" | "4xl" | "5xl" | "6xl" | "7xl" | "8xl" | "9xl";
 export type TextWeight = "normal" | "medium" | "semibold" | "bold";
+export type TextTone = "default" | "dim" | "accent" | "danger" | "ok" | "info" | "inverse";
 
 export interface BaseTextProps extends VariantProps<typeof textVariants> {
   children: React.ReactNode;
@@ -64,10 +79,12 @@ export interface TextProps<T extends ElementType = "p"> extends BaseTextProps {
 
 export function Text<T extends ElementType = "p">({
   as,
-  variant,
+  font,
   size,
   weight,
+  tone,
   shadow,
+  stencil,
   truncate,
   className,
   children,
@@ -77,7 +94,7 @@ export function Text<T extends ElementType = "p">({
 
   return (
     <Component
-      className={cn(textVariants({ variant, size, weight, shadow, truncate }), className)}
+      className={cn(textVariants({ font, size, weight, tone, shadow, stencil, truncate }), className)}
       {...rest}
     >
       {children}

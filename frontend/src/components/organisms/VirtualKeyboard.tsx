@@ -23,7 +23,7 @@ interface VirtualKeyboardContextType {
 }
 
 const VirtualKeyboardContext = createContext<VirtualKeyboardContextType>({
-  keyClassName: "h-20 flex-1",
+  keyClassName: "h-14 flex-1",
   isUpperCase: false,
   onKeyPress: () => { },
   disabled: false
@@ -51,7 +51,7 @@ function Key({ characterKey, children, onKeyPress, disabled, className }: KeyPro
 
   return (
     <Button
-      variant="secondary"
+      variant="default"
       size="md"
       onClick={() => {
         if (disabled) return;
@@ -115,7 +115,7 @@ export function VirtualKeyboard({
 
   return (
     <VirtualKeyboardContext.Provider value={{
-      keyClassName: "h-20 flex-1",
+      keyClassName: "h-14 flex-1",
       disabled,
       onKeyPress: handleKeyPress,
       isUpperCase

@@ -17,8 +17,10 @@ const cardVariants = cva("flex flex-col", {
   },
 });
 
-export interface CardProps extends VariantProps<typeof cardVariants>, React.HTMLAttributes<HTMLDivElement> {
-  title?: string;
+export interface CardProps
+  extends VariantProps<typeof cardVariants>,
+    Omit<React.HTMLAttributes<HTMLDivElement>, "title"> {
+  title?: React.ReactNode;
   children?: React.ReactNode;
   headerActions?: React.ReactNode;
 }

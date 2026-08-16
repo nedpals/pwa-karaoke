@@ -14,6 +14,8 @@ class Room(BaseModel):
     player_state: Optional[DisplayPlayerState] = None
     queue_version: int = 1
     player_version: int = 1
+    autoplay: bool = True
+    settings_version: int = 1
     is_public: bool = True
     password_hash: Optional[str] = None
     created_at: float = time.time()
@@ -74,8 +76,22 @@ class Room(BaseModel):
     def get_up_next_queue(self) -> list[KaraokeQueueItem]:
         return self.queue.items[1:] if len(self.queue.items) > 1 else []
 
+    def set_autoplay(self, enabled: bool) -> bool:
+        if self.autoplay == enabled:
+            return False
+
+        self.autoplay = enabled
+        self.settings_version += 1
+        return True
+
     def update_player_state(self, state: DisplayPlayerState) -> None:
-        state.version = int(time.time() * 1000)
+        # Keep versions monotonic. A client clock running ahead of the server would
+        # otherwise stamp a version that no later update can beat.
+        version = int(time.time() * 1000)
+        if self.player_state and version <= self.player_state.version:
+            version = self.player_state.version + 1
+
+        state.version = version
         state.timestamp = time.time()
         self.player_state = state
         self.player_version += 1
@@ -84,6 +100,13 @@ class Room(BaseModel):
         return {
             "items": [item.model_dump() for item in self.queue.items],
             "version": self.queue_version,
+            "timestamp": time.time()
+        }
+
+    def get_settings_payload(self) -> Dict[str, Any]:
+        return {
+            "autoplay": self.autoplay,
+            "version": self.settings_version,
             "timestamp": time.time()
         }
 

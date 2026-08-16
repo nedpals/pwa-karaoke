@@ -38,6 +38,12 @@ export interface KaraokeQueue {
   timestamp: number;
 }
 
+export interface RoomSettings {
+  autoplay: boolean;
+  version: number;
+  timestamp: number;
+}
+
 export interface Room {
   id: string;
   name: string;

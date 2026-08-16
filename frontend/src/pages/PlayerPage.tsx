@@ -470,13 +470,18 @@ function PlayingStateContent() {
   }, [playerState?.entry, videoUrlData]);
 
   const handleNearingEnd = useCallback(({ timeRemaining }: { timeRemaining: number }) => {
-    if (!autoplay || !upNextQueue || upNextQueue.items.length === 0) return;
+    if (!upNextQueue || upNextQueue.items.length === 0) return;
 
     const nextSong = upNextQueue.items[0];
-    setUpNextTitle(
-      `${nextSong.entry.artist} - ${nextSong.entry.title}`,
-      { duration: timeRemaining * 1000 },
-    );
+
+    // Announce the rollover only when one is coming. The URL is still worth
+    // prefetching either way so a manual Next is not left waiting.
+    if (autoplay) {
+      setUpNextTitle(
+        `${nextSong.entry.artist} - ${nextSong.entry.title}`,
+        { duration: timeRemaining * 1000 },
+      );
+    }
 
     if (nextSong.entry.video_url) {
       // Skip prefetching if we already have the URL

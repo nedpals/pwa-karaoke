@@ -130,15 +130,10 @@ function VideoPlayerComponent({
     });
   }, [playerState?.entry, playerState?.volume, setOSD, updateVersionedPlayerState]);
 
-  const { play, pause, seek, getMaster, isHolding } = useDualTrackSync({
+  const { play, pause, seek, getMaster, isHolding, videoProps } = useDualTrackSync({
     videoRef,
     audioRef,
     separateAudio,
-    // Buffering is an interrupted intent to play, not a pause. Treating it as
-    // a pause would deadlock the hold: reporting "buffering" would withdraw the
-    // very intent that release() needs to resume playback.
-    shouldPlay:
-      playerState?.play_state === "playing" || playerState?.play_state === "buffering",
     mediaKey,
     onAudioFailure: handleAudioFailure,
     onHoldChange: handleHoldChange,
@@ -416,8 +411,7 @@ function VideoPlayerComponent({
           key={`${mediaKey}:video`}
           ref={videoRef}
           className="w-full h-full object-contain"
-          autoPlay
-          muted={separateAudio}
+          {...videoProps}
           src={videoUrl}
           onError={() => setMediaError(new Error("Video track failed to load"))}
           {...(separateAudio ? {} : masterEvents)}
@@ -431,7 +425,6 @@ function VideoPlayerComponent({
         <audio
           key={`${mediaKey}:audio`}
           ref={audioRef}
-          autoPlay
           src={audioUrl ?? undefined}
           onError={() => setMediaError(new Error("Audio track failed to load"))}
           {...masterEvents}

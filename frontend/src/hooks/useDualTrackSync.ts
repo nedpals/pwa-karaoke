@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, type RefObject } from "react";
+import { useCallback, useEffect, useMemo, useRef, type RefObject } from "react";
 
 const SYNC_INTERVAL_MS = 150;
 
@@ -27,7 +27,6 @@ interface UseDualTrackSyncOptions {
   audioRef: RefObject<HTMLAudioElement | null>;
   /** True when a separate audio element exists and owns the clock. */
   separateAudio: boolean;
-  shouldPlay: boolean;
   /** Changes whenever the underlying elements remount, so listeners rebind. */
   mediaKey: string;
   /** The audio track could not start. Nothing is playing when this fires. */
@@ -44,6 +43,11 @@ export interface DualTrackControls {
   getMaster: () => HTMLMediaElement | null;
   /** True while both tracks are parked waiting for the slower one to buffer. */
   isHolding: () => boolean;
+  /**
+   * Attributes for the video element. Paired playback is started by this hook
+   * so the audio can go first, so the video must not autoplay itself.
+   */
+  videoProps: { autoPlay: boolean; muted: boolean };
 }
 
 /**
@@ -59,19 +63,17 @@ export function useDualTrackSync({
   videoRef,
   audioRef,
   separateAudio,
-  shouldPlay,
   mediaKey,
   onAudioFailure,
   onHoldChange,
 }: UseDualTrackSyncOptions): DualTrackControls {
   const holdingRef = useRef(false);
-  const shouldPlayRef = useRef(shouldPlay);
+  // Playback intent is owned here rather than derived from the state the app
+  // broadcasts. Deriving it from a reported play_state means reporting
+  // "buffering" withdraws the very intent that release() needs to resume.
+  const intendsPlaybackRef = useRef(false);
   const onAudioFailureRef = useRef(onAudioFailure);
   const onHoldChangeRef = useRef(onHoldChange);
-
-  useEffect(() => {
-    shouldPlayRef.current = shouldPlay;
-  }, [shouldPlay]);
 
   useEffect(() => {
     onAudioFailureRef.current = onAudioFailure;
@@ -120,12 +122,18 @@ export function useDualTrackSync({
         video.play().catch(reportPlayFailure);
       })
       .catch((error) => {
+        // A play interrupted by a seek, a pause or a source swap is routine,
+        // and the caller that interrupted it will start playback again. Only a
+        // genuine refusal means the audio cannot play.
+        if (error instanceof Error && error.name === "AbortError") return;
         video?.pause();
         onAudioFailureRef.current?.(error);
       });
   }, [videoRef, audioRef, alignVideo]);
 
   const play = useCallback(() => {
+    intendsPlaybackRef.current = true;
+
     if (!separateAudio) {
       videoRef.current?.play().catch(reportPlayFailure);
       return;
@@ -134,6 +142,7 @@ export function useDualTrackSync({
   }, [separateAudio, videoRef, startPaired]);
 
   const pause = useCallback(() => {
+    intendsPlaybackRef.current = false;
     videoRef.current?.pause();
     if (separateAudio) audioRef.current?.pause();
   }, [separateAudio, videoRef, audioRef]);
@@ -194,7 +203,7 @@ export function useDualTrackSync({
     if (!video || !audio) return;
 
     const hold = () => {
-      if (!shouldPlayRef.current || holdingRef.current) return;
+      if (!intendsPlaybackRef.current || holdingRef.current) return;
       setHolding(true);
       video.pause();
       audio.pause();
@@ -202,7 +211,7 @@ export function useDualTrackSync({
 
     const release = () => {
       if (!holdingRef.current) return;
-      if (!shouldPlayRef.current) {
+      if (!intendsPlaybackRef.current) {
         setHolding(false);
         return;
       }
@@ -233,5 +242,10 @@ export function useDualTrackSync({
     };
   }, [separateAudio, videoRef, audioRef, alignVideo, startPaired, setHolding, mediaKey]);
 
-  return { play, pause, seek, getMaster, isHolding };
+  const videoProps = useMemo(
+    () => ({ autoPlay: !separateAudio, muted: separateAudio }),
+    [separateAudio],
+  );
+
+  return { play, pause, seek, getMaster, isHolding, videoProps };
 }

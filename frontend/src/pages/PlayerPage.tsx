@@ -13,6 +13,7 @@ import { Backdrop } from "../components/templates/Backdrop";
 import { MessageTemplate } from "../components/templates/MessageTemplate";
 import { SystemMessage } from "../components/templates/SystemMessage";
 import { PasswordInput } from "../components/organisms/PasswordInput";
+import { ReactionOverlay } from "../components/organisms/ReactionOverlay";
 import { RoomProvider, useRoomContext } from "../providers/RoomProvider";
 import { useTempState, type TempStateSetterOptions } from "../hooks/useTempState";
 import { useVideoUrlMutation, useServerStatus } from "../hooks/useApi";
@@ -374,6 +375,14 @@ function VideoPlayerComponent({
   );
 }
 
+function ReactionLayer() {
+  const { lastReaction } = useRoomContext();
+
+  return (
+    <ReactionOverlay event={lastReaction} className="fixed inset-0 z-10" />
+  );
+}
+
 function StatusStrip() {
   const { isOffline } = useServerStatus();
   const { clientCount: rawClientCount, roomId, nickname, autoplay } = useRoomContext();
@@ -409,7 +418,7 @@ function StatusStrip() {
       )}
       <div className="flex items-center gap-2 px-3 py-1">
         <Text font="display" size="sm" tone="dim">
-          Remotes
+          Controllers
         </Text>
         <Text font="mono" size="sm" tone="accent">
           {clientCount.toString().padStart(2, "0")}
@@ -594,7 +603,7 @@ function ConnectedStateScreen() {
   const controllerUrl = `${window.location.origin}/controller?room=${encodeURIComponent(roomId)}`;
 
   return (
-    <MessageTemplate title="Connect a Remote" backdrop="idle">
+    <MessageTemplate title="Connect a Controller" backdrop="idle">
       <div className="flex flex-col md:flex-row items-center gap-8 w-full">
         <div className="flex-1 space-y-4">
           <Text size="lg" tone="dim">
@@ -848,6 +857,7 @@ export default function PlayerPage() {
       <PlayerStateProviderInternal>
         <div className="relative">
           <PlayerPageContent />
+          <ReactionLayer />
           <div className="absolute bottom-[3vh] left-[3vw] z-30">
             <StatusStrip />
           </div>

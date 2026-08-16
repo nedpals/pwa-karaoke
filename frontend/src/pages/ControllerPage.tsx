@@ -27,6 +27,7 @@ import { ControllerLayout } from "../components/templates/ControllerLayout";
 import { SystemMessage } from "../components/templates/SystemMessage";
 import { PasswordInput } from "../components/organisms/PasswordInput";
 import { NicknameInput } from "../components/organisms/NicknameInput";
+import { ReactionPad } from "../components/organisms/ReactionPad";
 import { getNickname } from "../lib/nicknameStorage";
 import { TimeDisplay } from "../components/molecules/TimeDisplay";
 
@@ -282,7 +283,10 @@ function VolumeMeter({ value }: { value: number }) {
 }
 
 function PlayerTab() {
-  const { playerState, playSong, pauseSong, playNext, setVolume, autoplay, setAutoplay } = useRoomContext();
+  const {
+    playerState, playSong, pauseSong, playNext, setVolume,
+    sendReaction, connected, autoplay, setAutoplay,
+  } = useRoomContext();
   const [isPlaybackLoading, setIsPlaybackLoading] = useState(false);
   const [isVolumeLoading, setIsVolumeLoading] = useState(false);
   const [isPlayNextLoading, setIsPlayNextLoading] = useState(false);
@@ -477,6 +481,8 @@ function PlayerTab() {
           />
         </div>
       </Panel>
+
+      <ReactionPad onReact={sendReaction} disabled={!connected} />
     </div>
   );
 }
@@ -588,7 +594,7 @@ function QueueTab() {
   );
 }
 
-function RemoteHeader() {
+function ControllerHeader() {
   const { isOffline } = useServerStatus();
   const { roomId, nickname, upNextQueue, connected } = useRoomContext();
 
@@ -637,7 +643,7 @@ function ControllerPageContent() {
 
   return (
     <ControllerLayout>
-      <RemoteHeader />
+      <ControllerHeader />
       <TabNavigation
         className="flex-1 min-h-0"
         tabs={tabs}

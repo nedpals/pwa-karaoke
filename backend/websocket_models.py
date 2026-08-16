@@ -47,6 +47,12 @@ class PlayerStatePayload(DisplayPlayerState):
     """Player state update payload - inherits from DisplayPlayerState"""
     pass
 
+ReactionType = Literal["clap", "fire", "heart", "laugh", "star", "boo"]
+
+class SendReactionPayload(BaseModel):
+    """Reaction sent by a controller"""
+    reaction: ReactionType
+
 class QueueUpdatePayload(BaseModel):
     """Queue update payload"""
     items: list = Field(default_factory=list)
@@ -89,6 +95,7 @@ COMMAND_PAYLOAD_MAP = {
     "update_player_state": PlayerStatePayload,
     "queue_update": QueueUpdatePayload,
     "video_loaded": PlayerStatePayload,
+    "send_reaction": SendReactionPayload,
     "ack": AckPayload,
     # Commands without payload validation
     "play_song": dict,
@@ -96,6 +103,9 @@ COMMAND_PAYLOAD_MAP = {
     "clear_queue": dict,
     "request_queue_update": dict,
 }
+
+# High frequency commands that would otherwise flood the logs
+QUIET_COMMANDS = {"send_reaction", "reaction"}
 
 def validate_websocket_message(command: str, payload: Any) -> Dict[str, Any]:
     """Validate WebSocket message payload against expected schema"""

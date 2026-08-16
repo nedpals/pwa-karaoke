@@ -2,11 +2,21 @@ import time
 import asyncio
 from typing_extensions import Literal
 
+from nanoid import generate as generate_nanoid
+
 from core.search import KaraokeEntry
 from core.player import DisplayPlayerState
 from services.karaoke_service import KaraokeService
 from client_manager import ConnectionClient
 from session_manager import SessionManager
+
+REACTION_RATE_LIMIT = 8
+REACTION_RATE_WINDOW = 3.0
+
+# Room wide ceiling so a crowded room cannot scale the flood past what a
+# display can show, and so reconnecting cannot buy a fresh budget
+ROOM_REACTION_RATE_LIMIT = 20
+ROOM_REACTION_RATE_WINDOW = 3.0
 
 class ClientCommands:
     def __init__(self, client: ConnectionClient, session_manager: SessionManager, service: KaraokeService) -> None:
@@ -109,7 +119,9 @@ class ClientCommands:
         # Manual skips from a remote always advance.
         is_auto = bool(payload.get("auto")) if isinstance(payload, dict) else False
 
-        if is_auto and not self.room.autoplay:
+        # Nothing reserved means nothing is being held back, so let it fall
+        # through and clear the room the same way an autoplaying one does.
+        if is_auto and not self.room.autoplay and self.room.queue.items:
             print(f"[DEBUG] Autoplay is off for room {self.client.room_id} - holding the queue")
             await self._hold_at_end_of_song()
             return {"advanced": False, "autoplay": False}
@@ -188,6 +200,26 @@ class ControllerCommands(ClientCommands):
 
     async def set_volume(self, payload):
         await self.session_manager.broadcast_to_room_displays(self.client.room_id, "set_volume", payload["volume"])
+
+    async def send_reaction(self, payload):
+        if not self.room:
+            return
+
+        if not self.client.allow_action("send_reaction", REACTION_RATE_LIMIT, REACTION_RATE_WINDOW):
+            return
+
+        if not self.room.allow_action("reaction", ROOM_REACTION_RATE_LIMIT, ROOM_REACTION_RATE_WINDOW):
+            return
+
+        await self.session_manager.broadcast_to_room_displays(
+            self.client.room_id,
+            "reaction",
+            {
+                "id": generate_nanoid(),
+                "reaction": payload["reaction"],
+                "timestamp": time.time(),
+            },
+        )
 
     async def set_autoplay(self, payload):
         changed = self.room.set_autoplay(payload["enabled"])

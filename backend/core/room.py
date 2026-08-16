@@ -2,11 +2,12 @@ import time
 import hashlib
 from typing import Optional, Dict, Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, PrivateAttr
 
 from core.search import KaraokeEntry
 from core.player import DisplayPlayerState
 from core.queue import KaraokeQueue, KaraokeQueueItem
+from rate_limit import SlidingWindowLimiter
 
 class Room(BaseModel):
     id: str
@@ -20,6 +21,11 @@ class Room(BaseModel):
     settings_version: int = 1
     password_hash: Optional[str] = None
     created_at: float = time.time()
+
+    _limiter: SlidingWindowLimiter = PrivateAttr(default_factory=SlidingWindowLimiter)
+
+    def allow_action(self, key: str, limit: int, per_seconds: float) -> bool:
+        return self._limiter.allow(key, limit, per_seconds)
 
     def set_password(self, password: str) -> None:
         if password:

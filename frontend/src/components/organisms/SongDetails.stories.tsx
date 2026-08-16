@@ -23,7 +23,7 @@ type Story = StoryObj<typeof meta>;
 
 const [first, second] = SAMPLE_ENTRIES;
 
-export const Remote: Story = {
+export const Controller: Story = {
   args: { entry: first, size: 'md' },
 };
 

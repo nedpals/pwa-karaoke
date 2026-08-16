@@ -7,6 +7,7 @@ from pydantic import BaseModel, PrivateAttr
 from core.search import KaraokeEntry
 from core.player import DisplayPlayerState
 from core.queue import KaraokeQueue, KaraokeQueueItem
+from core.score import SongScore
 from rate_limit import SlidingWindowLimiter
 
 class Room(BaseModel):
@@ -17,10 +18,13 @@ class Room(BaseModel):
     player_version: int = 1
     autoplay: bool = True
     settings_version: int = 1
+    score: Optional[SongScore] = None
+    score_version: int = 1
     password_hash: Optional[str] = None
     created_at: float = time.time()
 
     _limiter: SlidingWindowLimiter = PrivateAttr(default_factory=SlidingWindowLimiter)
+    _settling_scores: set[str] = PrivateAttr(default_factory=set)
 
     def allow_action(self, key: str, limit: int, per_seconds: float) -> bool:
         return self._limiter.allow(key, limit, per_seconds)
@@ -86,6 +90,39 @@ class Room(BaseModel):
         self.autoplay = enabled
         self.settings_version += 1
         return True
+
+    def has_score_for(self, entry_id: str) -> bool:
+        return self.score is not None and self.score.entry_id == entry_id
+
+    def clear_score(self) -> None:
+        self._settling_scores.clear()
+        if self.score is None:
+            return
+
+        self.score = None
+        self.score_version += 1
+
+    def set_score(self, entry_id: str, score: int, source: str) -> SongScore:
+        self.score_version += 1
+        self.score = SongScore(
+            entry_id=entry_id,
+            score=score,
+            source=source,
+            version=self.score_version,
+            timestamp=time.time(),
+        )
+        return self.score
+
+    def begin_score_settle(self, entry_id: str) -> bool:
+        """True when the caller owns settling the score for this entry."""
+        if entry_id in self._settling_scores or self.has_score_for(entry_id):
+            return False
+
+        self._settling_scores.add(entry_id)
+        return True
+
+    def end_score_settle(self, entry_id: str) -> None:
+        self._settling_scores.discard(entry_id)
 
     def update_player_state(self, state: DisplayPlayerState) -> None:
         # Keep versions monotonic. A client clock running ahead of the server would

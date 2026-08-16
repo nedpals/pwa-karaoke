@@ -3,7 +3,7 @@ import { useWebSocket } from './useWebSocket';
 import { useServerStatus, useVerifyRoomMutation } from './useApi';
 import { getRoomPassword, storeRoomPassword } from '../lib/roomStorage';
 import { apiClient } from '../api/client';
-import type { DisplayPlayerState, KaraokeQueue, KaraokeEntry, ReactionEvent, ReactionType, RoomSettings } from '../types';
+import type { DisplayPlayerState, KaraokeQueue, KaraokeEntry, ReactionEvent, ReactionType, RoomSettings, SongScore } from '../types';
 
 type ClientType = "controller" | "display";
 
@@ -27,6 +27,7 @@ export interface RoomState {
   autoplay: boolean;
   isLeader: boolean;
   lastReaction: ReactionEvent | null;
+  score: SongScore | null;
   lastQueueCommand: {
     command: string;
     data: unknown;
@@ -53,6 +54,7 @@ export interface RoomActions {
   clearQueue: () => Promise<unknown>;
   setVolume: (volume: number) => Promise<unknown>;
   sendReaction: (reaction: ReactionType) => void;
+  submitScore: (entryId: string, performance: number) => void;
   setAutoplay: (enabled: boolean) => Promise<unknown>;
 
   // Display commands (implemented here)
@@ -74,6 +76,7 @@ export function useRoom(clientType: ClientType): UseRoomReturn {
   const [settings, setSettings] = useState<RoomSettings | null>(null);
   const [isLeader, setIsLeader] = useState(false);
   const [lastReaction, setLastReaction] = useState<ReactionEvent | null>(null);
+  const [score, setScore] = useState<SongScore | null>(null);
   const [lastQueueCommand, setLastQueueCommand] = useState<{
     command: string;
     data: unknown;
@@ -247,6 +250,9 @@ export function useRoom(clientType: ClientType): UseRoomReturn {
           setLastReaction(data as ReactionEvent);
         }
         break;
+      case "score":
+        setScore(data as SongScore);
+        break;
       case "set_volume":
         if (clientType === "display") {
           console.log(
@@ -267,6 +273,7 @@ export function useRoom(clientType: ClientType): UseRoomReturn {
       setSettings(null);
       setIsLeader(false);
       setLastReaction(null);
+      setScore(null);
       setLastQueueCommand(null);
       apiClient.clearRoomCredentials();
     } else if (ws.connected && clientType === "display") {
@@ -294,6 +301,7 @@ export function useRoom(clientType: ClientType): UseRoomReturn {
     autoplay: settings?.autoplay ?? true,
     isLeader,
     lastReaction,
+    score,
     lastQueueCommand,
 
     // Actions
@@ -321,6 +329,8 @@ export function useRoom(clientType: ClientType): UseRoomReturn {
     clearQueue: () => ws.sendCommandWithAck("clear_queue"),
     setVolume: (volume: number) => ws.sendCommandWithAck("set_volume", { volume }),
     sendReaction: (reaction: ReactionType) => ws.sendCommand("send_reaction", { reaction }),
+    submitScore: (entryId: string, performance: number) =>
+      ws.sendCommand("submit_score", { entry_id: entryId, performance }),
     setAutoplay: async (enabled: boolean) => {
       const previousSettings = settings;
       setSettings((prev) =>

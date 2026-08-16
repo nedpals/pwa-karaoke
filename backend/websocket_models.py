@@ -51,6 +51,11 @@ class SendReactionPayload(BaseModel):
     """Reaction sent by a controller"""
     reaction: ReactionType
 
+class SubmitScorePayload(BaseModel):
+    """Loudness reading a controller measured for the song it just heard"""
+    entry_id: str = Field(..., min_length=1)
+    performance: float = Field(..., ge=0.0, le=1.0)
+
 class QueueUpdatePayload(BaseModel):
     """Queue update payload"""
     items: list = Field(default_factory=list)
@@ -86,6 +91,7 @@ COMMAND_PAYLOAD_MAP = {
     "queue_update": QueueUpdatePayload,
     "video_loaded": PlayerStatePayload,
     "send_reaction": SendReactionPayload,
+    "submit_score": SubmitScorePayload,
     "ack": AckPayload,
     # Commands without payload validation
     "play_song": dict,

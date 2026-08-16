@@ -6,6 +6,7 @@ from nanoid import generate as generate_nanoid
 
 from core.search import KaraokeEntry
 from core.player import DisplayPlayerState
+from core.score import SongScore, roll_score, score_from_performance
 from services.karaoke_service import KaraokeService
 from client_manager import ConnectionClient
 from session_manager import SessionManager
@@ -17,6 +18,13 @@ REACTION_RATE_WINDOW = 3.0
 # display can show, and so reconnecting cannot buy a fresh budget
 ROOM_REACTION_RATE_LIMIT = 20
 ROOM_REACTION_RATE_WINDOW = 3.0
+
+SCORE_RATE_LIMIT = 4
+SCORE_RATE_WINDOW = 10.0
+
+# How long a controller with a microphone has to report before the machine
+# makes something up. The display holds the finished song for longer than this.
+SCORE_GRACE_SECONDS = 1.0
 
 class ClientCommands:
     def __init__(self, client: ConnectionClient, session_manager: SessionManager, service: KaraokeService) -> None:
@@ -37,6 +45,9 @@ class ClientCommands:
         if self.room.player_state:
             await self.client.send_command("player_state", self.room.player_state.model_dump())
 
+        if self.room.score:
+            await self.client.send_command("score", self.room.score.model_dump())
+
         if self.client.client_type == "display":
             is_leader = self.session_manager.is_display_leader(self.client)
             await self.client.send_command("leader_status", {"is_leader": is_leader})
@@ -48,9 +59,38 @@ class ClientCommands:
 
     async def _update_player_state(self, state_data):
         state = state_data if isinstance(state_data, DisplayPlayerState) else DisplayPlayerState.parse_obj(state_data)
+
+        previous = self.room.player_state.entry if self.room.player_state else None
+        previous_entry_id = previous.id if previous else None
+        entry_id = state.entry.id if state.entry else None
+
         self.room.update_player_state(state)
+
+        if entry_id != previous_entry_id:
+            self.room.clear_score()
+
         # Broadcast the room's copy so clients see the server-stamped version
         await self.session_manager.broadcast_to_room(self.client.room_id, "player_state", self.room.player_state.model_dump())
+
+        if entry_id and state.play_state == "finished":
+            asyncio.create_task(self._settle_score(self.room, self.client.room_id, entry_id))
+
+    async def _broadcast_score(self, room_id: str, score: SongScore):
+        await self.session_manager.broadcast_to_room(room_id, "score", score.model_dump())
+
+    async def _settle_score(self, room, room_id: str, entry_id: str):
+        if not room.begin_score_settle(entry_id):
+            return
+
+        try:
+            await asyncio.sleep(SCORE_GRACE_SECONDS)
+            if room.has_score_for(entry_id):
+                return
+
+            score = room.set_score(entry_id, roll_score(), "auto")
+            await self._broadcast_score(room_id, score)
+        finally:
+            room.end_score_settle(entry_id)
 
     async def _toggle_playback_state(self, playback_state: Literal["play", "pause"]):
         command = "play_song" if playback_state == "play" else "pause_song"
@@ -219,6 +259,27 @@ class ControllerCommands(ClientCommands):
                 "timestamp": time.time(),
             },
         )
+
+    async def submit_score(self, payload):
+        if not self.room:
+            return
+
+        if not self.client.allow_action("submit_score", SCORE_RATE_LIMIT, SCORE_RATE_WINDOW):
+            return
+
+        entry_id = payload["entry_id"]
+        current = self.room.player_state.entry if self.room.player_state else None
+
+        # Only the song on screen can be scored, and only once. A second
+        # controller arriving late loses to the one already counted.
+        if not current or current.id != entry_id:
+            return
+
+        if self.room.has_score_for(entry_id):
+            return
+
+        score = self.room.set_score(entry_id, score_from_performance(payload["performance"]), "mic")
+        await self._broadcast_score(self.client.room_id, score)
 
     async def set_autoplay(self, payload):
         changed = self.room.set_autoplay(payload["enabled"])

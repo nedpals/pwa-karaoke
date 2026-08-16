@@ -27,6 +27,8 @@ import { ControllerLayout } from "../components/templates/ControllerLayout";
 import { SystemMessage } from "../components/templates/SystemMessage";
 import { PasswordInput } from "../components/organisms/PasswordInput";
 import { ReactionPad } from "../components/organisms/ReactionPad";
+import { ScorePad } from "../components/organisms/ScorePad";
+import { useLoudnessScore } from "../hooks/useLoudnessScore";
 import { TimeDisplay } from "../components/molecules/TimeDisplay";
 
 const CONTROLLER_TABS = [
@@ -283,8 +285,13 @@ function VolumeMeter({ value }: { value: number }) {
 function PlayerTab() {
   const {
     playerState, playSong, pauseSong, playNext, setVolume,
-    sendReaction, connected, autoplay, setAutoplay,
+    sendReaction, submitScore, connected, autoplay, setAutoplay,
   } = useRoomContext();
+  const mic = useLoudnessScore({
+    entryId: playerState?.entry?.id ?? null,
+    playState: playerState?.play_state ?? null,
+    onSubmit: submitScore,
+  });
   const [isPlaybackLoading, setIsPlaybackLoading] = useState(false);
   const [isVolumeLoading, setIsVolumeLoading] = useState(false);
   const [isPlayNextLoading, setIsPlayNextLoading] = useState(false);
@@ -479,6 +486,14 @@ function PlayerTab() {
           />
         </div>
       </Panel>
+
+      <ScorePad
+        status={mic.status}
+        level={mic.level}
+        onEnable={mic.enable}
+        onDisable={mic.disable}
+        disabled={!connected}
+      />
 
       <ReactionPad onReact={sendReaction} disabled={!connected} />
     </div>

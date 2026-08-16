@@ -14,6 +14,7 @@ import { MessageTemplate } from "../components/templates/MessageTemplate";
 import { SystemMessage } from "../components/templates/SystemMessage";
 import { PasswordInput } from "../components/organisms/PasswordInput";
 import { ReactionOverlay } from "../components/organisms/ReactionOverlay";
+import { ScoreScreen } from "../components/organisms/ScoreScreen";
 import { RoomProvider, useRoomContext } from "../providers/RoomProvider";
 import { useTempState, type TempStateSetterOptions } from "../hooks/useTempState";
 import { useVideoUrlMutation, useServerStatus } from "../hooks/useApi";
@@ -22,6 +23,11 @@ import type { DisplayPlayerState } from "../types";
 import useSmartSync from "../hooks/useSmartSync";
 
 type AppState = "awaiting-interaction" | "connecting" | "connected" | "ready" | "playing";
+
+// How long the finished song stays on screen showing its score before the
+// display rolls over. Longer than the server's grace window, so a controller
+// with a microphone always beats the fallback roll.
+const SCORE_HOLD_MS = 5000;
 
 interface OSDState {
   label: string;
@@ -57,6 +63,7 @@ function VideoPlayerComponent({
   onRetry,
   retryCount,
   onNearingEnd,
+  onSongEnded,
 }: {
   videoUrl: string | null;
   isLoadingVideoUrl: boolean;
@@ -65,11 +72,11 @@ function VideoPlayerComponent({
   onRetry: () => void;
   retryCount: number;
   onNearingEnd: (params: { timeRemaining: number }) => void;
+  onSongEnded: () => void;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const { updatePlayerState } = useRoomContext();
   const { osd, playerState } = usePlayerState();
-  const { playNext } = useRoomContext();
   const isBufferingRef = useRef(false);
   const hasNearingEndFiredRef = useRef(false);
 
@@ -358,7 +365,7 @@ function VideoPlayerComponent({
             duration: video.duration || 0,
             volume: video.volume,
           });
-          playNext({ auto: true });
+          onSongEnded();
         }}
       >
         <track kind="captions" />
@@ -429,8 +436,10 @@ function PlayingStateContent() {
   const [upNextTitle, setUpNextTitle] = useTempState<string | null>(null);
   const [queuedTitle, setQueuedTitle] = useTempState<string | null>(null);
 
-  const { playerState, upNextQueue, autoplay } = useRoomContext();
+  const { playerState, upNextQueue, autoplay, score, playNext } = useRoomContext();
   const { trigger: triggerVideoUrl } = useVideoUrlMutation();
+  const [isScoring, setIsScoring] = useState(false);
+  const scoreTimer = useRef<number | null>(null);
   const {
     videoUrl: videoUrlData,
     isLoading: isLoadingVideoUrl,
@@ -470,9 +479,42 @@ function PlayingStateContent() {
   // With autoplay off the song ends and the queue just sits there, so the
   // display has to say what is waiting and how to start it.
   const heldSong = useMemo(() => {
-    if (autoplay || playerState?.play_state !== "finished") return null;
+    if (isScoring || autoplay || playerState?.play_state !== "finished") return null;
     return upNextQueue?.items[0] ?? null;
-  }, [autoplay, playerState?.play_state, upNextQueue]);
+  }, [isScoring, autoplay, playerState?.play_state, upNextQueue]);
+
+  // The room's score only belongs to the song still on screen. Anything left
+  // over from an earlier one is ignored rather than shown against the wrong
+  // performance.
+  const shownScore = useMemo(() => {
+    if (!score || !playerState?.entry) return null;
+    return score.entry_id === playerState.entry.id ? score.score : null;
+  }, [score, playerState?.entry]);
+
+  const clearScoreTimer = useCallback(() => {
+    if (scoreTimer.current === null) return;
+
+    window.clearTimeout(scoreTimer.current);
+    scoreTimer.current = null;
+  }, []);
+
+  const handleSongEnded = useCallback(() => {
+    setIsScoring(true);
+    clearScoreTimer();
+
+    scoreTimer.current = window.setTimeout(() => {
+      scoreTimer.current = null;
+      setIsScoring(false);
+      playNext({ auto: true });
+    }, SCORE_HOLD_MS);
+  }, [clearScoreTimer, playNext]);
+
+  useEffect(() => {
+    setIsScoring(false);
+    clearScoreTimer();
+  }, [playerState?.entry?.id, clearScoreTimer]);
+
+  useEffect(() => clearScoreTimer, [clearScoreTimer]);
 
   const videoUrl = useMemo(() => {
     if (!playerState?.entry) return null;
@@ -555,8 +597,18 @@ function PlayingStateContent() {
           onRetry={retry}
           retryCount={retryCount}
           onNearingEnd={handleNearingEnd}
+          onSongEnded={handleSongEnded}
         />
       </div>
+
+      {isScoring && (
+        <div className="absolute inset-0 z-30 flex items-center justify-center title-safe pointer-events-none">
+          <ScoreScreen
+            score={shownScore}
+            title={`${playerState.entry.artist} - ${playerState.entry.title}`}
+          />
+        </div>
+      )}
 
       {heldSong && (
         <div className="absolute inset-0 z-20 flex items-center justify-center title-safe pointer-events-none">

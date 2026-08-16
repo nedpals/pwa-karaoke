@@ -373,7 +373,7 @@ function StatusStrip() {
   const clientCount = Math.max(rawClientCount - 1, 0);
 
   return (
-    <Panel tone="overlay" className="flex items-stretch divide-x divide-ka-line">
+    <Panel tone="overlay" className="flex items-stretch divide-x-2 divide-ka-line">
       {isOffline && (
         <div className="flex items-center gap-2 px-3 py-1">
           <span className="w-2 h-2 bg-ka-red blink" />
@@ -574,7 +574,7 @@ function ReadyStateScreen() {
           Select a Song
         </Text>
 
-        <Panel tone="overlay" className="flex items-stretch divide-x divide-ka-line">
+        <Panel tone="overlay" className="flex items-stretch divide-x-2 divide-ka-line">
           <div className="flex items-center gap-3 px-5 py-2">
             <Text font="display" size="lg" tone="dim">
               Room

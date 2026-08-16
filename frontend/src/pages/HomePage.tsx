@@ -21,7 +21,7 @@ export default function HomePage() {
             </Text>
           </div>
 
-          <Panel className="divide-y divide-ka-line">
+          <Panel className="divide-y-2 divide-ka-line">
             {MENU.map((item) => (
               <button
                 key={item.key}
@@ -29,7 +29,7 @@ export default function HomePage() {
                 onClick={() => navigate(item.path)}
                 className="w-full flex items-stretch text-left group active:translate-y-px"
               >
-                <div className="flex items-center px-5 bg-ka-raised border-r border-ka-line group-hover:bg-ka-amber">
+                <div className="flex items-center px-5 bg-ka-raised border-r-2 border-ka-line group-hover:bg-ka-amber">
                   <Text font="mono" size="3xl" weight="bold" tone="accent" className="group-hover:text-ka-void">
                     {item.key}
                   </Text>

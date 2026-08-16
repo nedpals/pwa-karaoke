@@ -149,9 +149,13 @@ function SearchResults({
     );
   }
 
-  // The field's own placeholder already says what to type; repeating it here
-  // just fills the panel with a second copy of the same sentence.
-  return null;
+  return (
+    <div className="py-12 text-center">
+      <Text size="sm" tone="dim">
+        Reserved songs play on the display in order.
+      </Text>
+    </div>
+  );
 }
 
 function SongSelectTab() {
@@ -274,7 +278,7 @@ function PlayerTab() {
       }
     } catch (error) {
       console.error("Failed to control playback:", error);
-      setErrorMessage("Playback command failed.");
+      setErrorMessage(`Could not ${isPlaying ? "pause" : "play"}.`);
       setTimeout(() => setErrorMessage(null), 3000);
     } finally {
       setIsPlaybackLoading(false);
@@ -295,7 +299,7 @@ function PlayerTab() {
     } catch (error) {
       console.error("Failed to set volume:", error);
       setOptimisticVolume(null);
-      setErrorMessage("Volume command failed.");
+      setErrorMessage("Could not change the volume.");
       setTimeout(() => setErrorMessage(null), 3000);
     } finally {
       setIsVolumeLoading(false);
@@ -312,7 +316,7 @@ function PlayerTab() {
       await playNext();
     } catch (error) {
       console.error("Failed to play next:", error);
-      setErrorMessage("Skip failed.");
+      setErrorMessage("Could not skip to the next song.");
       setTimeout(() => setErrorMessage(null), 3000);
     } finally {
       setIsPlayNextLoading(false);
@@ -502,7 +506,7 @@ function QueueTab() {
       {upNextItems.length === 0 ? (
         <div className="py-10 text-center">
           <Text font="display" size="xl" tone="dim">
-            Empty
+            Nothing Reserved
           </Text>
         </div>
       ) : (
@@ -545,12 +549,12 @@ function RemoteHeader() {
           {isOffline ? "Offline" : connected ? "Linked" : "Connecting"}
         </Text>
       </div>
-      <div className="flex-1 flex items-center px-3 border-l border-ka-line-dim min-w-0">
+      <div className="flex-1 flex items-center px-3 border-l-2 border-ka-line-dim min-w-0">
         <Text font="mono" size="sm" truncate>
           {roomId}
         </Text>
       </div>
-      <div className="flex items-center gap-2 px-3 border-l border-ka-line-dim">
+      <div className="flex items-center gap-2 px-3 border-l-2 border-ka-line-dim">
         <Text font="display" size="sm" tone="dim">
           Reserved
         </Text>

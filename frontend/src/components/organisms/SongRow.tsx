@@ -28,7 +28,7 @@ export function SongRow({
       {...props}
     >
       {index !== undefined && (
-        <div className="flex items-center justify-center px-2 border-r border-ka-line-dim">
+        <div className="flex items-center justify-center px-2 border-r-2 border-ka-line-dim">
           <Text font="mono" size="sm" tone={selected ? "inverse" : "dim"}>
             {index.toString().padStart(2, "0")}
           </Text>
@@ -56,7 +56,7 @@ export function SongRow({
       </div>
 
       {entry.duration !== null && (
-        <div className="flex items-center px-2 border-l border-ka-line-dim">
+        <div className="flex items-center px-2 border-l-2 border-ka-line-dim">
           <TimeDisplay seconds={entry.duration} size="sm" tone={selected ? "inverse" : "dim"} />
         </div>
       )}

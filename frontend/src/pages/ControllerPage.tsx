@@ -18,7 +18,6 @@ import { MarqueeText } from "../components/molecules/MarqueeText";
 import { ProgressBar } from "../components/atoms/ProgressBar";
 import { SearchInput } from "../components/molecules/SearchInput";
 import { IconButton } from "../components/molecules/IconButton";
-import { ToggleButtonGroup } from "../components/molecules/ToggleButtonGroup";
 import { TabNavigation, type Tab } from "../components/organisms/TabNavigation";
 import { QueueItem } from "../components/organisms/QueueItem";
 import { SongRow } from "../components/organisms/SongRow";
@@ -439,6 +438,16 @@ function PlayerTab() {
         />
       </div>
 
+      <Button
+        onClick={() => handleAutoplayChange(!autoplay)}
+        active={autoplay}
+        aria-pressed={autoplay}
+        disabled={isAutoplayLoading}
+        className="w-full"
+      >
+        Autoplay: {autoplay ? "On" : "Off"}
+      </Button>
+
       <Panel className="p-3">
         <div className="flex items-center gap-3 mb-2">
           <Text font="display" size="lg" tone="dim" className="flex-1">
@@ -465,30 +474,6 @@ function PlayerTab() {
             className="px-3"
           />
         </div>
-      </Panel>
-
-      <Panel className="p-3">
-        <div className="flex items-center gap-3 mb-2">
-          <Text font="display" size="lg" tone="dim" className="flex-1">
-            Autoplay
-          </Text>
-          <Text font="display" size="lg" weight="bold" tone={autoplay ? "accent" : "dim"}>
-            {autoplay ? "On" : "Off"}
-          </Text>
-        </div>
-        <ToggleButtonGroup
-          value={autoplay ? "on" : "off"}
-          onChange={(value) => handleAutoplayChange(value === "on")}
-          options={[
-            { value: "on", label: "On" },
-            { value: "off", label: "Off" },
-          ]}
-        />
-        <Text size="xs" tone="dim" className="mt-2">
-          {autoplay
-            ? "The next reserved song starts on its own when this one ends."
-            : "Playback stops after this song. Reserved songs stay in the queue until you press Next."}
-        </Text>
       </Panel>
     </div>
   );

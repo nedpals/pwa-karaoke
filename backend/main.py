@@ -4,11 +4,10 @@ from os import environ
 import time
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, WebSocket, Depends, HTTPException, status
+from fastapi import FastAPI, Request, WebSocket, Depends, HTTPException, status
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.websockets import WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
@@ -126,13 +125,38 @@ def get_current_room(credentials: HTTPBasicCredentials = Depends(security)) -> R
 
     return room
 
+static_dir = Path(__file__).parent / "static"
+static_root = static_dir.resolve()
+assets_root = (static_dir / "assets").resolve()
+
+NO_CACHE = {"Cache-Control": "no-cache"}
+IMMUTABLE = {"Cache-Control": "public, max-age=31536000, immutable"}
+ALWAYS_REVALIDATE = {"index.html", "sw.js", "registerSW.js", "manifest.webmanifest"}
+
+def resolve_static_file(url_path: str) -> Path | None:
+    """Map a URL path to a file inside static_dir, or None if it misses/escapes."""
+    candidate = (static_dir / url_path.lstrip("/")).resolve()
+    if candidate != static_root and static_root not in candidate.parents:
+        return None
+    return candidate if candidate.is_file() else None
+
+def static_file_response(path: Path) -> FileResponse:
+    if path.name in ALWAYS_REVALIDATE:
+        return FileResponse(path, headers=NO_CACHE)
+    # Vite content-hashes everything under assets/, so a rebuild changes the name.
+    if path.parent == assets_root:
+        return FileResponse(path, headers=IMMUTABLE)
+    return FileResponse(path)
+
+def spa_index_response() -> FileResponse:
+    index_file = static_dir / "index.html"
+    if not index_file.is_file():
+        raise HTTPException(status_code=404, detail="Application not found")
+    return FileResponse(index_file, headers=NO_CACHE)
+
 @app.get("/")
 async def serve_spa_index():
-    """Serve index.html for all unmatched routes to support React SPA routing"""
-    index_file = static_dir / "index.html"
-    if index_file.exists():
-        return FileResponse(index_file)
-    raise HTTPException(status_code=404, detail="Application not found")
+    return spa_index_response()
 
 @app.get("/search")
 async def search(
@@ -294,19 +318,21 @@ async def websocket_endpoint(websocket: WebSocket, service: Annotated[KaraokeSer
         # Handle all disconnection scenarios
         await session_manager.disconnect_client(client)
 
-# Serve static files (must be after all API routes)
-static_dir = Path(__file__).parent / "static"
-app.mount("/", StaticFiles(directory=static_dir), name="static")
-
-# Catch-all route for React SPA client-side routing (must be last)
-
+# Static files + SPA fallback, must stay after all API routes
 @app.get("/{full_path:path}")
-async def serve_spa(full_path: str):
-    """Serve index.html for all unmatched routes to support React SPA routing"""
-    index_file = static_dir / "index.html"
-    if index_file.exists():
-        return FileResponse(index_file)
-    raise HTTPException(status_code=404, detail="Application not found")
+async def serve_spa(full_path: str, request: Request):
+    """Serve a built asset if one exists, otherwise the SPA shell for client routes."""
+    static_file = resolve_static_file(full_path)
+    if static_file is not None:
+        return static_file_response(static_file)
+
+    # Only navigations get the shell. Answering asset requests with it would make
+    # a stale hashed asset return HTML with a 200, which the service worker then
+    # precaches under a .js URL.
+    if "text/html" in request.headers.get("accept", ""):
+        return spa_index_response()
+
+    raise HTTPException(status_code=404, detail="Not found")
 
 if __name__ == "__main__":
     import uvicorn

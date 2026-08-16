@@ -31,6 +31,12 @@ const router = createBrowserRouter([
     path: "/player",
     Component: PlayerPage,
   },
+  // The server and service worker answer unknown navigations with the app shell,
+  // so unmatched paths land here instead of a router error screen.
+  {
+    path: "*",
+    loader: () => redirect("/"),
+  },
 ]);
 
 export default router;

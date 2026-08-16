@@ -20,6 +20,16 @@ class YTKaraokeSourceProvider(KaraokeSourceProvider):
         return "youtube"
 
 
+    @staticmethod
+    def _thumbnail_url(video_id: str) -> Optional[str]:
+        """
+        The thumbnails yt-dlp returns for a flat search carry signed sqp query
+        params that expire. This unsigned form stays valid.
+        """
+        if not video_id:
+            return None
+        return f"https://i.ytimg.com/vi/{video_id}/hqdefault.jpg"
+
     def _get_ydl_opts(self) -> dict:
         """Get yt-dlp options including proxy configuration."""
         opts = {
@@ -73,14 +83,17 @@ class YTKaraokeSourceProvider(KaraokeSourceProvider):
                     if self.allowed_channels and not self._is_allowed_channel(uploader):
                         continue
 
+                    video_id = video_info.get('id', '')
+
                     entries.append(KaraokeEntry(
-                        id=video_info.get('id', ''),
+                        id=video_id,
                         title=video_info.get('title', 'Unknown Title'),
                         artist=uploader,
                         video_url=None,  # Will be loaded on demand
                         source=self.provider_id,
                         uploader=uploader,
-                        duration=video_info.get('duration')
+                        duration=video_info.get('duration'),
+                        thumbnail_url=self._thumbnail_url(video_id)
                     ))
 
         except Exception as e:

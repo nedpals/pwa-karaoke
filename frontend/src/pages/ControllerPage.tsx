@@ -6,8 +6,6 @@ import { RoomProvider, useRoomContext } from "../providers/RoomProvider";
 import { useSearchMutation, useServerStatus } from "../hooks/useApi";
 import { MaterialSymbolsFastForwardRounded } from "../components/icons/MaterialSymbolsFastForwardRounded";
 import { MaterialSymbolsKeyboardArrowUpRounded } from "../components/icons/MaterialSymbolsArrowUpRounded";
-import { MaterialSymbolsDeleteOutline } from "../components/icons/MaterialSymbolsDeleteOutline";
-import { MaterialSymbolsPlaylistAddRounded } from "../components/icons/MaterialSymbolsPlaylistAddRounded";
 import { MaterialSymbolsPauseRounded } from "../components/icons/MaterialSymbolsPauseRounded";
 import { MaterialSymbolsPlayArrowRounded } from "../components/icons/MaterialSymbolsPlayRounded";
 import { MaterialSymbolsVolumeUpRounded } from "../components/icons/MaterialSymbolsVolumeUpRounded";
@@ -23,6 +21,8 @@ import { IconButton } from "../components/molecules/IconButton";
 import { TabNavigation, type Tab } from "../components/organisms/TabNavigation";
 import { QueueItem } from "../components/organisms/QueueItem";
 import { SongRow } from "../components/organisms/SongRow";
+import { SongActionsDialog, type SongAction } from "../components/organisms/SongActionsDialog";
+import { useEntryStatus, type EntryStatus } from "../hooks/useEntryStatus";
 import { ControllerLayout } from "../components/templates/ControllerLayout";
 import { SystemMessage } from "../components/templates/SystemMessage";
 import { PasswordInput } from "../components/organisms/PasswordInput";
@@ -61,24 +61,90 @@ function Notice({ children, tone = "danger" }: { children: React.ReactNode; tone
   );
 }
 
+/**
+ * Backs the dialog behind every song row. Shared so a song offers the same
+ * actions wherever it was tapped, rather than depending on which tab you
+ * happened to find it in.
+ */
+function useSongDialog() {
+  const { queueSong, removeSong } = useRoomContext();
+  const entryStatus = useEntryStatus();
+  const [selected, setSelected] = useState<KaraokeEntry | null>(null);
+  const [busyLabel, setBusyLabel] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const status = selected ? entryStatus(selected) : null;
+  const reserved = status?.kind === "reserved" ? status : null;
+  const reserveLabel = reserved ? "Reserve Anyway" : "Reserve";
+
+  const run = async (label: string, action: () => Promise<unknown>, failure: string) => {
+    if (busyLabel) return;
+
+    setBusyLabel(label);
+    setError(null);
+
+    try {
+      await action();
+    } catch (err) {
+      console.error(err);
+      setError(failure);
+      setTimeout(() => setError(null), 5000);
+    } finally {
+      setBusyLabel(null);
+      setSelected(null);
+    }
+  };
+
+  const actions: SongAction[] = [];
+
+  if (selected) {
+    actions.push({
+      label: reserveLabel,
+      variant: "accent",
+      busyLabel: "Reserving",
+      onClick: () =>
+        run(reserveLabel, () => queueSong(selected), `Could not reserve "${selected.title}".`),
+    });
+
+    if (reserved) {
+      actions.push({
+        label: "Remove",
+        variant: "danger",
+        busyLabel: "Removing",
+        onClick: () =>
+          run("Remove", () => removeSong(reserved.itemId), `Could not remove "${selected.title}".`),
+      });
+    }
+  }
+
+  return {
+    selected,
+    status,
+    actions,
+    busyLabel,
+    error,
+    title: reserved ? "Reserved Song" : "Reserve",
+    open: setSelected,
+    close: () => !busyLabel && setSelected(null),
+  };
+}
+
 function SearchResults({
   searchResults,
   isSearching,
   hasSearched,
   searchError,
   searchQuery,
-  queueingStates,
-  onAddToQueue,
-  queueCount
+  entryStatus,
+  onSelect,
 }: {
   searchResults: { entries: KaraokeEntry[] } | undefined;
   isSearching: boolean;
   hasSearched: boolean;
   searchError: string | null;
   searchQuery: string;
-  queueingStates: Record<string, boolean>;
-  queueCount?: number;
-  onAddToQueue: (entry: KaraokeEntry) => void;
+  entryStatus: (entry: KaraokeEntry) => EntryStatus | null;
+  onSelect: (entry: KaraokeEntry) => void;
 }) {
   if (isSearching) {
     return (
@@ -105,31 +171,18 @@ function SearchResults({
   }
 
   if (searchResults && searchResults.entries.length > 0) {
-    const isFirstSong = !queueCount;
-
     return (
       <div>
         <SectionLabel count={searchResults.entries.length}>Results</SectionLabel>
         <div className="flex flex-col gap-1">
           {searchResults.entries.map((entry, i) => (
-            <div key={`search_result_${entry.id}_${i}`} className="flex items-stretch gap-1">
-              <SongRow entry={entry} showSource />
-              <IconButton
-                icon={
-                  isFirstSong ? (
-                    <MaterialSymbolsPlayArrowRounded className="text-2xl" />
-                  ) : (
-                    <MaterialSymbolsPlaylistAddRounded className="text-2xl" />
-                  )
-                }
-                label={isFirstSong ? "Play" : "Reserve"}
-                showLabel
-                onClick={() => onAddToQueue(entry)}
-                variant="accent"
-                className="px-3 shrink-0"
-                disabled={queueingStates[entry.id]}
-              />
-            </div>
+            <SongRow
+              key={`search_result_${entry.id}_${i}`}
+              entry={entry}
+              showSource
+              status={entryStatus(entry)}
+              onClick={() => onSelect(entry)}
+            />
           ))}
         </div>
       </div>
@@ -159,9 +212,8 @@ function SearchResults({
 }
 
 function SongSelectTab() {
-  const { queueSong, queue, playerState } = useRoomContext();
-  const [queueingStates, setQueueingStates] = useState<Record<string, boolean>>({});
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const entryStatus = useEntryStatus();
+  const dialog = useSongDialog();
   const [hasSearched, setHasSearched] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
   const [textInput, setTextInput] = useState("");
@@ -186,23 +238,6 @@ function SongSelectTab() {
     }
   };
 
-  const handleAddQueueItem = async (entry: KaraokeEntry) => {
-    if (queueingStates[entry.id]) return; // Prevent duplicate requests
-
-    setQueueingStates(prev => ({ ...prev, [entry.id]: true }));
-    setErrorMessage(null);
-
-    try {
-      await queueSong(entry);
-    } catch (error) {
-      console.error(error);
-      setErrorMessage(`Could not reserve "${entry.title}".`);
-      setTimeout(() => setErrorMessage(null), 5000);
-    } finally {
-      setQueueingStates(prev => ({ ...prev, [entry.id]: false }));
-    }
-  };
-
   return (
     <div className="px-2 pb-8">
       <div className="sticky top-0 z-10 bg-ka-void/95 py-2 -mx-2 px-2 border-b-2 border-ka-line">
@@ -214,7 +249,7 @@ function SongSelectTab() {
       </div>
 
       <div className="pt-3">
-        {errorMessage && <Notice>{errorMessage}</Notice>}
+        {dialog.error && <Notice>{dialog.error}</Notice>}
 
         <SearchResults
           searchResults={searchResults}
@@ -222,11 +257,19 @@ function SongSelectTab() {
           hasSearched={hasSearched}
           searchError={searchError}
           searchQuery={textInput}
-          queueingStates={queueingStates}
-          queueCount={(playerState?.entry ? 1 : 0) + (queue?.items.length ?? 0)}
-          onAddToQueue={handleAddQueueItem}
+          entryStatus={entryStatus}
+          onSelect={dialog.open}
         />
       </div>
+
+      <SongActionsDialog
+        entry={dialog.selected}
+        title={dialog.title}
+        status={dialog.status}
+        busy={dialog.busyLabel}
+        onClose={dialog.close}
+        actions={dialog.actions}
+      />
     </div>
   );
 }
@@ -416,17 +459,10 @@ function PlayerTab() {
 }
 
 function QueueTab() {
-  const {
-    queue,
-    upNextQueue,
-    playerState,
-    playNext,
-    clearQueue,
-    queueNextSong,
-    removeSong,
-  } = useRoomContext();
+  const { queue, upNextQueue, playerState, playNext, clearQueue, queueNextSong } = useRoomContext();
+  const entryStatus = useEntryStatus();
+  const dialog = useSongDialog();
   const [isClearingQueue, setIsClearingQueue] = useState(false);
-  const [removingStates, setRemovingStates] = useState<Record<string, boolean>>({});
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const upNextItems = upNextQueue?.items ?? [];
 
@@ -447,26 +483,9 @@ function QueueTab() {
     }
   };
 
-  const handleRemove = async (item: KaraokeQueueItem) => {
-    if (removingStates[item.id]) return;
-
-    setRemovingStates(prev => ({ ...prev, [item.id]: true }));
-    setErrorMessage(null);
-
-    try {
-      await removeSong(item.id);
-    } catch (error) {
-      console.error("Failed to remove song:", error);
-      setErrorMessage(`Could not remove "${item.entry.title}".`);
-      setTimeout(() => setErrorMessage(null), 3000);
-    } finally {
-      setRemovingStates(prev => ({ ...prev, [item.id]: false }));
-    }
-  };
-
   return (
     <div className="px-2 py-3 pb-8">
-      {errorMessage && <Notice>{errorMessage}</Notice>}
+      {(errorMessage || dialog.error) && <Notice>{errorMessage ?? dialog.error}</Notice>}
 
       {playerState?.entry && (
         <div className="mb-4">
@@ -516,23 +535,28 @@ function QueueTab() {
               key={`queue_item_${item.id}`}
               entry={item.entry}
               index={index + 1}
+              status={entryStatus(item.entry)}
+              onSelect={() => dialog.open(item.entry)}
               actions={[
                 {
                   icon: <MaterialSymbolsKeyboardArrowUpRounded className="text-2xl" />,
-                  label: "Up",
+                  label: "Move to next",
                   onClick: () => queueNextSong(item.id),
-                },
-                {
-                  icon: <MaterialSymbolsDeleteOutline className="text-2xl" />,
-                  label: "Remove",
-                  variant: "danger",
-                  onClick: () => handleRemove(item),
                 },
               ]}
             />
           ))}
         </div>
       )}
+
+      <SongActionsDialog
+        entry={dialog.selected}
+        title={dialog.title}
+        status={dialog.status}
+        busy={dialog.busyLabel}
+        onClose={dialog.close}
+        actions={dialog.actions}
+      />
     </div>
   );
 }

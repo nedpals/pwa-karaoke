@@ -15,6 +15,8 @@ export interface NowPlayingBannerProps extends React.HTMLAttributes<HTMLDivEleme
   status: string;
   tone?: BannerTone;
   title: string;
+  /** Nickname of whoever reserved the song. */
+  singer?: string | null;
   /** Songs waiting behind this one. */
   reservedCount?: number;
 }
@@ -24,6 +26,7 @@ export function NowPlayingBanner({
   status,
   tone = "playing",
   title,
+  singer,
   reservedCount,
   className,
   ...props
@@ -41,6 +44,14 @@ export function NowPlayingBanner({
           {status}
         </Text>
       </div>
+
+      {singer && (
+        <div className="hidden sm:flex items-center px-4 border-l-2 border-ka-line shrink-0 max-w-64">
+          <Text font="display" size="2xl" weight="bold" tone="info" truncate className="block">
+            {singer}
+          </Text>
+        </div>
+      )}
 
       <div className="flex-1 min-w-0 flex items-center px-4 border-l-2 border-ka-line">
         <MarqueeText size="2xl" weight="bold" speed="slow">

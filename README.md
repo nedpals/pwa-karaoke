@@ -102,6 +102,14 @@ The same dialog is where you pick what this device becomes:
 
 The quickest way to add a controller is to scan the QR code the display shows while it is waiting.
 
+### Nicknames
+
+A controller asks who is holding it before it joins, and that nickname rides along with every song reserved from it. Reserved songs carry the name in the controller's Reserved tab, and the display shows it beside the song in the banner and on the Up Next card, so a room full of people can tell whose turn is coming.
+
+The name is remembered on the device, so the prompt comes back filled in the next time that phone joins a room. Change it there whenever the phone changes hands. Names run up to 14 characters, which is what fits beside a song title on a phone.
+
+Displays are never asked for a name. Each one generates its own (`Stage 42` and the like) and shows it in the corner status strip, which is handy when several screens share a room.
+
 ### Autoplay
 
 Reserved songs play one after another by default: when the current song ends, the display moves straight on to the next one in the queue.
@@ -125,7 +133,11 @@ A controller opens with a **Mic Check** screen, matching the Sound Check a displ
 
 There is no further control for it, only a footnote in the Player tab reporting whether it is on. Skipping the prompt, denying the browser, and plain `http` on a LAN address, where microphones are unavailable, all leave scoring running without one.
 
-A skipped song is scored from the server, since no display saw it end, and its reveal is shorter. A song that played for less than five seconds is not scored at all.
+Mic scoring only measures the remote that reserved the song, matched by nickname, so several phones in one room do not all hear the same singer. The server refuses a reading from any other remote, and a song reserved without a nickname falls back to a generated score.
+
+A skipped song is scored from the server, since no display saw it end. Its reveal is shorter and silent. A song that played for less than five seconds is not scored at all.
+
+The reveal is scored by the display with a short synthesised sting, built from oscillators rather than an audio file, so no asset ships with it.
 
 The score is held by the room, so every display shows the same number, and a display that connects while one is up receives it.
 

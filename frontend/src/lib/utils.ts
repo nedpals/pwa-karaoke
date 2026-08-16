@@ -14,6 +14,13 @@ export function generateRoomId(): string {
   return `${adjective}-${noun}-${number}`;
 }
 
+export function generateDisplayNickname(): string {
+  const screens = ["Screen", "Stage", "Big Screen", "Monitor", "TV"];
+  const screen = screens[Math.floor(Math.random() * screens.length)];
+  const number = Math.floor(Math.random() * 90) + 10;
+  return `${screen} ${number}`;
+}
+
 export function formatClock(seconds: number, showHours = false): string {
   if (!Number.isFinite(seconds) || seconds < 0) {
     return showHours ? "--:--:--" : "--:--";

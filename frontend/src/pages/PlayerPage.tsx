@@ -19,6 +19,7 @@ import { RoomProvider, useRoomContext } from "../providers/RoomProvider";
 import { useTempState, type TempStateSetterOptions } from "../hooks/useTempState";
 import { useVideoUrlMutation, useServerStatus } from "../hooks/useApi";
 import { useVideoUrlWithRetry } from "../hooks/useVideoUrlWithRetry";
+import { getDisplayNickname } from "../lib/nicknameStorage";
 import type { DisplayPlayerState } from "../types";
 import useSmartSync from "../hooks/useSmartSync";
 
@@ -36,6 +37,11 @@ const SKIP_SCORE_HOLD_MS = 3500;
 
 // Below this nothing was sung, so the song passes without a score at all
 const MIN_SCORED_SECONDS = 5;
+
+interface Announcement {
+  title: string;
+  singer?: string | null;
+}
 
 interface OSDState {
   label: string;
@@ -396,7 +402,7 @@ function ReactionLayer() {
 
 function StatusStrip() {
   const { isOffline } = useServerStatus();
-  const { clientCount: rawClientCount, roomId, autoplay } = useRoomContext();
+  const { clientCount: rawClientCount, roomId, nickname, autoplay } = useRoomContext();
   const clientCount = Math.max(rawClientCount - 1, 0);
 
   return (
@@ -417,6 +423,16 @@ function StatusStrip() {
           {roomId}
         </Text>
       </div>
+      {nickname && (
+        <div className="flex items-center gap-2 px-3 py-1">
+          <Text font="display" size="sm" tone="dim">
+            Screen
+          </Text>
+          <Text font="display" size="sm" tone="info">
+            {nickname}
+          </Text>
+        </div>
+      )}
       <div className="flex items-center gap-2 px-3 py-1">
         <Text font="display" size="sm" tone="dim">
           Controllers
@@ -443,8 +459,8 @@ function PlayingStateContent() {
   // Make it null so it wont trigger the "queued" message on first load
   const lastUpNextQueueVersion = useRef<number | null>(null);
   const lastUpNextQueueLength = useRef<number>(0);
-  const [upNextTitle, setUpNextTitle] = useTempState<string | null>(null);
-  const [queuedTitle, setQueuedTitle] = useTempState<string | null>(null);
+  const [upNext, setUpNext] = useTempState<Announcement | null>(null);
+  const [queued, setQueued] = useTempState<Announcement | null>(null);
 
   const { playerState, upNextQueue, autoplay } = useRoomContext();
   const { finishSong } = usePlayerState();
@@ -462,28 +478,30 @@ function PlayingStateContent() {
       : null,
   );
 
-  const banner = useMemo<{ status: string; tone: BannerTone; title: string }>(() => {
-    if (upNextTitle) {
-      return { status: "Up Next", tone: "next", title: upNextTitle };
+  const banner = useMemo<{ status: string; tone: BannerTone; title: string; singer?: string | null }>(() => {
+    if (upNext) {
+      return { status: "Up Next", tone: "next", title: upNext.title, singer: upNext.singer };
     }
-    if (queuedTitle) {
-      return { status: "Reserved", tone: "queued", title: queuedTitle };
+    if (queued) {
+      return { status: "Reserved", tone: "queued", title: queued.title, singer: queued.singer };
     }
     if (!playerState?.entry) {
       return { status: "Stopped", tone: "paused", title: "No Song" };
     }
 
     const title = `${playerState.entry.artist} - ${playerState.entry.title}`;
+    const singer = playerState.singer;
     if (playerState.play_state === "finished") {
-      return { status: "Finished", tone: "paused", title };
+      return { status: "Finished", tone: "paused", title, singer };
     }
 
     return {
       status: playerState.play_state === "playing" ? "Playing" : "Paused",
       tone: playerState.play_state === "playing" ? "playing" : "paused",
       title,
+      singer,
     };
-  }, [upNextTitle, queuedTitle, playerState]);
+  }, [upNext, queued, playerState]);
 
   // With autoplay off the song ends and the queue just sits there, so the
   // display has to say what is waiting and how to start it.
@@ -512,8 +530,11 @@ function PlayingStateContent() {
     // Announce the rollover only when one is coming. The URL is still worth
     // prefetching either way so a manual Next is not left waiting.
     if (autoplay) {
-      setUpNextTitle(
-        `${nextSong.entry.artist} - ${nextSong.entry.title}`,
+      setUpNext(
+        {
+          title: `${nextSong.entry.artist} - ${nextSong.entry.title}`,
+          singer: nextSong.singer,
+        },
         { duration: timeRemaining * 1000 },
       );
     }
@@ -531,15 +552,18 @@ function PlayingStateContent() {
         console.error('[Prefetch] Failed to prefetch URL for:', nextSong.entry.title, error);
       });
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [autoplay, upNextQueue, setUpNextTitle]);
+  }, [autoplay, upNextQueue, setUpNext]);
 
   useEffect(() => {
     if (lastUpNextQueueVersion.current
       && upNextQueue && upNextQueue.version > lastUpNextQueueVersion.current
       && upNextQueue.items.length > lastUpNextQueueLength.current) {
       const newSong = upNextQueue.items[upNextQueue.items.length - 1];
-      setQueuedTitle(
-        `${newSong.entry.artist} - ${newSong.entry.title}`,
+      setQueued(
+        {
+          title: `${newSong.entry.artist} - ${newSong.entry.title}`,
+          singer: newSong.singer,
+        },
         { duration: 3000 },
       );
     }
@@ -560,6 +584,7 @@ function PlayingStateContent() {
           status={banner.status}
           tone={banner.tone}
           title={banner.title}
+          singer={banner.singer}
           reservedCount={upNextQueue?.items.length ?? 0}
         />
       </div>
@@ -579,7 +604,7 @@ function PlayingStateContent() {
 
       {heldSong && (
         <div className="absolute inset-0 z-20 flex items-center justify-center title-safe pointer-events-none">
-          <UpNextCard entry={heldSong.entry} />
+          <UpNextCard entry={heldSong.entry} singer={heldSong.singer} />
         </div>
       )}
     </div>
@@ -638,7 +663,11 @@ function ScoringStateScreen() {
       <Backdrop name="idle" />
 
       <div className="relative z-10 h-full w-full flex items-center justify-center title-safe">
-        <ScoreScreen score={shownScore} quick={scoring?.quick ?? false} />
+        <ScoreScreen
+          score={shownScore}
+          quick={scoring?.quick ?? false}
+          sound={!scoring?.quick}
+        />
       </div>
     </div>
   );
@@ -871,7 +900,8 @@ function PlayerPageContent() {
 export default function PlayerPage() {
   const [searchParams] = useSearchParams();
   const roomId = searchParams.get("room");
-  const room = useRoom("display");
+  const [nickname] = useState(getDisplayNickname);
+  const room = useRoom("display", nickname);
 
   useEffect(() => {
     if (roomId) {

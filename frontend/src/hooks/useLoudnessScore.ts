@@ -26,6 +26,8 @@ interface Reading {
 }
 
 export interface UseLoudnessScoreOptions {
+  /** False on songs someone else reserved, so their singing is not measured here. */
+  active: boolean;
   entryId: string | null;
   playState: DisplayPlayerState["play_state"] | null;
   onSubmit: (entryId: string, performance: number) => void;
@@ -84,22 +86,25 @@ function performanceOf(reading: Reading): number {
 }
 
 export function useLoudnessScore({
+  active,
   entryId,
   playState,
   onSubmit,
 }: UseLoudnessScoreOptions): UseLoudnessScoreReturn {
   const [status, setStatus] = useState<MicStatus>("idle");
 
+  const activeRef = useRef(active);
   const entryIdRef = useRef(entryId);
   const playStateRef = useRef(playState);
   const onSubmitRef = useRef(onSubmit);
   const readingRef = useRef<Reading | null>(null);
 
   useEffect(() => {
+    activeRef.current = active;
     entryIdRef.current = entryId;
     playStateRef.current = playState;
     onSubmitRef.current = onSubmit;
-  }, [entryId, playState, onSubmit]);
+  }, [active, entryId, playState, onSubmit]);
 
   const sample = useCallback((analyser: AnalyserNode, buffer: Uint8Array) => {
     const rms = readRms(analyser, buffer);
@@ -107,7 +112,7 @@ export function useLoudnessScore({
     const entry = entryIdRef.current;
     const state = playStateRef.current;
 
-    if (!entry) {
+    if (!entry || !activeRef.current) {
       readingRef.current = null;
       return;
     }

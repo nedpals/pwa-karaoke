@@ -6,6 +6,7 @@ from core.search import KaraokeEntry
 class DisplayPlayerState(BaseModel):
     """Player state model for karaoke display and control"""
     entry: KaraokeEntry | None
+    singer: str | None = None
     play_state: Literal["playing", "paused", "finished", "buffering"]
     current_time: float = Field(0.0, ge=0.0)
     duration: float = Field(0.0, ge=0.0) 

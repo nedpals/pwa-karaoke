@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Text } from "../atoms/Text";
 import { cn } from "../../lib/utils";
 import { ratingFor } from "../../lib/scoring";
+import { playLand, startRoll, stopRoll } from "../../lib/scoreSound";
 
 // Applied inline rather than through the text-stencil utility, which
 // tailwind-merge reads as a text colour and would drop the rating tone.
@@ -15,6 +16,9 @@ const ROLL_TICK_MIN_MS = 55;
 const ROLL_TICK_MAX_MS = 320;
 const LANDING_MS = 1500;
 const QUICK_LANDING_MS = 600;
+
+// Long enough to cover a score arriving late; it is cut short on the reveal
+const ROLL_SECONDS = 6;
 const MAX_SPREAD = 45;
 
 function prefersReducedMotion() {
@@ -86,13 +90,29 @@ export interface ScoreScreenProps {
   score: number | null;
   /** Lands sooner, for a score nobody stayed for. */
   quick?: boolean;
+  /** Off by default so nothing outside the display makes noise. */
+  sound?: boolean;
   className?: string;
 }
 
-export function ScoreScreen({ score, quick = false, className }: ScoreScreenProps) {
+export function ScoreScreen({ score, quick = false, sound = false, className }: ScoreScreenProps) {
   const { value, settled } = useScoreReveal(score, quick ? QUICK_LANDING_MS : LANDING_MS);
   const rating = score === null ? null : ratingFor(score);
   const revealed = settled && rating !== null;
+
+  useEffect(() => {
+    if (!sound) return;
+
+    startRoll(ROLL_SECONDS);
+    return stopRoll;
+  }, [sound]);
+
+  useEffect(() => {
+    if (!sound || !revealed || score === null) return;
+
+    stopRoll();
+    playLand(score);
+  }, [sound, revealed, score]);
 
   return (
     <div className={cn("score-pop flex flex-col items-center gap-[2vh]", className)}>

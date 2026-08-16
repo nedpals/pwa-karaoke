@@ -6,8 +6,12 @@ import { REACTIONS } from "../../lib/reactions";
 import { useTempState } from "../../hooks/useTempState";
 import type { ReactionType } from "../../types";
 
-const REACTION_LIMIT = 8;
 const REACTION_WINDOW_MS = 3000;
+// Ceiling for the pad as a whole, matching the server's per client budget
+const REACTION_LIMIT = 8;
+// Repeats of one reaction, so smashing a single button cannot spend the
+// whole budget and leave a different reaction with nothing to send
+const PER_REACTION_LIMIT = 3;
 
 export interface ReactionPadProps {
   onReact: (reaction: ReactionType) => void;
@@ -17,6 +21,7 @@ export interface ReactionPadProps {
 export function ReactionPad({ onReact, disabled = false }: ReactionPadProps) {
   const [flashed, setFlashed] = useTempState<ReactionType | null>(null);
   const sentAt = useRef<number[]>([]);
+  const sentAtByReaction = useRef<Partial<Record<ReactionType, number[]>>>({});
 
   const handleReact = (reaction: ReactionType) => {
     if (disabled) return;
@@ -27,11 +32,16 @@ export function ReactionPad({ onReact, disabled = false }: ReactionPadProps) {
     navigator.vibrate?.(12);
 
     const now = Date.now();
-    sentAt.current = sentAt.current.filter((at) => now - at < REACTION_WINDOW_MS);
+    const isRecent = (at: number) => now - at < REACTION_WINDOW_MS;
+
+    sentAt.current = sentAt.current.filter(isRecent);
+    const forReaction = (sentAtByReaction.current[reaction] ?? []).filter(isRecent);
 
     if (sentAt.current.length >= REACTION_LIMIT) return;
+    if (forReaction.length >= PER_REACTION_LIMIT) return;
 
     sentAt.current.push(now);
+    sentAtByReaction.current[reaction] = [...forReaction, now];
     onReact(reaction);
   };
 

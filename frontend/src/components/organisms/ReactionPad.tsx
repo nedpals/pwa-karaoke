@@ -11,7 +11,7 @@ const REACTION_WINDOW_MS = 3000;
 const REACTION_LIMIT = 8;
 // Repeats of one reaction, so smashing a single button cannot spend the
 // whole budget and leave a different reaction with nothing to send
-const PER_REACTION_LIMIT = 3;
+const PER_REACTION_LIMIT = 5;
 
 export interface ReactionPadProps {
   onReact: (reaction: ReactionType) => void;

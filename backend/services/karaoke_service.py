@@ -8,6 +8,7 @@ from cache_store import get_cache_store, CacheStore
 
 class VideoURLResponse(BaseModel):
     video_url: str | None
+    audio_url: str | None = None
 
 class KaraokeService:
     def __init__(self, cache: Annotated[CacheStore, Depends(get_cache_store)] = None):
@@ -26,14 +27,14 @@ class KaraokeService:
         return KaraokeSearchResult(entries=all_entries)
 
     async def get_video_url(self, entry: KaraokeEntry) -> VideoURLResponse:
-        """Get video URL for an entry using the appropriate provider based on source field"""
-        # Return existing URL if already present
-        if entry.video_url:
-            return VideoURLResponse(video_url=entry.video_url)
+        """Get media URLs for an entry using the appropriate provider based on source field"""
+        # Return existing URLs if already present
+        if entry.video_url or entry.audio_url:
+            return VideoURLResponse(video_url=entry.video_url, audio_url=entry.audio_url)
         elif self.cache:
-            cached_url = self.cache.get_video_url(entry.id, entry.source)
-            if cached_url is not None:
-                return VideoURLResponse(video_url=cached_url if cached_url else None)
+            cached = self.cache.get_media_urls(entry.id, entry.source)
+            if cached is not None:
+                return VideoURLResponse(video_url=cached.video_url, audio_url=cached.audio_url)
 
         result = None
         for provider in self.source_providers:
@@ -43,18 +44,19 @@ class KaraokeService:
                     result = VideoURLResult(video_url=got_result, cacheable=True) if isinstance(got_result, str) else got_result
                 except Exception as e:
                     print(f"[SERVICE] Provider {provider.provider_id} failed for {entry.id}: {e}")
-                    return VideoURLResponse(video_url=None)
+                    return VideoURLResponse(video_url=None, audio_url=None)
 
         # Cache the result (if cache available and cacheable)
         if result and self.cache and result.cacheable:
-            self.cache.cache_video_url(
+            self.cache.cache_media_urls(
                 entry.id,
                 entry.source,
-                result.video_url or "",
+                result.video_url,
+                result.audio_url,
                 result.cache_ttl_seconds
             )
 
         if result is None:
-            return VideoURLResponse(video_url=None)
-        
-        return VideoURLResponse(video_url=result.video_url)
+            return VideoURLResponse(video_url=None, audio_url=None)
+
+        return VideoURLResponse(video_url=result.video_url, audio_url=result.audio_url)

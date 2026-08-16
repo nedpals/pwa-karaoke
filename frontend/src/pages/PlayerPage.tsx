@@ -419,7 +419,7 @@ function PlayingStateContent() {
     retry,
     retryCount
   } = useVideoUrlWithRetry(
-    playerState?.entry && !playerState.entry.video_url
+    playerState?.entry && !playerState.entry.video_url && !playerState.entry.audio_url
       ? playerState.entry
       : null,
   );

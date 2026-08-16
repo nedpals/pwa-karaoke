@@ -130,7 +130,7 @@ class YTKaraokeSourceProvider(KaraokeSourceProvider):
 
     async def get_video_url(self, entry: KaraokeEntry) -> Union[str, VideoURLResult, None]:
         """
-        Fetch the actual video URL for a YouTube entry on demand.
+        Fetch the actual media URLs for a YouTube entry on demand.
 
         Args:
             entry: KaraokeEntry with YouTube video ID as the id
@@ -143,34 +143,78 @@ class YTKaraokeSourceProvider(KaraokeSourceProvider):
 
         # Construct YouTube URL from video ID
         youtube_url = f"https://www.youtube.com/watch?v={entry.id}"
-        video_url = await self._get_raw_video_url(youtube_url)
+        video_url, audio_url = await self._extract_media_urls(youtube_url)
 
-        if video_url:
+        if video_url or audio_url:
             return VideoURLResult(
                 video_url=video_url,
+                audio_url=audio_url,
                 cache_ttl_seconds=4 * 3600,  # 4 hours - YouTube URLs are stable
                 cacheable=True
             )
         else:
             return VideoURLResult(
                 video_url=None,
+                audio_url=None,
                 cache_ttl_seconds=30 * 60,  # 30 minutes for failures
                 cacheable=True
             )
 
-    async def _get_raw_video_url(self, youtube_url: str, max_retries: int = 3, base_delay: float = 1.0) -> Optional[str]:
+    @staticmethod
+    def _format_rank(fmt: dict) -> tuple:
+        return (fmt.get('height') or 0, fmt.get('tbr') or 0, fmt.get('abr') or 0)
+
+    @classmethod
+    def _pick_format(cls, formats: list[dict], preferred_exts: tuple[str, ...]) -> Optional[str]:
+        """Container preference wins over quality, mirroring the
+        `best[ext=mp4]/best[ext=webm]/best` fallback chain."""
+        for ext in preferred_exts + (None,):
+            candidates = [f for f in formats if ext is None or f.get('ext') == ext]
+            if candidates:
+                return max(candidates, key=cls._format_rank).get('url')
+        return None
+
+    @classmethod
+    def _select_media_urls(cls, info: dict) -> tuple[Optional[str], Optional[str]]:
         """
-        Extract raw video URL using yt-dlp.
-        Returns the best quality video stream URL.
+        Split an extractor result into a playable video URL and a standalone audio URL.
+
+        video_url stays muxed so it remains playable on its own; audio_url is the
+        best audio-only track.
+        """
+        formats = [f for f in (info.get('formats') or []) if f.get('url')]
+
+        muxed = [
+            f for f in formats
+            if f.get('vcodec', 'none') != 'none' and f.get('acodec', 'none') != 'none'
+        ]
+        audio_only = [
+            f for f in formats
+            if f.get('vcodec', 'none') == 'none' and f.get('acodec', 'none') != 'none'
+        ]
+
+        video_url = cls._pick_format(muxed, ('mp4', 'webm'))
+        # m4a before webm: Safari has no Opus-in-WebM support.
+        audio_url = cls._pick_format(audio_only, ('m4a', 'mp4', 'webm'))
+
+        if not video_url and not audio_url:
+            video_url = info.get('url')
+
+        return video_url, audio_url
+
+    async def _extract_media_urls(self, youtube_url: str, max_retries: int = 3, base_delay: float = 1.0) -> tuple[Optional[str], Optional[str]]:
+        """
+        Extract raw media URLs using yt-dlp.
+        Returns a (video_url, audio_url) pair; either may be None.
         """
         last_exception = None
 
         for attempt in range(max_retries + 1):
             try:
                 ydl_opts = self._get_ydl_opts()
-                # Configure format selection for best quality mp4
                 ydl_opts.update({
-                    'format': 'best[ext=mp4]/best[ext=webm]/best',  # Prefer mp4, fallback to webm, then best available
+                    # The search path sets extract_flat, which leaves `formats` empty.
+                    'extract_flat': False,
                     'noplaylist': True,
                 })
 
@@ -179,10 +223,9 @@ class YTKaraokeSourceProvider(KaraokeSourceProvider):
                     def extract_url():
                         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                             info = ydl.extract_info(youtube_url, download=False)
-                            return info.get('url') if info else None
+                            return self._select_media_urls(info) if info else (None, None)
 
-                    video_url = await loop.run_in_executor(executor, extract_url)
-                    return video_url
+                    return await loop.run_in_executor(executor, extract_url)
 
             except Exception as e:
                 last_exception = e
@@ -205,12 +248,12 @@ class YTKaraokeSourceProvider(KaraokeSourceProvider):
                     await asyncio.sleep(delay)
                     continue
                 else:
-                    print(f"Failed to extract video URL for {youtube_url} after {attempt + 1} attempts")
+                    print(f"Failed to extract media URLs for {youtube_url} after {attempt + 1} attempts")
                     print(f"Final error: {e}")
-                    return None
+                    return None, None
 
         print(f"Unexpected retry loop exit for {youtube_url}. Last error: {last_exception}")
-        return None
+        return None, None
 
     async def close(self):
         # No cleanup needed for yt-dlp

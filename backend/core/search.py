@@ -6,6 +6,7 @@ class KaraokeEntry(BaseModel):
     title: str
     artist: str
     video_url: Optional[str] = None  # Now optional for lazy loading
+    audio_url: Optional[str] = None  # Separate audio track, when the source exposes one
     source: str
     uploader: str
     duration: Optional[float]
@@ -16,8 +17,13 @@ class KaraokeSearchResult(BaseModel):
 
 class VideoURLResult(BaseModel):
     video_url: Optional[str]
+    audio_url: Optional[str] = None
     cache_ttl_seconds: int = 3600
-    cacheable: bool = True 
+    cacheable: bool = True
+
+    @property
+    def has_media(self) -> bool:
+        return bool(self.video_url or self.audio_url)
 
 class KaraokeSourceProvider:
     def __init__(self) -> None:
@@ -37,15 +43,16 @@ class KaraokeSourceProvider:
     
     async def get_video_url(self, entry: KaraokeEntry) -> Union[str, VideoURLResult, None]:
         """
-        Fetch the actual video URL for an entry on demand.
+        Fetch the actual media URLs for an entry on demand.
         Should be implemented by subclasses that support lazy loading.
 
         Args:
-            entry: KaraokeEntry that needs video URL fetching
+            entry: KaraokeEntry that needs media URL fetching
 
         Returns:
             - str: Simple video URL (uses default cache settings)
-            - VideoURLResult: Video URL with custom cache settings
-            - None: No video URL available
+            - VideoURLResult: Video and/or audio URL with custom cache settings.
+              Audio-only sources may leave video_url unset.
+            - None: No media available
         """
-        return None  # Default implementation - no video URL available
+        return None  # Default implementation - no media available

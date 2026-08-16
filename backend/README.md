@@ -205,13 +205,19 @@ class LazyVideoProvider(KaraokeSourceProvider):
         return KaraokeSearchResult(entries=entries)
     
     async def get_video_url(self, entry: KaraokeEntry) -> Union[str, VideoURLResult, None]:
-        # Fetch video URL when actually needed
+        # Fetch media URLs when actually needed
         return VideoURLResult(
             video_url=await your_api_get_stream_url(entry.id),
+            audio_url=await your_api_get_audio_url(entry.id),
             cache_ttl_seconds=3600,
             cacheable=True
         )
 ```
+
+`audio_url` is optional and carries a standalone audio track. Sources that only
+serve audio may leave `video_url` unset; an entry counts as resolved when either
+field is populated. Returning a bare `str` is still supported and is treated as
+`video_url`.
 
 ## HTTP Server
 
@@ -375,6 +381,7 @@ The server processes incoming WebSocket messages by extracting the command name 
   duration?: number,
   thumbnail_url?: string,
   video_url?: string,
+  audio_url?: string,
   source: string,
   uploader: string
 }

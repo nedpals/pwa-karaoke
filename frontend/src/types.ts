@@ -3,6 +3,7 @@ export interface KaraokeEntry {
   title: string;
   artist: string;
   video_url: string | null;  // Made optional for lazy loading
+  audio_url?: string | null;
   source: string;
   uploader: string;
   duration: number | null;
@@ -15,6 +16,7 @@ export interface KaraokeSearchResult {
 
 export interface VideoURLResponse {
   video_url: string | null;
+  audio_url?: string | null;
 }
 
 export interface DisplayPlayerState {

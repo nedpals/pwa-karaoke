@@ -4,6 +4,7 @@ import type { KaraokeEntry } from '../types';
 
 interface UseVideoUrlWithRetryResult {
   videoUrl: string | null;
+  audioUrl: string | null;
   isLoading: boolean;
   error: Error | null;
   retryCount: number;
@@ -71,18 +72,20 @@ export function useVideoUrlWithRetry(entry: KaraokeEntry | null): UseVideoUrlWit
   }, [swrError, swrData, swrLoading, isManualRetry, manualRetryCount, entry, retry]);
 
   const videoUrl = entry?.video_url || swrData?.video_url || null;
+  const audioUrl = entry?.audio_url || swrData?.audio_url || null;
   const isLoading = swrLoading || isMutating;
   const error = swrError || mutationError || null;
 
   // Allow retry if:
   // 1. There's an error
-  // 2. No video URL available
+  // 2. Neither track is available
   // 3. Not currently loading
   // 4. Haven't exceeded max manual retries (e.g., 3)
-  const canRetry = !isLoading && (!videoUrl || error) && manualRetryCount < 3;
+  const canRetry = !isLoading && ((!videoUrl && !audioUrl) || error) && manualRetryCount < 3;
 
   return {
     videoUrl,
+    audioUrl,
     isLoading,
     error,
     retryCount: manualRetryCount,

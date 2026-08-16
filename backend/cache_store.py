@@ -2,10 +2,16 @@ import sqlite3
 import hashlib
 import json
 import time
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, NamedTuple
 from pathlib import Path
 import tempfile
 import os
+
+class CachedMediaURLs(NamedTuple):
+    """Both fields may be None, recording an entry that resolved to nothing. A
+    cache miss is signalled by returning None instead of this tuple."""
+    video_url: Optional[str]
+    audio_url: Optional[str]
 
 class CacheStore:
     """
@@ -33,6 +39,7 @@ class CacheStore:
                 entry_id TEXT PRIMARY KEY,
                 source TEXT NOT NULL,
                 video_url TEXT,
+                audio_url TEXT,
                 created_at REAL NOT NULL,
                 expires_at REAL
             );
@@ -53,48 +60,57 @@ class CacheStore:
         """)
         self.connection.commit()
 
-    def cache_video_url(self, entry_id: str, source: str, video_url: Optional[str], ttl_seconds: int = 3600):
+    def cache_media_urls(
+        self,
+        entry_id: str,
+        source: str,
+        video_url: Optional[str],
+        audio_url: Optional[str],
+        ttl_seconds: int = 3600,
+    ):
         now = time.time()
         expires_at = now + ttl_seconds
 
         try:
             self.connection.execute("""
                 INSERT OR REPLACE INTO video_url_cache
-                (entry_id, source, video_url, created_at, expires_at)
-                VALUES (?, ?, ?, ?, ?)
-            """, (entry_id, source, video_url, now, expires_at))
+                (entry_id, source, video_url, audio_url, created_at, expires_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (entry_id, source, video_url or None, audio_url or None, now, expires_at))
             self.connection.commit()
 
-            cache_status = "HIT" if video_url else "MISS"
-            print(f"[CACHE] Stored video URL {cache_status} for {entry_id} (expires in {ttl_seconds}s)")
+            tracks = "+".join(
+                filter(None, ["video" if video_url else None, "audio" if audio_url else None])
+            ) or "none"
+            print(f"[CACHE] Stored media URLs ({tracks}) for {entry_id} (expires in {ttl_seconds}s)")
 
         except sqlite3.Error as e:
-            print(f"[CACHE] Error storing video URL for {entry_id}: {e}")
+            print(f"[CACHE] Error storing media URLs for {entry_id}: {e}")
 
-    def get_video_url(self, entry_id: str, source: str) -> Optional[str]:
+    def get_media_urls(self, entry_id: str, source: str) -> Optional[CachedMediaURLs]:
         now = time.time()
 
         try:
             cursor = self.connection.execute("""
-                SELECT video_url, created_at, expires_at
+                SELECT video_url, audio_url, created_at, expires_at
                 FROM video_url_cache
                 WHERE entry_id = ? AND source = ? AND expires_at > ?
             """, (entry_id, source, now))
 
             row = cursor.fetchone()
             if row:
-                video_url, created_at, expires_at = row
+                video_url, audio_url, created_at, expires_at = row
                 age_seconds = int(now - created_at)
                 expires_in = int(expires_at - now)
 
-                print(f"[CACHE] Video URL cache HIT for {entry_id} (age: {age_seconds}s, expires in: {expires_in}s)")
-                return video_url
+                print(f"[CACHE] Media URL cache HIT for {entry_id} (age: {age_seconds}s, expires in: {expires_in}s)")
+                return CachedMediaURLs(video_url=video_url, audio_url=audio_url)
 
-            print(f"[CACHE] Video URL cache MISS for {entry_id}")
+            print(f"[CACHE] Media URL cache MISS for {entry_id}")
             return None
 
         except sqlite3.Error as e:
-            print(f"[CACHE] Error retrieving video URL for {entry_id}: {e}")
+            print(f"[CACHE] Error retrieving media URLs for {entry_id}: {e}")
             return None
 
     def cache_search_results(self, query: str, results: Dict[str, Any], ttl_seconds: int = 1800):
@@ -171,7 +187,7 @@ class CacheStore:
             self.connection.commit()
 
             if video_deleted > 0 or search_deleted > 0:
-                print(f"[CACHE] Cleaned up {video_deleted} expired video URLs and {search_deleted} expired search results")
+                print(f"[CACHE] Cleaned up {video_deleted} expired media URLs and {search_deleted} expired search results")
 
         except sqlite3.Error as e:
             print(f"[CACHE] Error during cleanup: {e}")
@@ -182,8 +198,8 @@ class CacheStore:
             video_cursor = self.connection.execute("""
                 SELECT
                     COUNT(*) as total,
-                    COUNT(CASE WHEN video_url IS NOT NULL THEN 1 END) as hits,
-                    COUNT(CASE WHEN video_url IS NULL THEN 1 END) as misses
+                    COUNT(CASE WHEN video_url IS NOT NULL OR audio_url IS NOT NULL THEN 1 END) as hits,
+                    COUNT(CASE WHEN video_url IS NULL AND audio_url IS NULL THEN 1 END) as misses
                 FROM video_url_cache
                 WHERE expires_at > ?
             """, (time.time(),))

@@ -12,6 +12,7 @@ import { Backdrop } from "../components/templates/Backdrop";
 import { MessageTemplate } from "../components/templates/MessageTemplate";
 import { SystemMessage } from "../components/templates/SystemMessage";
 import { PasswordInput } from "../components/organisms/PasswordInput";
+import { ReactionOverlay } from "../components/organisms/ReactionOverlay";
 import { RoomProvider, useRoomContext } from "../providers/RoomProvider";
 import { useTempState, type TempStateSetterOptions } from "../hooks/useTempState";
 import { useVideoUrlMutation, useServerStatus } from "../hooks/useApi";
@@ -364,6 +365,14 @@ function VideoPlayerComponent({
         <p className="text-center">Your browser does not support the video tag.</p>
       </video>
     </div>
+  );
+}
+
+function ReactionLayer() {
+  const { lastReaction } = useRoomContext();
+
+  return (
+    <ReactionOverlay event={lastReaction} className="fixed inset-0 z-10" />
   );
 }
 
@@ -787,6 +796,7 @@ export default function PlayerPage() {
       <PlayerStateProviderInternal>
         <div className="relative">
           <PlayerPageContent />
+          <ReactionLayer />
           <div className="absolute bottom-[3vh] left-[3vw] z-30">
             <StatusStrip />
           </div>

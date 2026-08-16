@@ -37,6 +37,12 @@ class PlayerStatePayload(DisplayPlayerState):
     """Player state update payload - inherits from DisplayPlayerState"""
     pass
 
+ReactionType = Literal["clap", "fire", "heart", "laugh", "star", "boo"]
+
+class SendReactionPayload(BaseModel):
+    """Reaction sent by a controller"""
+    reaction: ReactionType
+
 class QueueUpdatePayload(BaseModel):
     """Queue update payload"""
     items: list = Field(default_factory=list)
@@ -69,6 +75,7 @@ COMMAND_PAYLOAD_MAP = {
     "update_player_state": PlayerStatePayload,
     "queue_update": QueueUpdatePayload,
     "video_loaded": PlayerStatePayload,
+    "send_reaction": SendReactionPayload,
     "ack": AckPayload,
     # Commands without payload validation
     "play_song": dict,

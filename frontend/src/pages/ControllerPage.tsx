@@ -26,6 +26,7 @@ import { useEntryStatus, type EntryStatus } from "../hooks/useEntryStatus";
 import { ControllerLayout } from "../components/templates/ControllerLayout";
 import { SystemMessage } from "../components/templates/SystemMessage";
 import { PasswordInput } from "../components/organisms/PasswordInput";
+import { ReactionPad } from "../components/organisms/ReactionPad";
 import { TimeDisplay } from "../components/molecules/TimeDisplay";
 
 const CONTROLLER_TABS = [
@@ -280,7 +281,7 @@ function VolumeMeter({ value }: { value: number }) {
 }
 
 function PlayerTab() {
-  const { playerState, playSong, pauseSong, playNext, setVolume } = useRoomContext();
+  const { playerState, playSong, pauseSong, playNext, setVolume, sendReaction, connected } = useRoomContext();
   const [isPlaybackLoading, setIsPlaybackLoading] = useState(false);
   const [isVolumeLoading, setIsVolumeLoading] = useState(false);
   const [isPlayNextLoading, setIsPlayNextLoading] = useState(false);
@@ -447,6 +448,8 @@ function PlayerTab() {
           />
         </div>
       </Panel>
+
+      <ReactionPad onReact={sendReaction} disabled={!connected} />
     </div>
   );
 }

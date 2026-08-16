@@ -1,5 +1,6 @@
 import asyncio
 import time
+from collections import deque
 from typing import Literal, Optional
 from fastapi import WebSocket, WebSocketDisconnect
 from fastapi.websockets import WebSocketState
@@ -23,6 +24,21 @@ class ConnectionClient:
         self.room_id = room_id
         self.last_pong = time.time()
         self.heartbeat_task = None
+        self.action_times: dict[str, deque] = {}
+
+    def allow_action(self, key: str, limit: int, per_seconds: float) -> bool:
+        """Sliding window rate limit for spammable commands. False means drop it."""
+        now = time.time()
+        window = self.action_times.setdefault(key, deque())
+
+        while window and now - window[0] > per_seconds:
+            window.popleft()
+
+        if len(window) >= limit:
+            return False
+
+        window.append(now)
+        return True
 
     async def send_command(self, command: str, data):
         if self.websocket.client_state != WebSocketState.CONNECTED:

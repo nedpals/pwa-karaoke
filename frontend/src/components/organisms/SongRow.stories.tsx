@@ -36,7 +36,12 @@ export const Selected: Story = {
 };
 
 export const WithSinger: Story = {
-  args: { entry: SAMPLE_ENTRY, index: 1, singer: 'Tita Beth' },
+  args: {
+    entry: SAMPLE_ENTRY,
+    index: 1,
+    singer: 'Tita Beth',
+    status: { kind: 'reserved', position: 1, itemId: 'queue-item' },
+  },
 };
 
 export const WithSource: Story = {

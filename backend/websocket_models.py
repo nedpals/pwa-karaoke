@@ -3,7 +3,7 @@ from pydantic import BaseModel, Field, validator
 from core.search import KaraokeEntry
 from core.player import DisplayPlayerState
 
-MAX_NICKNAME_LENGTH = 20
+MAX_NICKNAME_LENGTH = 14
 
 class WebSocketMessage(BaseModel):
     """Base WebSocket message structure"""

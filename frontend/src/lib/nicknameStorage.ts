@@ -6,7 +6,7 @@ const NICKNAME_KEY = 'karaoke-nickname';
 const DISPLAY_NICKNAME_KEY = 'karaoke-display-nickname';
 
 /** Kept in step with MAX_NICKNAME_LENGTH on the server. */
-export const MAX_NICKNAME_LENGTH = 20;
+export const MAX_NICKNAME_LENGTH = 14;
 
 export function normalizeNickname(nickname: string): string {
   return nickname.split(/\s+/).join(' ').trim().slice(0, MAX_NICKNAME_LENGTH);

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Button } from "../atoms/Button";
 import { Input } from "../atoms/Input";
+import { Text } from "../atoms/Text";
 import { MAX_NICKNAME_LENGTH, normalizeNickname, storeNickname } from "../../lib/nicknameStorage";
 
 interface NicknameInputProps {
@@ -12,6 +13,7 @@ interface NicknameInputProps {
 export function NicknameInput({ defaultValue = "", onSubmit }: NicknameInputProps) {
   const [nickname, setNickname] = useState(defaultValue);
   const trimmed = normalizeNickname(nickname);
+  const remaining = MAX_NICKNAME_LENGTH - nickname.length;
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -32,6 +34,10 @@ export function NicknameInput({ defaultValue = "", onSubmit }: NicknameInputProp
         aria-label="Your nickname"
         autoFocus
       />
+
+      <Text size="xs" tone="dim" className="block text-center">
+        {remaining} character{remaining === 1 ? "" : "s"} remaining
+      </Text>
 
       <Button type="submit" variant="accent" size="lg" disabled={!trimmed} className="w-full">
         Enter

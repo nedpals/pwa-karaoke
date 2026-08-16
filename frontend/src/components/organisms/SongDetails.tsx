@@ -28,6 +28,7 @@ export interface SongDetailsProps extends React.HTMLAttributes<HTMLDivElement> {
  *  dialog and the display, so both read the same. */
 export function SongDetails({ entry, status, singer, size = "md", className, ...props }: SongDetailsProps) {
   const scale = scales[size];
+  const reservedBy = singer ?? status?.singer;
 
   return (
     <div className={cn("flex items-start", scale.gap, className)} {...props}>
@@ -56,14 +57,14 @@ export function SongDetails({ entry, status, singer, size = "md", className, ...
         {entry.duration !== null && (
           <TimeDisplay seconds={entry.duration} size={scale.duration} tone="dim" />
         )}
-        {singer && (
+        {reservedBy && (
           <div className="flex items-center gap-2 pt-1">
             <Text font="display" size={scale.label} tone="dim">
               Reserved by
             </Text>
             <span className="px-2 bg-ka-cyan min-w-0">
               <Text font="display" size={scale.label} weight="bold" tone="inverse" truncate className="block">
-                {singer}
+                {reservedBy}
               </Text>
             </span>
           </div>

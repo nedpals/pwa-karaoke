@@ -8,7 +8,7 @@ import type { KaraokeEntry } from "../../types";
 function statusLine(status: EntryStatus) {
   return status.kind === "playing"
     ? { text: "Now Playing", className: "bg-ka-amber" }
-    : { text: `#${status.position}`, className: "bg-ka-green" };
+    : { text: "Reserved", className: "bg-ka-green" };
 }
 
 const scales = {
@@ -29,6 +29,9 @@ export interface SongDetailsProps extends React.HTMLAttributes<HTMLDivElement> {
 export function SongDetails({ entry, status, singer, size = "md", className, ...props }: SongDetailsProps) {
   const scale = scales[size];
   const reservedBy = singer ?? status?.singer;
+  // The Reserved by line below says it better, so the badge is only there when
+  // nobody is named against the song.
+  const badge = status && (status.kind === "playing" || !reservedBy) ? statusLine(status) : null;
 
   return (
     <div className={cn("flex items-start", scale.gap, className)} {...props}>
@@ -36,10 +39,10 @@ export function SongDetails({ entry, status, singer, size = "md", className, ...
 
       <div className="flex-1 min-w-0 space-y-1">
         <div className="flex items-center gap-2 flex-wrap">
-          {status && (
-            <span className={`px-2 ${statusLine(status).className}`}>
+          {badge && (
+            <span className={`px-2 ${badge.className}`}>
               <Text font="display" size={scale.label} weight="bold" tone="inverse">
-                {statusLine(status).text}
+                {badge.text}
               </Text>
             </span>
           )}

@@ -14,9 +14,8 @@ export interface SongRowProps extends Omit<React.HTMLAttributes<HTMLDivElement>,
   onClick?: () => void;
 }
 
-/** Queue position and who reserved it, on one chip: `#1 - Tita Beth`. Either
- *  half can be missing, since search results have no singer and the playing
- *  row has no position. */
+/** Names who reserved the song. Falls back to the bare status for a song
+ *  reserved before anyone gave a name. */
 function StatusBadge({
   status,
   singer,
@@ -26,9 +25,10 @@ function StatusBadge({
   singer?: string | null;
   muted: boolean;
 }) {
-  const position =
-    status?.kind === "playing" ? "Now Playing" : status ? `#${status.position}` : null;
-  const label = [position, singer ?? status?.singer].filter(Boolean).join(" • ");
+  const name = singer ?? status?.singer;
+  const state =
+    status?.kind === "playing" ? "Now Playing" : status && !name ? "Reserved" : null;
+  const label = [state, name].filter(Boolean).join(" • ");
 
   const tone = !status ? "bg-ka-cyan" : status.kind === "playing" ? "bg-ka-amber" : "bg-ka-green";
 

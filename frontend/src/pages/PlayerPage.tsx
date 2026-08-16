@@ -551,7 +551,7 @@ function PlayingStateContent() {
 
       {heldSong && (
         <div className="absolute inset-0 z-20 flex items-center justify-center title-safe pointer-events-none">
-          <UpNextCard entry={heldSong.entry} remaining={(upNextQueue?.items.length ?? 1) - 1} />
+          <UpNextCard entry={heldSong.entry} />
         </div>
       )}
     </div>

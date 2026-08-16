@@ -23,6 +23,7 @@ class ClientCommands:
         # Send the current player_state and queue to the client
         await self.client.send_command("client_count", self.session_manager.get_room_client_count(self.client.room_id))
         await self.client.send_command("queue_update", self.room.get_queue_update_payload())
+        await self.client.send_command("room_settings", self.room.get_settings_payload())
         if self.room.player_state:
             await self.client.send_command("player_state", self.room.player_state.model_dump())
 
@@ -36,14 +37,10 @@ class ClientCommands:
         # print(f"[DEBUG] Received pong from {self.client.client_type} ({self.client.id})")
 
     async def _update_player_state(self, state_data):
-        if isinstance(state_data, DisplayPlayerState):
-            self.room.update_player_state(state_data)
-            payload = state_data.model_dump()
-        else:
-            state = DisplayPlayerState.parse_obj(state_data)
-            self.room.update_player_state(state)
-            payload = state_data
-        await self.session_manager.broadcast_to_room(self.client.room_id, "player_state", payload)
+        state = state_data if isinstance(state_data, DisplayPlayerState) else DisplayPlayerState.parse_obj(state_data)
+        self.room.update_player_state(state)
+        # Broadcast the room's copy so clients see the server-stamped version
+        await self.session_manager.broadcast_to_room(self.client.room_id, "player_state", self.room.player_state.model_dump())
 
     async def _toggle_playback_state(self, playback_state: Literal["play", "pause"]):
         command = "play_song" if playback_state == "play" else "pause_song"
@@ -106,7 +103,16 @@ class ClientCommands:
         await self._receive_current_state()
         return {"room_id": room_id, "success": True}
     
-    async def play_next(self, _: None):
+    async def play_next(self, payload=None):
+        # Only a display rolling over at the end of a song is gated by autoplay.
+        # Manual skips from a remote always advance.
+        is_auto = bool(payload.get("auto")) if isinstance(payload, dict) else False
+
+        if is_auto and not self.room.autoplay:
+            print(f"[DEBUG] Autoplay is off for room {self.client.room_id} - holding the queue")
+            await self._hold_at_end_of_song()
+            return {"advanced": False, "autoplay": False}
+
         next_song = self.room.play_next()
         print(f"[DEBUG] Playing next song: {next_song}")
 
@@ -116,6 +122,22 @@ class ClientCommands:
             current_time=0.0,
             duration=0.0,
             volume=self.room.player_state.volume if self.room.player_state else 0.5,
+            version=int(time.time() * 1000),
+            timestamp=time.time()
+        ))
+
+        await self._broadcast_room_state()
+        return {"advanced": next_song is not None, "autoplay": self.room.autoplay}
+
+    async def _hold_at_end_of_song(self):
+        """Stop on the finished song and leave the queue untouched."""
+        current = self.room.player_state
+        await self._update_player_state(DisplayPlayerState(
+            entry=current.entry if current else None,
+            play_state="finished",
+            current_time=current.current_time if current else 0.0,
+            duration=current.duration if current else 0.0,
+            volume=current.volume if current else 0.5,
             version=int(time.time() * 1000),
             timestamp=time.time()
         ))
@@ -165,6 +187,14 @@ class ControllerCommands(ClientCommands):
 
     async def set_volume(self, payload):
         await self.session_manager.broadcast_to_room_displays(self.client.room_id, "set_volume", payload["volume"])
+
+    async def set_autoplay(self, payload):
+        changed = self.room.set_autoplay(payload["enabled"])
+        if changed:
+            await self.session_manager.broadcast_to_room(
+                self.client.room_id, "room_settings", self.room.get_settings_payload()
+            )
+        return {"autoplay": self.room.autoplay}
 
 class DisplayCommands(ClientCommands):
     async def update_player_state(self, _state):

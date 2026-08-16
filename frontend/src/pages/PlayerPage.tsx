@@ -356,7 +356,7 @@ function VideoPlayerComponent({
             duration: video.duration || 0,
             volume: video.volume,
           });
-          playNext();
+          playNext({ auto: true });
         }}
       >
         <track kind="captions" />
@@ -369,7 +369,7 @@ function VideoPlayerComponent({
 
 function StatusStrip() {
   const { isOffline } = useServerStatus();
-  const { clientCount: rawClientCount, roomId } = useRoomContext();
+  const { clientCount: rawClientCount, roomId, autoplay } = useRoomContext();
   const clientCount = Math.max(rawClientCount - 1, 0);
 
   return (
@@ -398,6 +398,16 @@ function StatusStrip() {
           {clientCount.toString().padStart(2, "0")}
         </Text>
       </div>
+      {!autoplay && (
+        <div className="flex items-center gap-2 px-3 py-1">
+          <Text font="display" size="sm" tone="dim">
+            Autoplay
+          </Text>
+          <Text font="display" size="sm" tone="danger">
+            Off
+          </Text>
+        </div>
+      )}
     </Panel>
   );
 }
@@ -409,7 +419,7 @@ function PlayingStateContent() {
   const [upNextTitle, setUpNextTitle] = useTempState<string | null>(null);
   const [queuedTitle, setQueuedTitle] = useTempState<string | null>(null);
 
-  const { playerState, upNextQueue } = useRoomContext();
+  const { playerState, upNextQueue, autoplay } = useRoomContext();
   const { trigger: triggerVideoUrl } = useVideoUrlMutation();
   const {
     videoUrl: videoUrlData,
@@ -434,10 +444,16 @@ function PlayingStateContent() {
     if (!playerState?.entry) {
       return { status: "Stopped", tone: "paused", title: "No Song" };
     }
+
+    const title = `${playerState.entry.artist} - ${playerState.entry.title}`;
+    if (playerState.play_state === "finished") {
+      return { status: "Finished", tone: "paused", title };
+    }
+
     return {
       status: playerState.play_state === "playing" ? "Playing" : "Paused",
       tone: playerState.play_state === "playing" ? "playing" : "paused",
-      title: `${playerState.entry.artist} - ${playerState.entry.title}`,
+      title,
     };
   }, [upNextTitle, queuedTitle, playerState]);
 
@@ -454,7 +470,7 @@ function PlayingStateContent() {
   }, [playerState?.entry, videoUrlData]);
 
   const handleNearingEnd = useCallback(({ timeRemaining }: { timeRemaining: number }) => {
-    if (!upNextQueue || upNextQueue.items.length === 0) return;
+    if (!autoplay || !upNextQueue || upNextQueue.items.length === 0) return;
 
     const nextSong = upNextQueue.items[0];
     setUpNextTitle(
@@ -475,7 +491,7 @@ function PlayingStateContent() {
         console.error('[Prefetch] Failed to prefetch URL for:', nextSong.entry.title, error);
       });
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [upNextQueue, setUpNextTitle]);
+  }, [autoplay, upNextQueue, setUpNextTitle]);
 
   useEffect(() => {
     if (lastUpNextQueueVersion.current

@@ -3,7 +3,7 @@ import { useWebSocket } from './useWebSocket';
 import { useServerStatus, useVerifyRoomMutation } from './useApi';
 import { getRoomPassword, storeRoomPassword } from '../lib/roomStorage';
 import { apiClient } from '../api/client';
-import type { DisplayPlayerState, KaraokeQueue, KaraokeEntry } from '../types';
+import type { DisplayPlayerState, KaraokeQueue, KaraokeEntry, RoomSettings } from '../types';
 
 type ClientType = "controller" | "display";
 
@@ -24,6 +24,7 @@ export interface RoomState {
   queue: KaraokeQueue | null;
   upNextQueue: KaraokeQueue | null;
   playerState: DisplayPlayerState | null;
+  autoplay: boolean;
   isLeader: boolean;
   lastQueueCommand: {
     command: string;
@@ -46,10 +47,11 @@ export interface RoomActions {
   removeSong: (id: string) => Promise<unknown>;
   playSong: () => Promise<unknown>;
   pauseSong: () => Promise<unknown>;
-  playNext: () => Promise<unknown>;
+  playNext: (options?: { auto?: boolean }) => Promise<unknown>;
   queueNextSong: (entryId: string) => void;
   clearQueue: () => Promise<unknown>;
   setVolume: (volume: number) => Promise<unknown>;
+  setAutoplay: (enabled: boolean) => Promise<unknown>;
 
   // Display commands (implemented here)
   updatePlayerState: (state: DisplayPlayerState) => void;
@@ -67,6 +69,7 @@ export function useRoom(clientType: ClientType): UseRoomReturn {
 
   const [queue, setQueue] = useState<KaraokeQueue | null>(null);
   const [playerState, setPlayerState] = useState<DisplayPlayerState | null>(null);
+  const [settings, setSettings] = useState<RoomSettings | null>(null);
   const [isLeader, setIsLeader] = useState(false);
   const [lastQueueCommand, setLastQueueCommand] = useState<{
     command: string;
@@ -77,19 +80,11 @@ export function useRoom(clientType: ClientType): UseRoomReturn {
   const ws = useWebSocket(clientType, false);
   const { trigger: verifyRoom } = useVerifyRoomMutation();
 
-  const upNextQueue = useMemo(() => {
-    if (!queue || !queue.items.length) {
-      return { items: [], version: 1, timestamp: Date.now() };
-    }
-
-    return {
-      items: queue.items.filter(
-        (item) => !playerState?.entry || item.entry.id !== playerState.entry.id,
-      ),
-      version: queue.version,
-      timestamp: queue.timestamp,
-    };
-  }, [queue, playerState?.entry]);
+  // The server pops the playing song off the queue, so whatever is left is up
+  // next. Filtering by entry id here would hide a re-reserved copy of it.
+  const upNextQueue = useMemo<KaraokeQueue>(() => {
+    return queue ?? { items: [], version: 1, timestamp: Date.now() };
+  }, [queue]);
 
   // Memoized check for whether this client can send playback commands
   const canSendPlaybackCommands = useMemo(() => {
@@ -209,6 +204,26 @@ export function useRoom(clientType: ClientType): UseRoomReturn {
         });
         break;
       }
+      case "room_settings": {
+        const incomingSettings = data as RoomSettings;
+        setSettings((prevSettings) => {
+          if (!prevSettings) return incomingSettings;
+
+          if (incomingSettings.version > prevSettings.version) {
+            return incomingSettings;
+          }
+
+          if (
+            incomingSettings.version === prevSettings.version &&
+            incomingSettings.timestamp > prevSettings.timestamp
+          ) {
+            return incomingSettings;
+          }
+
+          return prevSettings;
+        });
+        break;
+      }
       case "play_song":
         setPlayerState((prev) =>
           prev ? { ...prev, play_state: "playing" } : null,
@@ -241,6 +256,7 @@ export function useRoom(clientType: ClientType): UseRoomReturn {
     if (!ws.connected) {
       setQueue(null);
       setPlayerState(null);
+      setSettings(null);
       setIsLeader(false);
       setLastQueueCommand(null);
       apiClient.clearRoomCredentials();
@@ -266,6 +282,7 @@ export function useRoom(clientType: ClientType): UseRoomReturn {
     queue,
     upNextQueue,
     playerState,
+    autoplay: settings?.autoplay ?? true,
     isLeader,
     lastQueueCommand,
 
@@ -282,17 +299,32 @@ export function useRoom(clientType: ClientType): UseRoomReturn {
     removeSong: (id: string) => ws.sendCommandWithAck("remove_song", { entry_id: id }),
     playSong: () => ws.sendCommandWithAck("play_song"),
     pauseSong: () => ws.sendCommandWithAck("pause_song"),
-    playNext: () => {
+    playNext: (options?: { auto?: boolean }) => {
       // Only leader displays should trigger next song
       if (clientType === "display" && !isLeader) {
         console.log(`[${clientType}] Non-leader display ignoring playNext request`);
         return Promise.resolve({});
       }
-      return ws.sendCommandWithAck("play_next");
+      return ws.sendCommandWithAck("play_next", { auto: options?.auto ?? false });
     },
     queueNextSong: (entryId: string) => ws.sendCommand("queue_next_song", { entry_id: entryId }),
     clearQueue: () => ws.sendCommandWithAck("clear_queue"),
     setVolume: (volume: number) => ws.sendCommandWithAck("set_volume", { volume }),
+    setAutoplay: async (enabled: boolean) => {
+      const previousSettings = settings;
+      setSettings((prev) =>
+        prev
+          ? { ...prev, autoplay: enabled }
+          : { autoplay: enabled, version: 1, timestamp: Date.now() },
+      );
+
+      try {
+        return await ws.sendCommandWithAck("set_autoplay", { enabled });
+      } catch (error) {
+        setSettings(previousSettings);
+        throw error;
+      }
+    },
     updatePlayerState: (state: DisplayPlayerState) => {
       // Only leader displays should send player state updates
       if (!canSendPlaybackCommands) {

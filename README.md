@@ -119,9 +119,11 @@ Where that number comes from depends on whether a controller is listening:
 - **Mic scoring on.** The controller measures loudness through the phone's microphone. It spends the first few seconds of the song learning the room's noise floor, then scores how much of the song you spent above it and how far above you got. Nothing but the final number leaves the phone.
 - **Mic scoring off.** The server makes one up, weighted the way a videoke box feels.
 
-Both land in the same range, so a room cannot tell which one it is looking at. The toggle lives in the controller's Player tab and is off until someone turns it on, since it needs microphone permission.
+Both land in the same range, so a room cannot tell which one it is looking at.
 
-Mic scoring needs a secure connection, so it is unavailable when the app is reached over plain `http` on a LAN address. The toggle explains this and the server keeps scoring without it.
+A controller opens with a **Mic Check** screen, the same way a display opens with a Sound Check. It explains what the microphone is for and offers **Allow Mic** or **Not Now**. Browsers will not open a microphone without a gesture behind it, so that button is what asks for one, and the browser's own permission prompt still has the final say.
+
+After that there is no control for it, only a footnote in the Player tab saying whether it is on. Skipping it, denying the browser prompt, or reaching the app over plain `http` on a LAN address where microphones are unavailable all leave scoring running without one.
 
 The score belongs to the room, so every display shows the same number, and a display that joins while a score is up receives it.
 

@@ -27,8 +27,7 @@ import { ControllerLayout } from "../components/templates/ControllerLayout";
 import { SystemMessage } from "../components/templates/SystemMessage";
 import { PasswordInput } from "../components/organisms/PasswordInput";
 import { ReactionPad } from "../components/organisms/ReactionPad";
-import { ScorePad } from "../components/organisms/ScorePad";
-import { useLoudnessScore } from "../hooks/useLoudnessScore";
+import { useLoudnessScore, type MicStatus } from "../hooks/useLoudnessScore";
 import { TimeDisplay } from "../components/molecules/TimeDisplay";
 
 const CONTROLLER_TABS = [
@@ -282,16 +281,20 @@ function VolumeMeter({ value }: { value: number }) {
   );
 }
 
-function PlayerTab() {
+// Scoring runs on its own, so this is a footnote rather than a control. The
+// states nobody can act on say nothing at all.
+const MIC_NOTICE: Partial<Record<MicStatus, string>> = {
+  listening: "Mic scoring is on. Keep the phone near the singer.",
+  off: "Mic scoring is off. The machine will score you anyway.",
+  denied: "Microphone blocked. The machine will score you anyway.",
+  unsupported: "Mic scoring needs a secure connection, so it is off.",
+};
+
+function PlayerTab({ micStatus }: { micStatus: MicStatus }) {
   const {
     playerState, playSong, pauseSong, playNext, setVolume,
-    sendReaction, submitScore, connected, autoplay, setAutoplay,
+    sendReaction, connected, autoplay, setAutoplay,
   } = useRoomContext();
-  const mic = useLoudnessScore({
-    entryId: playerState?.entry?.id ?? null,
-    playState: playerState?.play_state ?? null,
-    onSubmit: submitScore,
-  });
   const [isPlaybackLoading, setIsPlaybackLoading] = useState(false);
   const [isVolumeLoading, setIsVolumeLoading] = useState(false);
   const [isPlayNextLoading, setIsPlayNextLoading] = useState(false);
@@ -487,15 +490,13 @@ function PlayerTab() {
         </div>
       </Panel>
 
-      <ScorePad
-        status={mic.status}
-        level={mic.level}
-        onEnable={mic.enable}
-        onDisable={mic.disable}
-        disabled={!connected}
-      />
-
       <ReactionPad onReact={sendReaction} disabled={!connected} />
+
+      {MIC_NOTICE[micStatus] && (
+        <Text size="xs" tone="dim" className="px-1">
+          {MIC_NOTICE[micStatus]}
+        </Text>
+      )}
     </div>
   );
 }
@@ -634,16 +635,59 @@ function ControllerHeader() {
   );
 }
 
+function MicCheckScreen({ onAllow, onSkip }: { onAllow: () => void; onSkip: () => void }) {
+  return (
+    <SystemMessage
+      title="Mic Check"
+      subtitle="Scoring listens through this device's microphone while a song plays. The audio stays on the phone and only the score is sent."
+      actions={() => (
+        <div className="flex flex-col items-center gap-3 w-full">
+          <Button onClick={onAllow} variant="accent" size="xl" className="w-full">
+            Allow Mic
+          </Button>
+          <Button onClick={onSkip} variant="ghost" size="lg" className="w-full">
+            Not Now
+          </Button>
+        </div>
+      )}
+      variant="controller"
+    />
+  );
+}
+
 function ControllerPageContent() {
   const [tab, setTab] = useState<(typeof CONTROLLER_TABS)[number]["id"]>("song-select");
+  const [micAsked, setMicAsked] = useState(false);
+  const { playerState, submitScore } = useRoomContext();
+
+  const mic = useLoudnessScore({
+    entryId: playerState?.entry?.id ?? null,
+    playState: playerState?.play_state ?? null,
+    onSubmit: submitScore,
+  });
 
   const tabs: Tab[] = CONTROLLER_TABS.map((t) => ({
     id: t.id,
     label: t.label,
     content: t.id === "song-select" ? <SongSelectTab /> :
-             t.id === "player" ? <PlayerTab /> :
+             t.id === "player" ? <PlayerTab micStatus={mic.status} /> :
              <QueueTab />
   }));
+
+  if (!micAsked) {
+    return (
+      <MicCheckScreen
+        onAllow={() => {
+          mic.start();
+          setMicAsked(true);
+        }}
+        onSkip={() => {
+          mic.decline();
+          setMicAsked(true);
+        }}
+      />
+    );
+  }
 
   return (
     <ControllerLayout>

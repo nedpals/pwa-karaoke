@@ -11,10 +11,8 @@ const FLOOR_PERCENTILE = 0.25;
 const MAX_EXCESS_RATIO = 4;
 const COVERAGE_WEIGHT = 0.65;
 const INTENSITY_WEIGHT = 0.35;
-const LEVEL_STEPS = 20;
-const LEVEL_GAIN = 4;
 
-export type MicStatus = "off" | "starting" | "listening" | "denied" | "unsupported";
+export type MicStatus = "off" | "idle" | "starting" | "listening" | "denied" | "unsupported";
 
 interface Reading {
   entryId: string;
@@ -35,10 +33,9 @@ export interface UseLoudnessScoreOptions {
 
 export interface UseLoudnessScoreReturn {
   status: MicStatus;
-  level: number;
-  enabled: boolean;
-  enable: () => void;
-  disable: () => void;
+  /** Call straight from a click handler. Browsers will not open a microphone otherwise. */
+  start: () => void;
+  decline: () => void;
 }
 
 // A low percentile rather than an average, so somebody singing over the intro
@@ -91,9 +88,7 @@ export function useLoudnessScore({
   playState,
   onSubmit,
 }: UseLoudnessScoreOptions): UseLoudnessScoreReturn {
-  const [enabled, setEnabled] = useState(false);
-  const [status, setStatus] = useState<MicStatus>("off");
-  const [level, setLevel] = useState(0);
+  const [status, setStatus] = useState<MicStatus>("idle");
 
   const entryIdRef = useRef(entryId);
   const playStateRef = useRef(playState);
@@ -108,8 +103,6 @@ export function useLoudnessScore({
 
   const sample = useCallback((analyser: AnalyserNode, buffer: Uint8Array) => {
     const rms = readRms(analyser, buffer);
-    const nextLevel = Math.min(Math.round(rms * LEVEL_GAIN * LEVEL_STEPS) / LEVEL_STEPS, 1);
-    setLevel((previous) => (previous === nextLevel ? previous : nextLevel));
 
     const entry = entryIdRef.current;
     const state = playStateRef.current;
@@ -160,27 +153,25 @@ export function useLoudnessScore({
     }
   }, []);
 
-  const enable = useCallback(() => {
+  const stop = useRef<(() => void) | null>(null);
+  const mounted = useRef(true);
+
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      stop.current?.();
+      stop.current = null;
+    };
+  }, []);
+
+  const start = useCallback(() => {
+    if (stop.current) return;
+
     if (!navigator.mediaDevices?.getUserMedia || !window.isSecureContext) {
       setStatus("unsupported");
       return;
     }
-
-    setEnabled(true);
-  }, []);
-
-  const disable = useCallback(() => {
-    setEnabled(false);
-    setStatus("off");
-  }, []);
-
-  useEffect(() => {
-    if (!enabled) return;
-
-    let cancelled = false;
-    let stream: MediaStream | null = null;
-    let context: AudioContext | null = null;
-    let timer: number | null = null;
 
     setStatus("starting");
 
@@ -193,42 +184,38 @@ export function useLoudnessScore({
           autoGainControl: false,
         },
       })
-      .then((granted) => {
-        if (cancelled) {
-          granted.getTracks().forEach((track) => track.stop());
+      .then((stream) => {
+        const context = new AudioContext();
+        const analyser = context.createAnalyser();
+        analyser.fftSize = 1024;
+        context.createMediaStreamSource(stream).connect(analyser);
+
+        const buffer = new Uint8Array(analyser.fftSize);
+        const timer = window.setInterval(() => sample(analyser, buffer), SAMPLE_INTERVAL_MS);
+
+        const teardown = () => {
+          window.clearInterval(timer);
+          stream.getTracks().forEach((track) => track.stop());
+          context.close().catch(() => undefined);
+          readingRef.current = null;
+        };
+
+        if (!mounted.current) {
+          teardown();
           return;
         }
 
-        stream = granted;
-        context = new AudioContext();
-
-        const analyser = context.createAnalyser();
-        analyser.fftSize = 1024;
-        context.createMediaStreamSource(granted).connect(analyser);
-
-        const buffer = new Uint8Array(analyser.fftSize);
-
+        stop.current = teardown;
         setStatus("listening");
-        timer = window.setInterval(() => sample(analyser, buffer), SAMPLE_INTERVAL_MS);
       })
       .catch(() => {
-        if (cancelled) return;
-
-        setStatus("denied");
-        setEnabled(false);
+        if (mounted.current) setStatus("denied");
       });
+  }, [sample]);
 
-    return () => {
-      cancelled = true;
+  const decline = useCallback(() => {
+    setStatus("off");
+  }, []);
 
-      if (timer !== null) window.clearInterval(timer);
-      stream?.getTracks().forEach((track) => track.stop());
-      context?.close().catch(() => undefined);
-
-      readingRef.current = null;
-      setLevel(0);
-    };
-  }, [enabled, sample]);
-
-  return { status, level, enabled, enable, disable };
+  return { status, start, decline };
 }

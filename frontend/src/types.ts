@@ -27,6 +27,14 @@ export interface DisplayPlayerState {
   timestamp: number;
 }
 
+export type ReactionType = "clap" | "fire" | "heart" | "laugh" | "star" | "boo";
+
+export interface ReactionEvent {
+  id: string;
+  reaction: ReactionType;
+  timestamp: number;
+}
+
 export interface KaraokeQueueItem {
   id: string;
   entry: KaraokeEntry;

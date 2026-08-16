@@ -16,7 +16,7 @@ from core.search import KaraokeEntry
 from services.karaoke_service import KaraokeService, KaraokeSearchResult, VideoURLResponse
 from commands import ControllerCommands, DisplayCommands
 from websocket_errors import WebSocketErrorType, create_error_response
-from websocket_models import validate_websocket_message
+from websocket_models import validate_websocket_message, QUIET_COMMANDS
 from session_manager import SessionManager
 from cache_store import get_cache_store, set_cache_store, clear_cache_store, CacheStore
 
@@ -237,7 +237,9 @@ async def websocket_endpoint(websocket: WebSocket, service: Annotated[KaraokeSer
 
         while True:
             command, payload = await client.receive()
-            print(f"[DEBUG] Received command from {client.client_type}: {command}")
+            verbose = command not in QUIET_COMMANDS
+            if verbose:
+                print(f"[DEBUG] Received command from {client.client_type}: {command}")
 
             # Extract request_id if present for acknowledgment
             request_id = None
@@ -278,7 +280,8 @@ async def websocket_endpoint(websocket: WebSocket, service: Annotated[KaraokeSer
                 continue
 
             # See commands.py for command implementations
-            print(f"[DEBUG] Executing command: {client.client_type}.{command}")
+            if verbose:
+                print(f"[DEBUG] Executing command: {client.client_type}.{command}")
             try:
                 result = await getattr(commands, command)(validated_payload)
 

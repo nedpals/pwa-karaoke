@@ -69,7 +69,7 @@ function VideoPlayerComponent({
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
-  const { updatePlayerState } = useRoomContext();
+  const { updatePlayerState, isLeader } = useRoomContext();
   const { osd, setOSD, playerState } = usePlayerState();
   const { playNext } = useRoomContext();
   const isBufferingRef = useRef(false);
@@ -144,8 +144,18 @@ function VideoPlayerComponent({
     const master = getMaster();
     if (!master || !playerState) return;
 
-    const shouldPlay = playerState.play_state === "playing";
-    const shouldPause = playerState.play_state === "paused";
+    // A follower parks while the leader buffers. Left running it would advance
+    // past the leader's frozen time, and the catch-up seek below only moves
+    // forward, so it would never be pulled back for the rest of the song.
+    //
+    // The leader ignores its own buffering, because the sync hold owns
+    // resuming both tracks. The exception is inheriting a buffering state it
+    // is not holding for, which happens when a follower is promoted mid-stall:
+    // it is the authority now, so it resumes rather than staying parked.
+    const isBuffering = playerState.play_state === "buffering";
+    const shouldPlay =
+      playerState.play_state === "playing" || (isLeader && isBuffering && !isHolding());
+    const shouldPause = playerState.play_state === "paused" || (!isLeader && isBuffering);
 
     // Set media time to match playerState (for reload/sync)
     // Only sync forward to prevent regression loops on reconnection
@@ -162,7 +172,8 @@ function VideoPlayerComponent({
     } else if (shouldPause && !master.paused) {
       pause();
     }
-  }, [playerState?.play_state, playerState?.current_time]); // eslint-disable-line react-hooks/exhaustive-deps
+    // isLeader is a dependency: a display promoted mid-stall must re-evaluate.
+  }, [playerState?.play_state, playerState?.current_time, isLeader]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Handle volume changes from controller. In paired mode the video is muted,
   // so volume belongs to the audio element.

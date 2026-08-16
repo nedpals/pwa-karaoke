@@ -35,7 +35,6 @@ export function AlbumArt({ src, alt = "", size, className, ...props }: AlbumArtP
   return (
     <div className={cn(albumArtVariants({ size }), className)} {...props}>
       {src && !failed ? (
-        // Sources hand back 16:9 stills, so crop rather than letterbox.
         <img
           src={src}
           alt={alt}

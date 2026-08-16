@@ -17,7 +17,6 @@ export interface QueueItemProps extends Omit<React.HTMLAttributes<HTMLDivElement
   showSource?: boolean;
   selected?: boolean;
   status?: EntryStatus | null;
-  /** Opens the row's own dialog. Actions beside it stay one tap. */
   onSelect?: () => void;
 }
 

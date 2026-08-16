@@ -61,11 +61,6 @@ function Notice({ children, tone = "danger" }: { children: React.ReactNode; tone
   );
 }
 
-/**
- * Backs the dialog behind every song row. Shared so a song offers the same
- * actions wherever it was tapped, rather than depending on which tab you
- * happened to find it in.
- */
 function useSongDialog() {
   const { queueSong, removeSong } = useRoomContext();
   const entryStatus = useEntryStatus();
@@ -510,7 +505,6 @@ function QueueTab() {
         </div>
       )}
 
-      {/* No count here: the header strip already carries RESERVED nn. */}
       <div className="flex items-center gap-3 border-b-2 border-ka-line pb-1 mb-2">
         <Text font="display" size="lg" weight="bold" tone="accent" className="flex-1">
           Up Next

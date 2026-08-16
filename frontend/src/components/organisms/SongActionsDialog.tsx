@@ -1,8 +1,8 @@
 import { AlbumArt } from "../atoms/AlbumArt";
 import { Button } from "../atoms/Button";
 import { Text } from "../atoms/Text";
+import { TimeDisplay } from "../molecules/TimeDisplay";
 import { Dialog } from "./Dialog";
-import { formatClock } from "../../lib/utils";
 import type { EntryStatus } from "../../hooks/useEntryStatus";
 import type { KaraokeEntry } from "../../types";
 
@@ -36,12 +36,6 @@ export function SongActionsDialog({
   busy,
   onClose,
 }: SongActionsDialogProps) {
-  const meta = entry
-    ? [entry.source, entry.uploader, entry.duration ? formatClock(entry.duration) : null]
-        .filter(Boolean)
-        .join("  ·  ")
-    : "";
-
   return (
     <Dialog
       open={Boolean(entry)}
@@ -72,22 +66,28 @@ export function SongActionsDialog({
           <AlbumArt src={entry.thumbnail_url} alt="" size="lg" />
 
           <div className="flex-1 min-w-0 space-y-1">
-            {status && (
-              <span className={`inline-block px-2 ${statusLine(status).className}`}>
-                <Text font="display" size="sm" weight="bold" tone="inverse">
-                  {statusLine(status).text}
-                </Text>
-              </span>
-            )}
+            <div className="flex items-center gap-2 flex-wrap">
+              {status && (
+                <span className={`px-2 ${statusLine(status).className}`}>
+                  <Text font="display" size="sm" weight="bold" tone="inverse">
+                    {statusLine(status).text}
+                  </Text>
+                </span>
+              )}
+              <Text font="display" size="sm" tone="dim">
+                {entry.source}
+              </Text>
+            </div>
+
             <Text size="lg" weight="bold" className="leading-tight break-words">
               {entry.title}
             </Text>
             <Text tone="dim" truncate>
               {entry.artist}
             </Text>
-            <Text font="mono" size="xs" tone="dim" className="uppercase break-words">
-              {meta}
-            </Text>
+            {entry.duration !== null && (
+              <TimeDisplay seconds={entry.duration} size="sm" tone="dim" />
+            )}
           </div>
         </div>
       )}

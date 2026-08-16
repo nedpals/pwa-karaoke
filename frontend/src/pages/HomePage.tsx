@@ -124,7 +124,6 @@ export default function HomePage() {
         }
         footer={
           <>
-            {/* A phone is never the screen, so this option is not offered there. */}
             {!isCompact && (
               <Button
                 variant="accent"

@@ -10,7 +10,6 @@ export interface SongRowProps extends Omit<React.HTMLAttributes<HTMLDivElement>,
   showSource?: boolean;
   selected?: boolean;
   status?: EntryStatus | null;
-  /** Given, the whole row is the button rather than a control beside it. */
   onClick?: () => void;
 }
 
@@ -54,7 +53,7 @@ export function SongRow({
         </div>
       )}
 
-      <div className="flex-1 min-w-0 px-3 py-2">
+      <div className="flex-1 min-w-0 px-3 py-2 flex flex-col justify-center overflow-hidden">
         <Text
           weight="bold"
           className="text-base sm:text-lg leading-tight line-clamp-2 break-words"
@@ -84,7 +83,7 @@ export function SongRow({
   );
 
   const shell = cn(
-    "flex items-stretch border-2 min-w-0 flex-1 text-left",
+    "flex items-stretch border-2 min-w-0 flex-1 text-left h-22 overflow-hidden",
     selected ? "bg-ka-amber border-ka-amber text-ka-void" : "bg-ka-panel border-ka-line text-ka-ink bevel",
     onClick && !selected && "hover:bg-ka-raised active:translate-y-px",
     className,

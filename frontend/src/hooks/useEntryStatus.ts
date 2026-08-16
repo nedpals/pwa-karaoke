@@ -6,10 +6,6 @@ export type EntryStatus =
   | { kind: "playing" }
   | { kind: "reserved"; position: number; itemId: string };
 
-/**
- * Search results are full of near-identical versions of the same song, so the
- * useful thing to know before picking one is whether it is already on.
- */
 export function useEntryStatus() {
   const { playerState, upNextQueue } = useRoomContext();
   const playingId = playerState?.entry?.id;

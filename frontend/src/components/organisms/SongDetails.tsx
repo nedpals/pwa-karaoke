@@ -8,7 +8,7 @@ import type { KaraokeEntry } from "../../types";
 function statusLine(status: EntryStatus) {
   return status.kind === "playing"
     ? { text: "Now Playing", className: "bg-ka-amber" }
-    : { text: `Reserved ${status.position.toString().padStart(2, "0")} in line`, className: "bg-ka-green" };
+    : { text: `#${status.position}`, className: "bg-ka-green" };
 }
 
 const scales = {

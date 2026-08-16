@@ -6,6 +6,7 @@ export interface KaraokeEntry {
   source: string;
   uploader: string;
   duration: number | null;
+  thumbnail_url?: string | null;
 }
 
 export interface KaraokeSearchResult {

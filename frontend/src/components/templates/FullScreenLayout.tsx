@@ -1,31 +1,26 @@
+import { cn } from "../../lib/utils";
+import { Backdrop } from "./Backdrop";
+import type { BackdropName } from "../../lib/backgrounds";
+
 export interface FullScreenLayoutProps extends React.HTMLAttributes<HTMLDivElement> {
   children: React.ReactNode;
   background?: "black" | "image";
+  backdrop?: BackdropName;
   backgroundImage?: string;
 }
 
 export function FullScreenLayout({
   children,
   background = "black",
+  backdrop = "idle",
   backgroundImage,
-  className = "",
+  className,
   ...props
 }: FullScreenLayoutProps) {
-  const backgroundStyles = background === "image" && backgroundImage
-    ? {
-      backgroundImage: `url("${backgroundImage}")`,
-      backgroundSize: "cover",
-      backgroundPosition: "center",
-    }
-    : {};
-
   return (
-    <div
-      className={`h-screen w-screen relative ${background === "black" ? "bg-black" : ""} ${className}`.trim()}
-      style={backgroundStyles}
-      {...props}
-    >
-      {children}
+    <div className={cn("h-screen w-screen relative bg-ka-void overflow-hidden", className)} {...props}>
+      {background === "image" && <Backdrop name={backdrop} image={backgroundImage} />}
+      <div className="relative z-10 h-full w-full">{children}</div>
     </div>
   );
 }

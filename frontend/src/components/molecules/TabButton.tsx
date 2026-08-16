@@ -9,14 +9,16 @@ export interface TabButtonProps extends Omit<BaseButtonProps, "variant"> {
 export function TabButton({ active = false, className, children, ...props }: TabButtonProps) {
   return (
     <Button
-      variant="glass"
+      variant="default"
       className={cn(
-        "flex-1 rounded-none border-b-2",
+        "flex-1 min-w-0 px-2 truncate border-x-0 border-t-0 border-b-4",
         active
-          ? "border-white bg-gradient-to-b from-gray-500/80 to-black/80"
-          : "border-transparent bg-gradient-to-b from-gray-500/60 to-black/60 hover:from-gray-400/70 hover:to-black/70",
+          ? "bg-ka-amber border-b-ka-amber text-ka-void"
+          : "bg-ka-panel border-b-ka-line-dim text-ka-dim",
         className
       )}
+      aria-selected={active}
+      role="tab"
       {...props}
     >
       {children}

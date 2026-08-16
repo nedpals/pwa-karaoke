@@ -1,105 +1,53 @@
-import type { Meta, StoryObj } from '@storybook/react';
+import type { Meta, StoryObj } from '@storybook/react-vite';
 import { Button } from './Button';
 
 const meta: Meta<typeof Button> = {
   title: 'Atoms/Button',
   component: Button,
-  parameters: {
-    layout: 'centered',
-  },
+  parameters: { layout: 'centered' },
   tags: ['autodocs'],
   argTypes: {
-    variant: {
-      control: { type: 'select' },
-      options: ['primary', 'secondary', 'glass', 'danger'],
-    },
-    size: {
-      control: { type: 'select' },
-      options: ['sm', 'md', 'lg', 'xl'],
-    },
-    children: {
-      control: { type: 'text' },
-    },
-    disabled: {
-      control: { type: 'boolean' },
-    },
+    variant: { control: { type: 'select' }, options: ['default', 'accent', 'danger', 'ghost'] },
+    size: { control: { type: 'select' }, options: ['sm', 'md', 'lg', 'xl'] },
+    children: { control: { type: 'text' } },
+    disabled: { control: { type: 'boolean' } },
   },
 };
 
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-export const Primary: Story = {
-  args: {
-    children: 'Button',
-    variant: 'primary',
-    size: 'md',
-  },
+export const Default: Story = {
+  args: { children: 'Reserve', variant: 'default', size: 'md' },
 };
 
-export const Secondary: Story = {
-  args: {
-    children: 'Button',
-    variant: 'secondary',
-    size: 'md',
-  },
-};
-
-export const Glass: Story = {
-  args: {
-    children: 'Button',
-    variant: 'glass',
-    size: 'md',
-  },
+export const Accent: Story = {
+  args: { children: 'Play', variant: 'accent', size: 'md' },
 };
 
 export const Danger: Story = {
-  args: {
-    children: 'Delete',
-    variant: 'danger',
-    size: 'md',
-  },
+  args: { children: 'Clear All', variant: 'danger', size: 'md' },
 };
 
-export const Small: Story = {
-  args: {
-    children: 'Small Button',
-    variant: 'primary',
-    size: 'sm',
-  },
+export const Ghost: Story = {
+  args: { children: 'Cancel', variant: 'ghost', size: 'md' },
 };
 
-export const Large: Story = {
-  args: {
-    children: 'Large Button',
-    variant: 'primary',
-    size: 'lg',
-  },
-};
-
-export const ExtraLarge: Story = {
-  args: {
-    children: 'Extra Large Button',
-    variant: 'primary',
-    size: 'xl',
-  },
+export const Selected: Story = {
+  args: { children: 'Public', active: true },
 };
 
 export const Disabled: Story = {
-  args: {
-    children: 'Disabled Button',
-    variant: 'primary',
-    size: 'md',
-    disabled: true,
-  },
+  args: { children: 'Next', disabled: true },
 };
 
-export const AsLink: Story = {
-  args: {
-    children: 'Link Button',
-    variant: 'secondary',
-    size: 'md',
-    as: 'a',
-    href: '#',
-  },
+export const Sizes: Story = {
+  render: () => (
+    <div className="flex items-center gap-2">
+      <Button size="sm">Small</Button>
+      <Button size="md">Medium</Button>
+      <Button size="lg">Large</Button>
+      <Button size="xl">Extra</Button>
+    </div>
+  ),
 };

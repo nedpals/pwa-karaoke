@@ -1,40 +1,56 @@
-import { KaraokeEntryCard } from "./KaraokeEntryCard";
+import { SongRow } from "./SongRow";
 import { IconButton } from "../molecules/IconButton";
+import type { EntryStatus } from "../../hooks/useEntryStatus";
 import type { KaraokeEntry } from "../../types";
 
 export interface QueueItemAction {
   icon: React.ReactNode;
   onClick: () => void;
   label?: string;
-  variant?: "primary" | "secondary" | "danger";
+  variant?: "default" | "accent" | "danger" | "ghost";
 }
 
-export interface QueueItemProps extends React.HTMLAttributes<HTMLDivElement> {
+export interface QueueItemProps extends Omit<React.HTMLAttributes<HTMLDivElement>, "onSelect"> {
   entry: KaraokeEntry;
+  index?: number;
   actions?: QueueItemAction[];
   showSource?: boolean;
+  selected?: boolean;
+  status?: EntryStatus | null;
+  onSelect?: () => void;
 }
 
-export function QueueItem({ entry, actions = [], showSource = false, className = "", ...props }: QueueItemProps) {
+export function QueueItem({
+  entry,
+  index,
+  actions = [],
+  showSource = false,
+  selected = false,
+  status,
+  onSelect,
+  className = "",
+  ...props
+}: QueueItemProps) {
   return (
-    <div
-      className={`flex flex-row items-stretch space-x-2 sm:space-x-3 ${className}`.trim()}
-      {...props}
-    >
-      <KaraokeEntryCard entry={entry} showSource={showSource} />
-      <div className="flex flex-row space-x-1 sm:space-x-2 items-stretch">
-        {actions.map((action, index) => (
-          <IconButton
-            key={`queue_action_${action.label || index}`}
-            icon={action.icon}
-            label={action.label}
-            onClick={action.onClick}
-            variant={action.variant || "secondary"}
-            size="sm"
-            className="text-lg sm:text-xl md:text-2xl flex-shrink-0"
-          />
-        ))}
-      </div>
+    <div className={`flex flex-row items-stretch gap-1 ${className}`.trim()} {...props}>
+      <SongRow
+        entry={entry}
+        index={index}
+        showSource={showSource}
+        selected={selected}
+        status={status}
+        onClick={onSelect}
+      />
+      {actions.map((action, i) => (
+        <IconButton
+          key={`queue_action_${action.label || i}`}
+          icon={action.icon}
+          label={action.label}
+          onClick={action.onClick}
+          variant={action.variant || "default"}
+          className="px-2 shrink-0"
+        />
+      ))}
     </div>
   );
 }

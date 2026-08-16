@@ -1,76 +1,212 @@
+import { useState } from "react";
 import { useNavigate } from "react-router";
-import { FullScreenLayout } from "../components/templates/FullScreenLayout";
+import { useDebounce } from "use-debounce";
+import { Backdrop } from "../components/templates/Backdrop";
+import { Panel } from "../components/atoms/Panel";
 import { Text } from "../components/atoms/Text";
 import { Button } from "../components/atoms/Button";
+import { Input } from "../components/atoms/Input";
+import { ToggleButtonGroup } from "../components/molecules/ToggleButtonGroup";
+import { Dialog } from "../components/organisms/Dialog";
+import { useCreateRoomMutation, useRoomDetails, useVerifyRoomMutation } from "../hooks/useApi";
+import { useIsCompact } from "../hooks/useIsCompact";
+import { storeRoomPassword } from "../lib/roomStorage";
+import { generateRoomId } from "../lib/utils";
 
-const backgroundImage = "https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?q=80&w=2070&auto=format&fit=crop&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D";
+type Role = "player" | "controller";
+
+function FieldLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <Text font="display" size="sm" tone="dim">
+      {children}
+    </Text>
+  );
+}
 
 export default function HomePage() {
   const navigate = useNavigate();
+  const isCompact = useIsCompact();
 
-  const handleJoinRoom = () => {
-    navigate("/join");
+  const [roomId, setRoomId] = useState(() => generateRoomId());
+  const [debouncedRoomId] = useDebounce(roomId.trim(), 400);
+  const [isOpen, setIsOpen] = useState(false);
+  const [isPublic, setIsPublic] = useState(true);
+  const [password, setPassword] = useState("");
+  const [busy, setBusy] = useState<Role | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const { data: roomDetails, isLoading: isCheckingRoom } = useRoomDetails(debouncedRoomId || null);
+  const { trigger: createRoom } = useCreateRoomMutation();
+  const { trigger: verifyRoom } = useVerifyRoomMutation();
+
+  const settled = roomId.trim() === debouncedRoomId && !isCheckingRoom;
+  const exists = settled && Boolean(roomDetails);
+  const needsPassword = exists && Boolean(roomDetails?.requires_password);
+  const cannotEnter = Boolean(busy) || (needsPassword && !password.trim());
+
+  const enter = async (role: Role) => {
+    const id = roomId.trim();
+    if (cannotEnter) return;
+
+    setBusy(role);
+    setError(null);
+
+    try {
+      if (exists) {
+        await verifyRoom({ room_id: id, password });
+      } else {
+        await createRoom({ room_id: id, is_public: isPublic, password });
+      }
+
+      if (password) storeRoomPassword(id, password);
+      navigate(`/${role}?${new URLSearchParams({ room: id }).toString()}`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not open that room.");
+      setBusy(null);
+    }
   };
 
-  const handleCreateRoom = () => {
-    navigate("/create");
+  const closeDialog = () => {
+    if (busy) return;
+    setIsOpen(false);
+    setError(null);
   };
 
   return (
-    <FullScreenLayout
-      background="image"
-      backgroundImage={backgroundImage}
-    >
-      <div className="flex flex-col items-center justify-center h-full bg-black/30 p-8">
-        <div className="max-w-4xl w-full space-y-8">
-          {/* Hero Section */}
-          <div className="text-center space-y-4">
-            <Text as="h1" size="6xl" weight="bold" shadow className="text-white">
-              PWA Karaoke
-            </Text>
-            <Text size="xl" shadow className="text-white/80 max-w-2xl mx-auto">
-              Transform any space into a karaoke party.
-            </Text>
+    <div className="h-dvh w-full relative bg-ka-void overflow-hidden">
+      <Backdrop name="lobby" />
+      <div className="absolute inset-0 bg-ka-void/60" aria-hidden />
+
+      <div className="relative z-10 h-full overflow-y-auto flex flex-col items-center justify-center title-safe">
+        <div className="w-full max-w-2xl space-y-4">
+          <Text font="display" weight="bold" stencil className="text-5xl sm:text-7xl text-center">
+            PWA Karaoke
+          </Text>
+
+          <div className="flex items-stretch border-2 border-ka-line bg-ka-panel bevel">
+            <div className="hidden sm:flex items-center px-3 border-r-2 border-ka-line bg-ka-raised">
+              <Text font="display" size="lg" weight="bold" tone="accent">
+                Room
+              </Text>
+            </div>
+            <Input
+              value={roomId}
+              onChange={(e) => setRoomId(e.target.value)}
+              onBlur={() => !roomId.trim() && setRoomId(generateRoomId())}
+              onKeyDown={(e: React.KeyboardEvent) => e.key === "Enter" && settled && setIsOpen(true)}
+              font="mono"
+              size={isCompact ? "md" : "lg"}
+              className="border-0 bevel-in focus:border-0"
+              aria-label="Room name"
+            />
           </div>
 
-          {/* Main Options */}
-          <div className="grid md:grid-cols-2 gap-8 mt-16">
-            {/* Join Room Button */}
-            <Button
-              onClick={handleJoinRoom}
-              variant="glass"
-              className="h-64 flex flex-col items-center justify-center space-y-6 text-center hover:scale-[1.02] transition-transform p-8"
-            >
-              <div className="text-8xl">🚪</div>
-              <div className="space-y-2">
-                <Text size="2xl" weight="bold" shadow className="text-white">
-                  Join Room
-                </Text>
-                <Text size="lg" shadow className="text-white/80">
-                  Enter an existing karaoke session
-                </Text>
-              </div>
-            </Button>
-
-            {/* Create Room Button */}
-            <Button
-              onClick={handleCreateRoom}
-              variant="glass"
-              className="h-64 flex flex-col items-center justify-center space-y-6 text-center hover:scale-[1.02] transition-transform p-8"
-            >
-              <div className="text-8xl">🎤</div>
-              <div className="space-y-2">
-                <Text size="2xl" weight="bold" shadow className="text-white">
-                  Create Room
-                </Text>
-                <Text size="lg" shadow className="text-white/80">
-                  Start a new karaoke session
-                </Text>
-              </div>
-            </Button>
-          </div>
+          <Button
+            variant="accent"
+            size="xl"
+            onClick={() => setIsOpen(true)}
+            disabled={!roomId.trim() || !settled}
+            className="w-full py-5"
+          >
+            Join Room
+          </Button>
         </div>
       </div>
-    </FullScreenLayout>
+
+      <Dialog
+        open={isOpen}
+        onClose={closeDialog}
+        title={
+          <>
+            {exists ? "Join" : "Create"}{" "}
+            <span className="font-mono normal-case tracking-normal">{roomId.trim()}</span>
+          </>
+        }
+        footer={
+          <>
+            {!isCompact && (
+              <Button
+                variant="accent"
+                size="lg"
+                onClick={() => enter("player")}
+                disabled={cannotEnter}
+                className="w-full"
+              >
+                {busy === "player" ? "Entering" : "Enter as Display"}
+              </Button>
+            )}
+
+            <Button
+              variant={isCompact ? "accent" : "default"}
+              size="lg"
+              onClick={() => enter("controller")}
+              disabled={cannotEnter}
+              className="w-full"
+            >
+              {busy === "controller" ? "Entering" : "Enter as Controller"}
+            </Button>
+
+            <Button
+              variant="ghost"
+              size="lg"
+              onClick={closeDialog}
+              disabled={Boolean(busy)}
+              className="w-full"
+            >
+              Cancel
+            </Button>
+          </>
+        }
+      >
+        {!exists && (
+          <div className="space-y-3">
+            <div className="space-y-1">
+              <FieldLabel>Visibility</FieldLabel>
+              <ToggleButtonGroup
+                value={isPublic ? "public" : "private"}
+                onChange={(value) => setIsPublic(value === "public")}
+                options={[
+                  { value: "public", label: "Public" },
+                  { value: "private", label: "Private" },
+                ]}
+              />
+            </div>
+            <div className="space-y-1">
+              <FieldLabel>Set a password</FieldLabel>
+              <Input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="Leave blank for none"
+              />
+            </div>
+          </div>
+        )}
+
+        {needsPassword && (
+          <div className="space-y-1">
+            <FieldLabel>This room needs a password</FieldLabel>
+            <Input
+              type="password"
+              value={password}
+              onChange={(e) => {
+                setPassword(e.target.value);
+                setError(null);
+              }}
+              placeholder="Ask whoever started it"
+              autoFocus
+            />
+          </div>
+        )}
+
+        {error && (
+          <Panel tone="sunken" className="px-3 py-2">
+            <Text size="sm" tone="danger">
+              {error}
+            </Text>
+          </Panel>
+        )}
+      </Dialog>
+    </div>
   );
 }

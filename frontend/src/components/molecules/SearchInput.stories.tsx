@@ -1,36 +1,21 @@
-import type { Meta, StoryObj } from '@storybook/react';
-import { SearchInput } from './SearchInput';
+import type { Meta, StoryObj } from '@storybook/react-vite';
 import { useState } from 'react';
+import { SearchInput } from './SearchInput';
 
 const meta: Meta<typeof SearchInput> = {
   title: 'Molecules/SearchInput',
   component: SearchInput,
-  parameters: {
-    layout: 'centered',
-    backgrounds: { default: 'dark' },
-  },
+  parameters: { layout: 'centered' },
   tags: ['autodocs'],
   argTypes: {
-    size: {
-      control: { type: 'select' },
-      options: ['sm', 'md', 'lg'],
-    },
-    isSearching: {
-      control: { type: 'boolean' },
-    },
-    searchButtonText: {
-      control: { type: 'text' },
-    },
-    searchingText: {
-      control: { type: 'text' },
-    },
-    placeholder: {
-      control: { type: 'text' },
-    },
+    size: { control: { type: 'select' }, options: ['sm', 'md', 'lg'] },
+    isSearching: { control: { type: 'boolean' } },
+    fieldLabel: { control: { type: 'text' } },
+    placeholder: { control: { type: 'text' } },
   },
   decorators: [
     (Story) => (
-      <div style={{ width: '400px', padding: '20px' }}>
+      <div style={{ width: '420px' }}>
         <Story />
       </div>
     ),
@@ -41,109 +26,30 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 export const Default: Story = {
-  args: {
-    placeholder: 'Search songs...',
-    onSearch: (value: string) => {
-      console.log('Searching for:', value);
-      alert(`Searching for: "${value}"`);
-    },
-    size: 'md',
-    searchButtonText: 'Search',
-    searchingText: 'Searching...',
-    isSearching: false,
-  },
+  args: { placeholder: 'Song title or artist', onSearch: () => {} },
 };
 
 export const Searching: Story = {
-  args: {
-    placeholder: 'Search songs...',
-    onSearch: (value: string) => {
-      console.log('Searching for:', value);
-    },
-    size: 'md',
-    searchButtonText: 'Search',
-    searchingText: 'Searching...',
-    isSearching: true,
-    value: 'Bohemian Rhapsody',
-  },
-};
-
-export const Large: Story = {
-  args: {
-    placeholder: 'Search for your favorite karaoke songs...',
-    onSearch: (value: string) => {
-      console.log('Searching for:', value);
-      alert(`Searching for: "${value}"`);
-    },
-    size: 'lg',
-    searchButtonText: 'Find',
-    searchingText: 'Finding...',
-    isSearching: false,
-  },
-};
-
-export const Small: Story = {
-  args: {
-    placeholder: 'Quick search...',
-    onSearch: (value: string) => {
-      console.log('Searching for:', value);
-      alert(`Searching for: "${value}"`);
-    },
-    size: 'sm',
-    searchButtonText: 'Go',
-    searchingText: 'Loading...',
-    isSearching: false,
-  },
-};
-
-export const NativeKeyboard: Story = {
-  args: {
-    placeholder: 'Search with native keyboard...',
-    onSearch: (value: string) => {
-      console.log('Searching for:', value);
-      alert(`Searching for: "${value}"`);
-    },
-    size: 'md',
-    searchButtonText: 'Search',
-  },
-};
-
-const ControlledSearchInputStory = () => {
-  const [value, setValue] = useState('');
-  const [isSearching, setIsSearching] = useState(false);
-  
-  const handleSearch = async (searchValue: string) => {
-    setIsSearching(true);
-    // Simulate API call
-    setTimeout(() => {
-      setIsSearching(false);
-      alert(`Found results for: "${searchValue}"`);
-    }, 2000);
-  };
-  
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setValue(e.target.value);
-  };
-  
-  return (
-    <SearchInput
-      value={value}
-      onChange={handleChange}
-      onSearch={handleSearch}
-      isSearching={isSearching}
-      placeholder="Controlled input example..."
-      size="md"
-    />
-  );
+  args: { placeholder: 'Song title or artist', isSearching: true, onSearch: () => {} },
 };
 
 export const Controlled: Story = {
-  render: ControlledSearchInputStory,
-  parameters: {
-    docs: {
-      description: {
-        story: 'A controlled SearchInput component with external state management.',
-      },
-    },
+  render: () => {
+    const [value, setValue] = useState('my way frank sinatra');
+    const [lastSearch, setLastSearch] = useState<string | null>(null);
+
+    return (
+      <div className="space-y-2">
+        <SearchInput
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          onSearch={setLastSearch}
+          placeholder="Song title or artist"
+        />
+        {lastSearch && (
+          <p className="font-mono text-sm text-ka-dim">searched: {lastSearch}</p>
+        )}
+      </div>
+    );
   },
 };

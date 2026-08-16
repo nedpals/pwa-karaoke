@@ -3,35 +3,39 @@ import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "../../lib/utils";
 
 const buttonVariants = cva(
-  "rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed",
+  "border-2 font-display uppercase tracking-wide select-none disabled:opacity-45 disabled:saturate-0 disabled:cursor-not-allowed active:not-disabled:translate-y-px",
   {
     variants: {
       variant: {
-        primary: "border border-white/20 bg-gradient-to-b from-gray-500/80 to-black/80 text-white text-shadow-md text-shadow-black hover:not-disabled:from-gray-400/80 hover:not-disabled:to-black/90",
-        secondary: "border border-white/20 bg-gradient-to-b from-gray-500/80 to-black/80 text-white text-shadow-md text-shadow-black hover:not-disabled:from-gray-400/80 hover:not-disabled:to-black/90",
-        glass: "border border-white/80 bg-gradient-to-b from-gray-500/80 to-black/80 text-white text-shadow-md text-shadow-black",
-        danger: "border border-white/20 bg-gradient-to-b from-red-600/80 to-red-800/80 text-white text-shadow-md text-shadow-black hover:not-disabled:from-red-500/80 hover:not-disabled:to-red-800/90",
+        default:
+          "bg-ka-raised border-ka-line text-ka-ink bevel hover:not-disabled:bg-ka-line-dim active:not-disabled:bevel-in",
+        accent:
+          "bg-ka-amber border-ka-amber text-ka-void bevel hover:not-disabled:bg-ka-ink hover:not-disabled:border-ka-ink active:not-disabled:bevel-in",
+        danger:
+          "bg-ka-red border-ka-red text-ka-ink bevel hover:not-disabled:brightness-115 active:not-disabled:bevel-in",
+        ghost:
+          "bg-transparent border-transparent text-ka-dim hover:not-disabled:text-ka-ink hover:not-disabled:border-ka-line-dim",
       },
       size: {
-        sm: "px-3 py-2 text-sm",
+        sm: "px-2 py-1 text-sm",
         md: "px-4 py-2 text-base",
-        lg: "px-6 py-3 text-lg",
-        xl: "px-8 py-4 text-xl",
+        lg: "px-6 py-2.5 text-xl",
+        xl: "px-8 py-3.5 text-2xl",
       },
       active: {
-        true: "bg-gradient-to-b from-blue-500/90 to-blue-700/90 border-blue-400/50 shadow-lg shadow-blue-500/20 hover:not-disabled:from-blue-400/90 hover:not-disabled:to-blue-600/90",
+        true: "bg-ka-amber border-ka-amber text-ka-void hover:not-disabled:bg-ka-amber",
         false: "",
       },
     },
     defaultVariants: {
-      variant: "primary",
+      variant: "default",
       size: "md",
       active: false,
     },
   }
 );
 
-export type ButtonVariant = "primary" | "secondary" | "glass" | "danger";
+export type ButtonVariant = "default" | "accent" | "danger" | "ghost";
 export type ButtonSize = "sm" | "md" | "lg" | "xl";
 
 export interface BaseButtonProps extends VariantProps<typeof buttonVariants> {

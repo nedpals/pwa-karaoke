@@ -1,47 +1,38 @@
 import { useState, useEffect, useRef, useMemo, createContext, useContext, useCallback } from "react";
 import { useSearchParams, Navigate } from "react-router";
 import { Text } from "../components/atoms/Text";
+import { Panel } from "../components/atoms/Panel";
 import { useRoom } from "../hooks/useRoom";
-import { GlassPanel } from "../components/organisms/GlassPanel";
 import { OSD } from "../components/molecules/OSD";
-import { PlayerHeader } from "../components/organisms/PlayerHeader";
+import { NowPlayingBanner, type BannerTone } from "../components/organisms/NowPlayingBanner";
 import { QRCode } from "../components/atoms/QRCode";
 import { Button } from "../components/atoms/Button";
-import { RiMusic2Fill } from "../components/icons/RiMusic2Fill";
-import { LoadingSpinner } from "../components/atoms/LoadingSpinner";
+import { LoadingIndicator } from "../components/atoms/LoadingIndicator";
+import { Backdrop } from "../components/templates/Backdrop";
 import { MessageTemplate } from "../components/templates/MessageTemplate";
 import { SystemMessage } from "../components/templates/SystemMessage";
 import { PasswordInput } from "../components/organisms/PasswordInput";
-import {
-  RoomProvider,
-  useRoomContext,
-} from "../providers/RoomProvider";
+import { RoomProvider, useRoomContext } from "../providers/RoomProvider";
 import { useTempState, type TempStateSetterOptions } from "../hooks/useTempState";
 import { useVideoUrlMutation, useServerStatus } from "../hooks/useApi";
 import { useVideoUrlWithRetry } from "../hooks/useVideoUrlWithRetry";
-import type {
-  DisplayPlayerState,
-} from "../types";
-import { cn } from "../lib/utils";
+import type { DisplayPlayerState } from "../types";
 import useSmartSync from "../hooks/useSmartSync";
 
 type AppState = "awaiting-interaction" | "connecting" | "connected" | "ready" | "playing";
 
 interface OSDState {
-  message: string;
+  label: string;
+  value?: string;
+  meter?: number;
   visible: boolean;
 }
 
 interface PlayerContextType {
-  // App state
   appState: AppState;
   hasInteracted: boolean;
   setHasInteracted: (value: boolean) => void;
-
-  // Player state (smart synced)
   playerState: DisplayPlayerState | null;
-
-  // OSD state (single OSD that handles all messages)
   osd: OSDState;
   setOSD: (osd: OSDState, options?: TempStateSetterOptions<OSDState>) => void;
 }
@@ -54,17 +45,6 @@ function usePlayerState() {
     throw new Error("usePlayerState must be used within PlayerPage");
   }
   return context;
-}
-
-function FallbackBackground({ className }: {
-  className?: string;
-}) {
-  return <div className={`w-screen h-screen ${className}`} style={{
-    backgroundImage: "url(https://images.unsplash.com/photo-1490750967868-88aa4486c946?q=80&w=2070&auto=format&fit=crop&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D)",
-    backgroundSize: "cover",
-    backgroundPosition: "center",
-    backgroundColor: "black",
-  }} />;
 }
 
 function VideoPlayerComponent({
@@ -86,7 +66,7 @@ function VideoPlayerComponent({
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const { updatePlayerState } = useRoomContext();
-  const { osd, playerState } = usePlayerState(); // Get smart synced state from context
+  const { osd, playerState } = usePlayerState();
   const { playNext } = useRoomContext();
   const isBufferingRef = useRef(false);
   const hasNearingEndFiredRef = useRef(false);
@@ -140,8 +120,7 @@ function VideoPlayerComponent({
     if (!videoRef.current || !playerState) return;
 
     const video = videoRef.current;
-    const targetVolume = playerState.volume ?? 0.5;
-    video.volume = targetVolume;
+    video.volume = playerState.volume ?? 0.5;
   }, [playerState?.volume]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Send periodic updates while playing
@@ -197,13 +176,11 @@ function VideoPlayerComponent({
     hasNearingEndFiredRef.current = false;
   }, [playerState?.entry?.id]);
 
-
   // Handle page unload/reload - save current video state
   useEffect(() => {
     const handleBeforeUnload = () => {
       if (videoRef.current && playerState?.entry) {
         const video = videoRef.current;
-        // Send final state update before page closes
         updateVersionedPlayerState({
           entry: playerState.entry,
           play_state: video.paused ? "paused" : "playing",
@@ -223,16 +200,16 @@ function VideoPlayerComponent({
 
   if (isLoadingVideoUrl) {
     return (
-      <div className="bg-black h-screen w-screen flex items-center justify-center">
-        <div className="text-center text-white space-y-4 flex flex-col items-center">
-          <LoadingSpinner size="xl" />
-          <Text size="xl" weight="bold" shadow>
-            Loading video...
+      <div className="h-full w-full flex items-center justify-center">
+        <Panel className="px-10 py-8 flex flex-col items-center gap-4 max-w-3xl">
+          <Text font="display" size="3xl" weight="bold" tone="accent">
+            Now Loading
           </Text>
-          <Text size="lg" shadow>
+          <LoadingIndicator size="lg" />
+          <Text size="lg" className="text-center">
             {playerState?.entry?.title}
           </Text>
-        </div>
+        </Panel>
       </div>
     );
   }
@@ -241,44 +218,39 @@ function VideoPlayerComponent({
     if (!playerState?.entry) return null;
 
     return (
-      <div className="bg-black h-screen w-screen flex items-center justify-center">
-        <div className="text-center text-white space-y-4 max-w-md px-4">
-          <div className="text-6xl">⚠️</div>
-          <Text size="xl" weight="bold" shadow>
-            Video Failed to Load
+      <div className="h-full w-full flex items-center justify-center">
+        <Panel className="px-10 py-8 flex flex-col items-center gap-4 max-w-3xl text-center">
+          <Text font="display" size="3xl" weight="bold" tone="danger">
+            Disc Error
           </Text>
-          <Text size="lg" shadow>
-            {playerState.entry.title} - {playerState.entry.artist}
+          <Text size="lg" weight="bold">
+            {playerState.entry.artist} - {playerState.entry.title}
           </Text>
-          <Text size="base" shadow className="text-gray-300">
-            Unable to load video stream from {playerState.entry.source}
+          <Text tone="dim">
+            No stream available from {playerState.entry.source}
           </Text>
           {error && (
-            <Text size="sm" shadow className="text-red-300">
-              Error: {error.message}
+            <Text size="sm" tone="danger" font="mono">
+              {error.message}
             </Text>
           )}
           {retryCount > 0 && (
-            <Text size="sm" shadow className="text-yellow-300">
-              Retry attempts: {retryCount}/3
+            <Text size="sm" font="mono" tone="dim">
+              Retry {retryCount}/3
             </Text>
           )}
-          {canRetry && (
-            <Button
-              onClick={onRetry}
-              variant="primary"
-              size="md"
-              className="mt-4"
-            >
-              Try Again
+          {canRetry ? (
+            <Button onClick={onRetry} variant="accent" size="lg">
+              Retry
             </Button>
+          ) : (
+            retryCount >= 3 && (
+              <Text size="sm" tone="danger">
+                Out of retries. Pick a different song.
+              </Text>
+            )
           )}
-          {!canRetry && retryCount >= 3 && (
-            <Text size="sm" shadow className="text-red-400">
-              Maximum retry attempts reached. Please try a different song.
-            </Text>
-          )}
-        </div>
+        </Panel>
       </div>
     );
   }
@@ -286,15 +258,15 @@ function VideoPlayerComponent({
   return (
     <div className="relative w-full h-full">
       {osd.visible && (
-        <OSD position="top-left" size="md" className="z-50">
-          {osd.message}
+        <OSD position="top-left" size="lg" className="top-[14vh]" value={osd.value} meter={osd.meter}>
+          {osd.label}
         </OSD>
       )}
 
       <video
         key={playerState?.entry?.id}
         ref={videoRef}
-        className="w-full h-full object-cover"
+        className="w-full h-full object-contain"
         autoPlay
         onPlay={(ev) => {
           if (playerState?.entry) {
@@ -384,39 +356,49 @@ function VideoPlayerComponent({
             duration: video.duration || 0,
             volume: video.volume,
           });
-          // Automatically play next song
           playNext();
         }}
       >
         <track kind="captions" />
         <source src={videoUrl} type="video/mp4" />
-        <p className="text-white text-center">
-          Your browser does not support the video tag.
-        </p>
+        <p className="text-center">Your browser does not support the video tag.</p>
       </video>
     </div>
   );
 }
 
-function ClientCountDisplay() {
+function StatusStrip() {
   const { isOffline } = useServerStatus();
-  const { clientCount: initialClientCount } = useRoomContext();
-  const clientCount = initialClientCount - 1; // Exclude self from count
+  const { clientCount: rawClientCount, roomId } = useRoomContext();
+  const clientCount = Math.max(rawClientCount - 1, 0);
 
   return (
-    <GlassPanel className="px-3 py-2">
-      <div className="flex">
-        {isOffline && (
-          <div className="flex items-center space-x-2 ml-r pl-r border-r border-white/50">
-            <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
-            <Text size="sm">Offline</Text>
-          </div>
-        )}
-        <Text size="sm" className="text-white/80">
-          {clientCount} {clientCount === 1 ? 'client' : 'clients'} connected
+    <Panel tone="overlay" className="flex items-stretch divide-x-2 divide-ka-line">
+      {isOffline && (
+        <div className="flex items-center gap-2 px-3 py-1">
+          <span className="w-2 h-2 bg-ka-red blink" />
+          <Text font="display" size="sm" tone="danger">
+            Offline
+          </Text>
+        </div>
+      )}
+      <div className="flex items-center gap-2 px-3 py-1">
+        <Text font="display" size="sm" tone="dim">
+          Room
+        </Text>
+        <Text font="mono" size="sm">
+          {roomId}
         </Text>
       </div>
-    </GlassPanel>
+      <div className="flex items-center gap-2 px-3 py-1">
+        <Text font="display" size="sm" tone="dim">
+          Remotes
+        </Text>
+        <Text font="mono" size="sm" tone="accent">
+          {clientCount.toString().padStart(2, "0")}
+        </Text>
+      </div>
+    </Panel>
   );
 }
 
@@ -424,8 +406,8 @@ function PlayingStateContent() {
   // Make it null so it wont trigger the "queued" message on first load
   const lastUpNextQueueVersion = useRef<number | null>(null);
   const lastUpNextQueueLength = useRef<number>(0);
-  const [upNextStatus, setUpNextStatus] = useTempState<string | null>(null);
-  const [queuedStatus, setQueuedStatus] = useTempState<string | null>(null);
+  const [upNextTitle, setUpNextTitle] = useTempState<string | null>(null);
+  const [queuedTitle, setQueuedTitle] = useTempState<string | null>(null);
 
   const { playerState, upNextQueue } = useRoomContext();
   const { trigger: triggerVideoUrl } = useVideoUrlMutation();
@@ -442,32 +424,26 @@ function PlayingStateContent() {
       : null,
   );
 
-  const playerHeaderStatusText = useMemo(() => {
-    if (upNextStatus) return "Up Next";
-    if (queuedStatus) return "Queued";
-    if (playerState?.entry && playerState.play_state === "playing") {
-      return "Playing";
+  const banner = useMemo<{ status: string; tone: BannerTone; title: string }>(() => {
+    if (upNextTitle) {
+      return { status: "Up Next", tone: "next", title: upNextTitle };
     }
-    return "Paused";
-  }, [upNextStatus, queuedStatus, playerState]);
-
-  const playerHeaderStatusTitle = useMemo(() => {
-    if (upNextStatus) {
-      return upNextStatus;
-    }
-    if (queuedStatus) {
-      return queuedStatus;
+    if (queuedTitle) {
+      return { status: "Reserved", tone: "queued", title: queuedTitle };
     }
     if (!playerState?.entry) {
-      return "No Song";
+      return { status: "Stopped", tone: "paused", title: "No Song" };
     }
-    return `${playerState.entry.artist} - ${playerState.entry.title}`;
-  }, [upNextStatus, queuedStatus, playerState]);
+    return {
+      status: playerState.play_state === "playing" ? "Playing" : "Paused",
+      tone: playerState.play_state === "playing" ? "playing" : "paused",
+      title: `${playerState.entry.artist} - ${playerState.entry.title}`,
+    };
+  }, [upNextTitle, queuedTitle, playerState]);
 
   const videoUrl = useMemo(() => {
     if (!playerState?.entry) return null;
 
-    // Check if the entry already has a video URL
     if (playerState.entry.video_url) {
       return playerState.entry.video_url;
     } else if (videoUrlData) {
@@ -481,14 +457,16 @@ function PlayingStateContent() {
     if (!upNextQueue || upNextQueue.items.length === 0) return;
 
     const nextSong = upNextQueue.items[0];
-    setUpNextStatus(`${nextSong.entry.artist} - ${nextSong.entry.title}`, { duration: timeRemaining * 1000 });
+    setUpNextTitle(
+      `${nextSong.entry.artist} - ${nextSong.entry.title}`,
+      { duration: timeRemaining * 1000 },
+    );
 
     if (nextSong.entry.video_url) {
-      // Skip prefeteching if we already have the URL
+      // Skip prefetching if we already have the URL
       return;
     }
 
-    // Prefetch video URL for next song
     triggerVideoUrl(nextSong.entry)
       .then(() => {
         console.log('[Prefetch] Successfully prefetched URL for:', nextSong.entry.title);
@@ -497,14 +475,17 @@ function PlayingStateContent() {
         console.error('[Prefetch] Failed to prefetch URL for:', nextSong.entry.title, error);
       });
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [upNextQueue, setUpNextStatus]);
+  }, [upNextQueue, setUpNextTitle]);
 
   useEffect(() => {
     if (lastUpNextQueueVersion.current
       && upNextQueue && upNextQueue.version > lastUpNextQueueVersion.current
       && upNextQueue.items.length > lastUpNextQueueLength.current) {
       const newSong = upNextQueue.items[upNextQueue.items.length - 1];
-      setQueuedStatus(`${newSong.entry.artist} - ${newSong.entry.title}`, { duration: 3000 });
+      setQueuedTitle(
+        `${newSong.entry.artist} - ${newSong.entry.title}`,
+        { duration: 3000 },
+      );
     }
 
     return () => {
@@ -517,19 +498,15 @@ function PlayingStateContent() {
   if (!playerState?.entry) return null;
 
   return (
-    <div className="relative bg-black h-screen w-screen">
-      <div className="absolute top-0 inset-x-0 z-20 max-w-7xl mx-auto pt-8">
-        <PlayerHeader
-          status={playerHeaderStatusText}
-          title={playerHeaderStatusTitle}
-          icon={<RiMusic2Fill className={cn("w-8 h-8 mr-2 text-blue-500", {
-            "text-yellow-500": upNextStatus,
-            "text-green-500": queuedStatus,
-          })} />}
-          count={Math.max(upNextQueue?.items.length ?? 0, 0)}
+    <div className="relative bg-ka-void h-screen w-screen">
+      <div className="absolute top-0 inset-x-0 z-20">
+        <NowPlayingBanner
+          status={banner.status}
+          tone={banner.tone}
+          title={banner.title}
+          reservedCount={upNextQueue?.items.length ?? 0}
         />
       </div>
-
 
       <div className="relative h-full w-full flex items-center justify-center">
         <VideoPlayerComponent
@@ -542,7 +519,6 @@ function PlayingStateContent() {
           onNearingEnd={handleNearingEnd}
         />
       </div>
-
     </div>
   );
 }
@@ -558,26 +534,27 @@ function ConnectedStateScreen() {
   const controllerUrl = `${window.location.origin}/controller?room=${encodeURIComponent(roomId)}`;
 
   return (
-    <MessageTemplate
-      size="auto"
-      background={<FallbackBackground className="relative" />}
-    >
-      <div className="flex flex-row items-center space-x-8 py-4">
-        <div className="flex-1 space-y-4 text-left">
-          <Text size="lg" shadow>
-            To control the karaoke system, scan the QR code or visit:
+    <MessageTemplate title="Connect a Remote" backdrop="idle">
+      <div className="flex flex-col md:flex-row items-center gap-8 w-full">
+        <div className="flex-1 space-y-4">
+          <Text size="lg" tone="dim">
+            Scan the code or open this address on your phone:
           </Text>
-          <Text size="xl" weight="bold" shadow className="break-all">
-            {controllerUrl}
-          </Text>
-          <Text size="base" shadow className="text-gray-300">
-            Open the controller page on your phone or device to start adding songs to the queue.
-          </Text>
-          <Text size="base" shadow className="text-yellow-200">
-            Room: {roomId}
-          </Text>
+          <Panel tone="sunken" className="px-4 py-3">
+            <Text font="mono" size="xl" weight="bold" tone="accent" className="break-all">
+              {controllerUrl}
+            </Text>
+          </Panel>
+          <div className="flex items-center gap-3">
+            <Text font="display" size="lg" tone="dim">
+              Room
+            </Text>
+            <Text font="mono" size="xl" weight="bold">
+              {roomId}
+            </Text>
+          </div>
         </div>
-        <div className="bg-white p-4 rounded-lg">
+        <div className="border-2 border-ka-ink bg-white p-3 shrink-0">
           <QRCode data={controllerUrl} size={200} />
         </div>
       </div>
@@ -586,13 +563,36 @@ function ConnectedStateScreen() {
 }
 
 function ReadyStateScreen() {
-  return (
-    <div className="relative">
-      <div className="absolute top-0 inset-x-0 h-screen w-screen flex flex-col items-center justify-center z-10">
-        <Text size="9xl" weight="bold" className="text-white text-shadow-lg text-shadow-black">Select a Song</Text>
-      </div>
+  const { roomId, upNextQueue } = useRoomContext();
 
-      <FallbackBackground className="relative" />
+  return (
+    <div className="relative h-screen w-screen">
+      <Backdrop name="idle" />
+
+      <div className="relative z-10 h-full w-full flex flex-col items-center justify-center gap-8 title-safe">
+        <Text font="display" weight="bold" stencil className="text-7xl md:text-9xl text-center">
+          Select a Song
+        </Text>
+
+        <Panel tone="overlay" className="flex items-stretch divide-x-2 divide-ka-line">
+          <div className="flex items-center gap-3 px-5 py-2">
+            <Text font="display" size="lg" tone="dim">
+              Room
+            </Text>
+            <Text font="mono" size="xl" weight="bold">
+              {roomId}
+            </Text>
+          </div>
+          <div className="flex items-center gap-3 px-5 py-2">
+            <Text font="display" size="lg" tone="dim">
+              Reserved
+            </Text>
+            <Text font="mono" size="xl" weight="bold" tone="accent">
+              {(upNextQueue?.items.length ?? 0).toString().padStart(2, "0")}
+            </Text>
+          </div>
+        </Panel>
+      </div>
     </div>
   );
 }
@@ -607,20 +607,15 @@ function AwaitingInteractionStateScreen() {
       // Expected to fail, but this interaction enables autoplay
     });
 
-    // Update interaction state
     setHasInteracted(true);
   };
 
   return (
     <SystemMessage
-      title="Allow Sound Permission"
-      subtitle="Click to allow this karaoke system to play audio automatically."
+      title="Sound Check"
+      subtitle="Autoplay stays blocked until this page is clicked."
       actions={() => (
-        <Button
-          onClick={handleInteraction}
-          variant="primary"
-          size="lg"
-        >
+        <Button onClick={handleInteraction} variant="accent" size="xl">
           Allow Sound
         </Button>
       )}
@@ -645,7 +640,7 @@ function PlayerStateProviderInternal({ children }: { children: React.ReactNode }
   const playerState = useSmartSync(rawPlayerState, isLeader);
 
   const [osd, setOSD] = useTempState<OSDState>({
-    message: "",
+    label: "",
     visible: false
   });
 
@@ -658,33 +653,22 @@ function PlayerStateProviderInternal({ children }: { children: React.ReactNode }
   }, [hasInteracted, connected, playerState?.entry, clientCount]);
 
   const lastPlayStateRef = useRef<string | null>(null);
-  const lastVolumeRef = useRef<number | null>(null);
 
-  // Handle play/pause/buffering state changes (priority over volume)
   useEffect(() => {
     if (!playerState?.entry || playerState.play_state === lastPlayStateRef.current) return;
 
     lastPlayStateRef.current = playerState.play_state;
-    console.log("[OSD] Player state changed to:", playerState.play_state);
 
     if (playerState.play_state === "playing") {
-      setOSD({ message: "", visible: false }, { clearTemporary: true }); // Clear any existing OSD
-      setOSD({ message: "Play", visible: true }, { duration: 2000 });
+      setOSD({ label: "", visible: false }, { clearTemporary: true });
+      setOSD({ label: "Play", visible: true }, { duration: 2000 });
     } else if (playerState.play_state === "paused") {
-      setOSD({ message: "Pause", visible: true });
+      setOSD({ label: "Pause", visible: true });
     } else if (playerState.play_state === "buffering") {
-      setOSD({ message: "Buffering...", visible: true }); // No duration - shows until buffering ends
+      // No duration - shows until buffering ends
+      setOSD({ label: "Buffering", visible: true });
     }
   }, [playerState?.play_state, playerState?.entry, setOSD]);
-
-  // Handle volume changes (lower priority - only show if not in play/pause/buffering state)
-  useEffect(() => {
-    if (!playerState?.entry) return;
-    const volume = playerState.volume ?? 0.5;
-    if (volume !== lastVolumeRef.current && playerState.play_state === "playing") {
-      lastVolumeRef.current = volume;
-    }
-  }, [playerState?.volume, playerState?.play_state, playerState?.entry]);
 
   useEffect(() => {
     if (!lastQueueCommand || !rawPlayerState) return;
@@ -700,8 +684,15 @@ function PlayerStateProviderInternal({ children }: { children: React.ReactNode }
         timestamp: Date.now(),
       });
 
-      const volumePercent = Math.round(newVolume * 100);
-      setOSD({ message: `Volume: ${volumePercent}%`, visible: true }, { duration: 2000 });
+      setOSD(
+        {
+          label: "Volume",
+          value: Math.round(newVolume * 100).toString().padStart(3, "0"),
+          meter: newVolume,
+          visible: true,
+        },
+        { duration: 2000 },
+      );
     }
   }, [lastQueueCommand]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -734,11 +725,9 @@ function PlayerPageContent() {
     case "playing":
       return <PlayingStateContent />;
     default:
-      // Connecting goes here
       return <SystemMessage title="Connecting" variant="player" />;
   }
 }
-
 
 export default function PlayerPage() {
   const [searchParams] = useSearchParams();
@@ -749,7 +738,7 @@ export default function PlayerPage() {
     if (roomId) {
       room.verifyAndJoinRoom(roomId);
     }
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Redirect to home if no room specified
   if (!roomId) {
@@ -759,8 +748,8 @@ export default function PlayerPage() {
   if (room.isVerifying) {
     return (
       <SystemMessage
-        title="Connecting..."
-        subtitle="Please wait while we check your permissions..."
+        title="Connecting"
+        subtitle="Checking access to this room."
         variant="player"
       />
     );
@@ -770,7 +759,7 @@ export default function PlayerPage() {
     if (room.requiresPassword) {
       return (
         <SystemMessage title="Password Required" variant="player">
-          <PasswordInput roomId={roomId!} room={room} />
+          <PasswordInput roomId={roomId} room={room} />
         </SystemMessage>
       );
     }
@@ -787,10 +776,9 @@ export default function PlayerPage() {
 
   if (!room.isVerified || !room.hasJoinedRoom) {
     return (
-      <SystemMessage
-        title={!room.isVerified ? "Loading..." : "Joining room..."}
-        variant="player"
-      />
+      <SystemMessage title={!room.isVerified ? "Loading" : "Joining Room"} variant="player">
+        <LoadingIndicator size="lg" />
+      </SystemMessage>
     );
   }
 
@@ -799,9 +787,8 @@ export default function PlayerPage() {
       <PlayerStateProviderInternal>
         <div className="relative">
           <PlayerPageContent />
-          {/* Status display - bottom left, visible across all player states */}
-          <div className="absolute bottom-4 left-4 z-30">
-            <ClientCountDisplay />
+          <div className="absolute bottom-[3vh] left-[3vw] z-30">
+            <StatusStrip />
           </div>
         </div>
       </PlayerStateProviderInternal>

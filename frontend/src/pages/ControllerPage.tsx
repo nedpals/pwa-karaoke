@@ -2,52 +2,125 @@ import { useState, useEffect } from "react";
 import { useSearchParams, Navigate } from "react-router";
 import type { KaraokeEntry, KaraokeQueueItem } from "../types";
 import { useRoom } from "../hooks/useRoom";
-import {
-  RoomProvider,
-  useRoomContext,
-} from "../providers/RoomProvider";
+import { RoomProvider, useRoomContext } from "../providers/RoomProvider";
 import { useSearchMutation, useServerStatus } from "../hooks/useApi";
 import { MaterialSymbolsFastForwardRounded } from "../components/icons/MaterialSymbolsFastForwardRounded";
 import { MaterialSymbolsKeyboardArrowUpRounded } from "../components/icons/MaterialSymbolsArrowUpRounded";
-import { MaterialSymbolsDeleteOutline } from "../components/icons/MaterialSymbolsDeleteOutline";
-import { MaterialSymbolsPlaylistAddRounded } from "../components/icons/MaterialSymbolsPlaylistAddRounded";
 import { MaterialSymbolsPauseRounded } from "../components/icons/MaterialSymbolsPauseRounded";
 import { MaterialSymbolsPlayArrowRounded } from "../components/icons/MaterialSymbolsPlayRounded";
 import { MaterialSymbolsVolumeUpRounded } from "../components/icons/MaterialSymbolsVolumeUpRounded";
 import { MaterialSymbolsVolumeDownRounded } from "../components/icons/MaterialSymbolsVolumeDownRounded";
 import { Text } from "../components/atoms/Text";
+import { Panel } from "../components/atoms/Panel";
 import { Button } from "../components/atoms/Button";
+import { LoadingIndicator } from "../components/atoms/LoadingIndicator";
 import { MarqueeText } from "../components/molecules/MarqueeText";
 import { ProgressBar } from "../components/atoms/ProgressBar";
 import { SearchInput } from "../components/molecules/SearchInput";
 import { IconButton } from "../components/molecules/IconButton";
 import { TabNavigation, type Tab } from "../components/organisms/TabNavigation";
 import { QueueItem } from "../components/organisms/QueueItem";
-import { KaraokeEntryCard as AtomicKaraokeEntryCard } from "../components/organisms/KaraokeEntryCard";
+import { SongRow } from "../components/organisms/SongRow";
+import { SongActionsDialog, type SongAction } from "../components/organisms/SongActionsDialog";
+import { useEntryStatus, type EntryStatus } from "../hooks/useEntryStatus";
 import { ControllerLayout } from "../components/templates/ControllerLayout";
 import { SystemMessage } from "../components/templates/SystemMessage";
 import { PasswordInput } from "../components/organisms/PasswordInput";
 import { TimeDisplay } from "../components/molecules/TimeDisplay";
-import { LoadingSpinner } from "../components/atoms/LoadingSpinner";
 
 const CONTROLLER_TABS = [
-  {
-    id: "song-select",
-    label: "Song Select",
-  },
-  {
-    id: "player",
-    label: "Player",
-  },
-  {
-    id: "queue",
-    label: "Queue",
-  },
+  { id: "song-select", label: "Search" },
+  { id: "player", label: "Player" },
+  { id: "queue", label: "Reserved" },
 ] as const;
 
+const VOLUME_SEGMENTS = 10;
 
-function KaraokeEntryCard({ entry }: { entry: KaraokeEntry }) {
-  return <AtomicKaraokeEntryCard entry={entry} className="bg-black/40 border-white/20" />;
+function SectionLabel({ children, count }: { children: React.ReactNode; count?: number }) {
+  return (
+    <div className="flex items-center gap-3 border-b-2 border-ka-line pb-1 mb-2">
+      <Text font="display" size="lg" weight="bold" tone="accent">
+        {children}
+      </Text>
+      {count !== undefined && (
+        <Text font="mono" size="lg" weight="bold" tone="dim">
+          {count.toString().padStart(2, "0")}
+        </Text>
+      )}
+    </div>
+  );
+}
+
+function Notice({ children, tone = "danger" }: { children: React.ReactNode; tone?: "danger" | "dim" }) {
+  return (
+    <Panel tone="sunken" className="px-3 py-2 mb-3">
+      <Text size="sm" tone={tone}>
+        {children}
+      </Text>
+    </Panel>
+  );
+}
+
+function useSongDialog() {
+  const { queueSong, removeSong } = useRoomContext();
+  const entryStatus = useEntryStatus();
+  const [selected, setSelected] = useState<KaraokeEntry | null>(null);
+  const [busyLabel, setBusyLabel] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const status = selected ? entryStatus(selected) : null;
+  const reserved = status?.kind === "reserved" ? status : null;
+  const reserveLabel = reserved ? "Reserve Anyway" : "Reserve";
+
+  const run = async (label: string, action: () => Promise<unknown>, failure: string) => {
+    if (busyLabel) return;
+
+    setBusyLabel(label);
+    setError(null);
+
+    try {
+      await action();
+    } catch (err) {
+      console.error(err);
+      setError(failure);
+      setTimeout(() => setError(null), 5000);
+    } finally {
+      setBusyLabel(null);
+      setSelected(null);
+    }
+  };
+
+  const actions: SongAction[] = [];
+
+  if (selected) {
+    actions.push({
+      label: reserveLabel,
+      variant: "accent",
+      busyLabel: "Reserving",
+      onClick: () =>
+        run(reserveLabel, () => queueSong(selected), `Could not reserve "${selected.title}".`),
+    });
+
+    if (reserved) {
+      actions.push({
+        label: "Remove",
+        variant: "danger",
+        busyLabel: "Removing",
+        onClick: () =>
+          run("Remove", () => removeSong(reserved.itemId), `Could not remove "${selected.title}".`),
+      });
+    }
+  }
+
+  return {
+    selected,
+    status,
+    actions,
+    busyLabel,
+    error,
+    open: setSelected,
+    close: () => !busyLabel && setSelected(null),
+  };
 }
 
 function SearchResults({
@@ -56,108 +129,88 @@ function SearchResults({
   hasSearched,
   searchError,
   searchQuery,
-  queueingStates,
-  onAddToQueue,
-  queueCount
+  entryStatus,
+  onSelect,
 }: {
   searchResults: { entries: KaraokeEntry[] } | undefined;
   isSearching: boolean;
   hasSearched: boolean;
   searchError: string | null;
   searchQuery: string;
-  queueingStates: Record<string, boolean>;
-  queueCount?: number;
-  onAddToQueue: (entry: KaraokeEntry) => void;
+  entryStatus: (entry: KaraokeEntry) => EntryStatus | null;
+  onSelect: (entry: KaraokeEntry) => void;
 }) {
-  // Loading state
   if (isSearching) {
     return (
-      <div className="text-center py-8 sm:py-12 md:py-16 flex flex-col items-center space-y-3 sm:space-y-4">
-        <LoadingSpinner size="lg" className="sm:w-12 sm:h-12" />
-        <Text size="lg" className="text-white/70 sm:text-xl px-4">
-          Searching for "{searchQuery}"...
+      <div className="flex flex-col items-center gap-3 py-12">
+        <LoadingIndicator size="lg" />
+        <Text font="display" size="xl" tone="dim">
+          Searching
         </Text>
       </div>
     );
   }
 
-  // Error state
   if (searchError) {
     return (
-      <div className="text-center py-8 sm:py-12 md:py-16 px-4">
-        <div className="text-4xl sm:text-5xl md:text-6xl mb-3 sm:mb-4">⚠️</div>
-        <Text size="lg" className="text-red-400 mb-2 sm:text-xl">
+      <div className="py-12 text-center space-y-2">
+        <Text font="display" size="2xl" weight="bold" tone="danger">
           Search Failed
         </Text>
-        <Text size="sm" className="text-white/70 sm:text-base max-w-md mx-auto">
+        <Text size="sm" tone="dim">
           {searchError}
         </Text>
       </div>
     );
   }
 
-  // Results available
   if (searchResults && searchResults.entries.length > 0) {
     return (
-      <div className="space-y-3 sm:space-y-4">
-        <Text size="sm" className="text-white/70 text-center sm:text-base px-4">
-          Found {searchResults.entries.length} result{searchResults.entries.length !== 1 ? 's' : ''} for "{searchQuery}"
-        </Text>
-        <div className="space-y-2 sm:space-y-3">
-          {searchResults.entries.map((entry, i) => {
-            const isQueueing = queueingStates[entry.id];
-            return (
-              <div
-                key={`search_result_${entry.id}_${i}`}
-                className="flex flex-row items-stretch space-x-2 text-white"
-              >
-                <div className="flex-1">
-                  <KaraokeEntryCard entry={entry} />
-                </div>
-                <div className="flex justify-center sm:justify-start">
-                  <IconButton
-                    icon={queueCount && queueCount > 0 ? <MaterialSymbolsPlaylistAddRounded className="text-xl sm:text-2xl" /> : <MaterialSymbolsPlayArrowRounded className="text-xl sm:text-2xl" />}
-                    onClick={() => onAddToQueue(entry)}
-                    variant="secondary"
-                    size="md"
-                    className="sm:h-full"
-                    disabled={isQueueing}
-                  />
-                </div>
-              </div>
-            );
-          })}
+      <div>
+        <SectionLabel count={searchResults.entries.length}>Results</SectionLabel>
+        <div className="flex flex-col gap-1">
+          {searchResults.entries.map((entry, i) => (
+            <SongRow
+              key={`search_result_${entry.id}_${i}`}
+              entry={entry}
+              showSource
+              status={entryStatus(entry)}
+              onClick={() => onSelect(entry)}
+            />
+          ))}
         </div>
       </div>
     );
   }
 
-  // Empty results (only show if search was performed)
   if (hasSearched && searchQuery.trim()) {
     return (
-      <div className="text-center py-8 sm:py-12 md:py-16 px-4">
-        <div className="text-4xl sm:text-5xl md:text-6xl mb-3 sm:mb-4">🔍</div>
-        <Text size="lg" className="text-white/70 mb-2 sm:text-xl">
-          No results found for "{searchQuery}"
+      <div className="py-12 text-center space-y-2">
+        <Text font="display" size="2xl" weight="bold" tone="dim">
+          No Results
         </Text>
-        <Text size="sm" className="text-white/50 sm:text-base max-w-md mx-auto">
-          Try searching for a different song or artist
+        <Text size="sm" tone="dim">
+          Nothing matched "{searchQuery}".
         </Text>
       </div>
     );
   }
 
-  // Initial state (no search performed yet)
-  return null;
+  return (
+    <div className="py-12 text-center">
+      <Text size="sm" tone="dim">
+        Reserved songs play on the display in order.
+      </Text>
+    </div>
+  );
 }
 
 function SongSelectTab() {
-  const { queueSong, queue, playerState } = useRoomContext();
-  const [queueingStates, setQueueingStates] = useState<Record<string, boolean>>({});
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const entryStatus = useEntryStatus();
+  const dialog = useSongDialog();
   const [hasSearched, setHasSearched] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
- const [textInput, setTextInput] = useState("");
+  const [textInput, setTextInput] = useState("");
 
   const {
     trigger: triggerSearch,
@@ -175,131 +228,104 @@ function SongSelectTab() {
       await triggerSearch(value);
     } catch (error) {
       console.error("Search error:", error);
-      setSearchError("Failed to search. Please check your connection and try again.");
-    }
-  };
-
-  const handleAddQueueItem = async (entry: KaraokeEntry) => {
-    if (queueingStates[entry.id]) return; // Prevent duplicate requests
-
-    setQueueingStates(prev => ({ ...prev, [entry.id]: true }));
-    setErrorMessage(null);
-
-    try {
-      await queueSong(entry);
-    } catch (error) {
-      console.error(error);
-      setErrorMessage(`Failed to queue "${entry.title}". Please try again.`);
-      setTimeout(() => setErrorMessage(null), 5000); // Clear error after 5 seconds
-    } finally {
-      setQueueingStates(prev => ({ ...prev, [entry.id]: false }));
+      setSearchError("Search failed. Check the connection.");
     }
   };
 
   return (
-    <div className="relative h-full">
-      <div className="relative max-w-4xl mx-auto px-3 sm:px-4 lg:px-6">
-        <div className="pt-6 sm:pt-8 md:pt-12">
-          <Text as="h1" size="4xl" weight="bold" className="text-center text-white pb-6 sm:text-5xl md:text-6xl lg:text-7xl sm:pb-8">
-            Select a song
-          </Text>
-
-          <SearchInput
-            size="md"
-            onSearch={handleSearch}
-            isSearching={isSearching}
-            placeholder="Search for a song..."
-            className="sm:text-lg"
-          />
-        </div>
-
-        {errorMessage && (
-          <div className="mb-4 p-3 sm:p-4 bg-red-500/20 border border-red-500/50 rounded-lg">
-            <Text size="sm" className="text-red-200 sm:text-base">{errorMessage}</Text>
-          </div>
-        )}
-
-        <div className="pt-6 sm:pt-8 md:pt-12 pb-20 sm:pb-6">
-          <SearchResults
-            searchResults={searchResults}
-            isSearching={isSearching}
-            hasSearched={hasSearched}
-            searchError={searchError}
-            searchQuery={textInput}
-            queueingStates={queueingStates}
-            queueCount={(playerState?.entry ? 1 : 0) + (queue?.items.length ?? 0)}
-            onAddToQueue={handleAddQueueItem}
-          />
-        </div>
+    <div className="px-2 pb-8">
+      <div className="sticky top-0 z-10 bg-ka-void/95 py-2 -mx-2 px-2 border-b-2 border-ka-line">
+        <SearchInput
+          onSearch={handleSearch}
+          isSearching={isSearching}
+          placeholder="Song title or artist"
+        />
       </div>
 
+      <div className="pt-3">
+        {dialog.error && <Notice>{dialog.error}</Notice>}
+
+        <SearchResults
+          searchResults={searchResults}
+          isSearching={isSearching}
+          hasSearched={hasSearched}
+          searchError={searchError}
+          searchQuery={textInput}
+          entryStatus={entryStatus}
+          onSelect={dialog.open}
+        />
+      </div>
+
+      <SongActionsDialog
+        entry={dialog.selected}
+        status={dialog.status}
+        busy={dialog.busyLabel}
+        onClose={dialog.close}
+        actions={dialog.actions}
+      />
+    </div>
+  );
+}
+
+function VolumeMeter({ value }: { value: number }) {
+  const filled = Math.round(value * VOLUME_SEGMENTS);
+
+  return (
+    <div className="flex gap-0.5 flex-1" aria-hidden>
+      {Array.from({ length: VOLUME_SEGMENTS }, (_, i) => (
+        <span key={i} className={`h-4 flex-1 ${i < filled ? "bg-ka-amber" : "bg-ka-line-dim"}`} />
+      ))}
     </div>
   );
 }
 
 function PlayerTab() {
-  const { playerState, playSong, pauseSong, playNext, setVolume } =
-    useRoomContext();
+  const { playerState, playSong, pauseSong, playNext, setVolume } = useRoomContext();
   const [isPlaybackLoading, setIsPlaybackLoading] = useState(false);
   const [isVolumeLoading, setIsVolumeLoading] = useState(false);
   const [isPlayNextLoading, setIsPlayNextLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [optimisticVolume, setOptimisticVolume] = useState<number | null>(null);
-  const volumePerc = Math.round((optimisticVolume ?? playerState?.volume ?? 0.5) * 100);
+  const volume = optimisticVolume ?? playerState?.volume ?? 0.5;
+  const volumePerc = Math.round(volume * 100);
+  const isPlaying = playerState?.play_state === "playing";
+  const hasEntry = Boolean(playerState?.entry);
 
-  // Clear optimistic volume when server state matches our optimistic value
+  // Clear optimistic volume once the server state catches up
   useEffect(() => {
-    console.log('[Volume Debug] PlayerState volume changed:', playerState?.volume);
+    if (optimisticVolume === null || playerState?.volume === undefined) return;
 
-    if (optimisticVolume !== null && playerState?.volume !== undefined) {
-      const serverVolume = Math.round(playerState.volume * 10) / 10; // Round to 1 decimal
-      const optimisticRounded = Math.round(optimisticVolume * 10) / 10;
-
-      console.log('[Volume Debug] Server:', serverVolume, 'Optimistic:', optimisticRounded);
-
-      if (Math.abs(serverVolume - optimisticRounded) < 0.05) {
-        // Server state matches optimistic state, clear optimistic
-        console.log('[Volume Debug] Server state matches, clearing optimistic');
-        setOptimisticVolume(null);
-      } else {
-        console.log('[Volume Debug] Server state mismatch, keeping optimistic');
-      }
+    if (Math.abs(playerState.volume - optimisticVolume) < 0.05) {
+      setOptimisticVolume(null);
     }
   }, [playerState?.volume, optimisticVolume]);
 
   const handlePlayerPlayback = async () => {
     if (isPlaybackLoading) return;
 
-    console.log('[Playback Debug] Current playerState volume:', playerState?.volume);
-    console.log('[Playback Debug] Optimistic volume:', optimisticVolume);
-
     setIsPlaybackLoading(true);
     setErrorMessage(null);
 
     try {
-      if (playerState?.play_state === "playing") {
-        console.log('[Playback Debug] Pausing...');
+      if (isPlaying) {
         await pauseSong();
       } else {
-        console.log('[Playback Debug] Playing...');
         await playSong();
       }
     } catch (error) {
       console.error("Failed to control playback:", error);
-      setErrorMessage("Failed to control playback. Please try again.");
+      setErrorMessage(`Could not ${isPlaying ? "pause" : "play"}.`);
       setTimeout(() => setErrorMessage(null), 3000);
     } finally {
       setIsPlaybackLoading(false);
     }
   };
 
-  const adjustPlayerVolume = async (newVolumeDecimal: number) => {
+  const adjustPlayerVolume = async (delta: number) => {
     if (isVolumeLoading) return;
 
-    const currentVolume = optimisticVolume ?? playerState?.volume ?? 0.5;
-    const newVolume = Math.max(0.0, currentVolume + newVolumeDecimal);
+    const newVolume = Math.min(1, Math.max(0, volume + delta));
 
-    // Optimistic update
     setOptimisticVolume(newVolume);
     setIsVolumeLoading(true);
     setErrorMessage(null);
@@ -308,9 +334,8 @@ function PlayerTab() {
       await setVolume(newVolume);
     } catch (error) {
       console.error("Failed to set volume:", error);
-      // Rollback optimistic update immediately on error
       setOptimisticVolume(null);
-      setErrorMessage("Failed to adjust volume. Please try again.");
+      setErrorMessage("Could not change the volume.");
       setTimeout(() => setErrorMessage(null), 3000);
     } finally {
       setIsVolumeLoading(false);
@@ -327,7 +352,7 @@ function PlayerTab() {
       await playNext();
     } catch (error) {
       console.error("Failed to play next:", error);
-      setErrorMessage("Failed to play next song. Please try again.");
+      setErrorMessage("Could not skip to the next song.");
       setTimeout(() => setErrorMessage(null), 3000);
     } finally {
       setIsPlayNextLoading(false);
@@ -335,183 +360,136 @@ function PlayerTab() {
   };
 
   return (
-    <div className="max-w-4xl mx-auto px-3 sm:px-4 lg:px-6 text-white pt-4 sm:pt-6 md:pt-8">
-      {errorMessage && (
-        <div className="mb-4 p-3 bg-red-500/20 border border-red-500/50 rounded-lg text-center">
-          <Text size="sm" className="text-red-200 sm:text-base">{errorMessage}</Text>
-        </div>
-      )}
-      <div className="flex flex-col space-y-6 sm:space-y-8">
-        {/* Song Info Section */}
-        <div className="flex flex-col items-center text-center space-y-2 sm:space-y-3">
-          <Text size="base" className="text-white/70 sm:text-lg">Now Playing</Text>
-          <MarqueeText size="xl" weight="bold" className="sm:text-2xl md:text-3xl lg:text-4xl leading-tight px-4" pauseOnHover>
-            {playerState?.entry ? playerState.entry.title : "No song"}
-          </MarqueeText>
-          <MarqueeText size="lg" className="sm:text-xl md:text-2xl text-white/90 px-4" pauseOnHover>
-            {playerState?.entry ? playerState.entry.artist : "--"}
-          </MarqueeText>
+    <div className="px-2 py-3 flex flex-col gap-3">
+      {errorMessage && <Notice>{errorMessage}</Notice>}
+
+      <Panel className="p-3">
+        <div className="flex items-center gap-3 mb-3 border-b-2 border-ka-line pb-2">
+          <Text font="display" size="lg" weight="bold" tone={isPlaying ? "accent" : "dim"} className="flex-1">
+            {isPlaying ? "Playing" : hasEntry ? "Paused" : "Stopped"}
+          </Text>
           {playerState?.entry?.uploader && (
-            <div className="flex flex-col sm:flex-row sm:space-x-4 space-y-1 sm:space-y-0 text-xs sm:text-sm text-white/70">
-              <Text>From: {playerState.entry.source}</Text>
-              <Text>By: {playerState.entry.uploader}</Text>
-            </div>
+            <Text size="xs" tone="dim" truncate className="max-w-40">
+              {playerState.entry.uploader}
+            </Text>
           )}
         </div>
 
-        {/* Progress Section */}
-        <div className="space-y-3 sm:space-y-4">
-          <div className="flex flex-row items-center gap-3 sm:gap-4">
-            <TimeDisplay
-              seconds={playerState?.current_time || 0}
-              className="text-sm sm:text-base font-mono text-white/90 min-w-12 sm:min-w-16 text-center"
-            />
-            <ProgressBar
-              value={playerState?.current_time || 0}
-              max={playerState?.duration || 0}
-              className="h-2 sm:h-3"
-            />
-            <TimeDisplay
-              seconds={playerState?.duration || 0}
-              className="text-sm sm:text-base font-mono text-white/90 min-w-12 sm:min-w-16 text-center"
-            />
-          </div>
+        <MarqueeText size="2xl" weight="bold" pauseOnHover>
+          {playerState?.entry ? playerState.entry.title : "No Song"}
+        </MarqueeText>
+        <MarqueeText size="lg" tone="dim" pauseOnHover>
+          {playerState?.entry ? playerState.entry.artist : "--"}
+        </MarqueeText>
+
+        <div className="flex items-center gap-2 mt-3">
+          <TimeDisplay seconds={playerState?.current_time || 0} size="sm" tone="accent" />
+          <ProgressBar
+            value={playerState?.current_time || 0}
+            max={playerState?.duration || 0}
+            size="sm"
+          />
+          <TimeDisplay seconds={playerState?.duration || 0} size="sm" tone="dim" />
         </div>
+      </Panel>
 
-        {/* Main Controls Section */}
-        <div className="flex flex-col items-center space-y-6">
-          {/* Primary Transport Controls */}
-          <div className="flex items-center space-x-4 sm:space-x-6">
-            {/* Skip Previous (if needed in future) */}
-
-            {/* Main Play/Pause Button */}
-            <IconButton
-              icon={playerState?.play_state === "playing" ? (
-                <MaterialSymbolsPauseRounded />
-              ) : (
-                <MaterialSymbolsPlayArrowRounded />
-              )}
-              onClick={handlePlayerPlayback}
-              disabled={!playerState || !playerState.entry || isPlaybackLoading}
-              variant="primary"
-              size="xl"
-              className="text-3xl sm:text-4xl md:text-5xl border-white rounded-full px-8 py-4 sm:px-10 sm:py-5 transition-all"
-            />
-
-            <IconButton
-              icon={<MaterialSymbolsFastForwardRounded />}
-              onClick={handlePlayNext}
-              disabled={
-                !playerState ||
-                !playerState.entry ||
-                isPlayNextLoading
-              }
-              variant="secondary"
-              size="lg"
-              className="text-xl sm:text-2xl md:text-3xl rounded-full border border-white/70 px-4 py-3 sm:px-5 sm:py-4"
-              label="Next"
-            />
-          </div>
-
-          {/* Volume Controls */}
-          <div className="flex items-center space-x-3 sm:space-x-4 bg-black/40 backdrop-blur-sm px-4 py-3 sm:px-6 sm:py-4 rounded-2xl border border-white/20">
-            <IconButton
-              icon={<MaterialSymbolsVolumeDownRounded />}
-              onClick={() => adjustPlayerVolume(-0.1)}
-              disabled={!playerState || !playerState.entry || (optimisticVolume ?? playerState?.volume ?? 0.5) <= 0 || isVolumeLoading}
-              variant="secondary"
-              size="sm"
-              className="text-lg sm:text-xl rounded-full px-2 py-2 hover:bg-white/10"
-              label="Volume Down"
-            />
-            <div className="flex items-center space-x-2 min-w-20 sm:min-w-24">
-              <div className="h-1 bg-white/20 rounded-full flex-1 overflow-hidden">
-                <div
-                  className="h-full bg-white rounded-full transition-all duration-200"
-                  style={{ width: `${volumePerc}%` }}
-                />
-              </div>
-              <Text size="sm" className="text-white font-medium min-w-10 text-center sm:text-base">
-                {volumePerc}%
-              </Text>
-            </div>
-            <IconButton
-              icon={<MaterialSymbolsVolumeUpRounded />}
-              onClick={() => adjustPlayerVolume(0.1)}
-              disabled={!playerState || !playerState.entry || (optimisticVolume ?? playerState?.volume ?? 0.5) >= 1 || isVolumeLoading}
-              variant="secondary"
-              size="sm"
-              className="text-lg sm:text-xl rounded-full px-2 py-2 hover:bg-white/10"
-              label="Volume Up"
-            />
-          </div>
-        </div>
+      <div className="grid grid-cols-2 gap-2">
+        <IconButton
+          icon={
+            isPlaying ? (
+              <MaterialSymbolsPauseRounded className="text-5xl" />
+            ) : (
+              <MaterialSymbolsPlayArrowRounded className="text-5xl" />
+            )
+          }
+          label={isPlaying ? "Pause" : "Play"}
+          showLabel
+          onClick={handlePlayerPlayback}
+          disabled={!hasEntry || isPlaybackLoading}
+          variant="accent"
+          className="py-4"
+        />
+        <IconButton
+          icon={<MaterialSymbolsFastForwardRounded className="text-5xl" />}
+          label="Next"
+          showLabel
+          onClick={handlePlayNext}
+          disabled={!hasEntry || isPlayNextLoading}
+          variant="default"
+          className="py-4"
+        />
       </div>
+
+      <Panel className="p-3">
+        <div className="flex items-center gap-3 mb-2">
+          <Text font="display" size="lg" tone="dim" className="flex-1">
+            Volume
+          </Text>
+          <Text font="mono" size="lg" weight="bold" tone="accent">
+            {volumePerc.toString().padStart(3, "0")}
+          </Text>
+        </div>
+        <div className="flex items-center gap-2">
+          <IconButton
+            icon={<MaterialSymbolsVolumeDownRounded className="text-2xl" />}
+            label="Volume Down"
+            onClick={() => adjustPlayerVolume(-0.1)}
+            disabled={!hasEntry || volume <= 0 || isVolumeLoading}
+            className="px-3"
+          />
+          <VolumeMeter value={volume} />
+          <IconButton
+            icon={<MaterialSymbolsVolumeUpRounded className="text-2xl" />}
+            label="Volume Up"
+            onClick={() => adjustPlayerVolume(0.1)}
+            disabled={!hasEntry || volume >= 1 || isVolumeLoading}
+            className="px-3"
+          />
+        </div>
+      </Panel>
     </div>
   );
 }
 
 function QueueTab() {
-  const {
-    queue,
-    upNextQueue,
-    playerState,
-    playNext,
-    clearQueue,
-    queueNextSong,
-    removeSong,
-  } = useRoomContext();
+  const { queue, upNextQueue, playerState, playNext, clearQueue, queueNextSong } = useRoomContext();
+  const entryStatus = useEntryStatus();
+  const dialog = useSongDialog();
   const [isClearingQueue, setIsClearingQueue] = useState(false);
-  const [removingStates, setRemovingStates] = useState<Record<string, boolean>>({});
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const upNextItems = upNextQueue?.items ?? [];
+
+  const handleClearQueue = async () => {
+    if (isClearingQueue) return;
+
+    setIsClearingQueue(true);
+    setErrorMessage(null);
+
+    try {
+      await clearQueue();
+    } catch (error) {
+      console.error("Failed to clear queue:", error);
+      setErrorMessage("Could not clear the queue.");
+      setTimeout(() => setErrorMessage(null), 3000);
+    } finally {
+      setIsClearingQueue(false);
+    }
+  };
 
   return (
-    <div className="max-w-4xl mx-auto px-3 sm:px-4 lg:px-6 py-6 sm:py-8 md:py-12 text-white">
-      {errorMessage && (
-        <div className="mb-4 p-3 bg-red-500/20 border border-red-500/50 rounded-lg text-center">
-          <Text size="sm" className="text-red-200 sm:text-base">{errorMessage}</Text>
-        </div>
-      )}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-6 sm:mb-8 space-y-3 sm:space-y-0">
-        <Text as="h2" size="2xl" weight="bold" className="sm:text-3xl md:text-4xl">
-          {upNextQueue?.items.length || 0} Songs in Queue
-        </Text>
-        {queue && queue.items.length > (playerState?.entry ? 1 : 0) && (
-          <Button
-            onClick={async () => {
-              if (isClearingQueue) return;
-
-              setIsClearingQueue(true);
-              setErrorMessage(null);
-
-              try {
-                await clearQueue();
-              } catch (error) {
-                console.error("Failed to clear queue:", error);
-                setErrorMessage("Failed to clear queue. Please try again.");
-                setTimeout(() => setErrorMessage(null), 3000);
-              } finally {
-                setIsClearingQueue(false);
-              }
-            }}
-            variant="danger"
-            size="sm"
-            disabled={isClearingQueue}
-            className="self-start sm:self-auto"
-          >
-            Clear All
-          </Button>
-        )}
-      </div>
+    <div className="px-2 py-3 pb-8">
+      {(errorMessage || dialog.error) && <Notice>{errorMessage ?? dialog.error}</Notice>}
 
       {playerState?.entry && (
-        <div className="mt-6 sm:mt-8 space-y-3 sm:space-y-4">
-          <Text size="sm" className="sm:text-base font-medium">Now Playing</Text>
+        <div className="mb-4">
+          <SectionLabel>Now Playing</SectionLabel>
           <QueueItem
             entry={playerState.entry}
+            selected
             actions={[
               {
-                icon: <MaterialSymbolsFastForwardRounded className="text-lg sm:text-xl md:text-2xl" />,
+                icon: <MaterialSymbolsFastForwardRounded className="text-2xl" />,
+                label: "Next",
                 onClick: async () => {
                   try {
                     await playNext();
@@ -519,66 +497,84 @@ function QueueTab() {
                     console.error("Failed to play next:", error);
                   }
                 },
-                variant: "secondary",
               },
             ]}
           />
         </div>
       )}
 
-      <div className="mt-6 sm:mt-8 space-y-3 sm:space-y-4 pb-4">
-        <Text size="sm" className="sm:text-base font-medium">Up Next</Text>
-        <div className="space-y-2 sm:space-y-3 flex flex-col">
-          {upNextQueue?.items.map((item: KaraokeQueueItem) => (
+      <div className="flex items-center gap-3 border-b-2 border-ka-line pb-1 mb-2">
+        <Text font="display" size="lg" weight="bold" tone="accent" className="flex-1">
+          Up Next
+        </Text>
+        {queue && queue.items.length > (playerState?.entry ? 1 : 0) && (
+          <Button onClick={handleClearQueue} variant="danger" size="sm" disabled={isClearingQueue}>
+            Clear All
+          </Button>
+        )}
+      </div>
+
+      {upNextItems.length === 0 ? (
+        <div className="py-10 text-center">
+          <Text font="display" size="xl" tone="dim">
+            Nothing Reserved
+          </Text>
+        </div>
+      ) : (
+        <div className="flex flex-col gap-1">
+          {upNextItems.map((item: KaraokeQueueItem, index: number) => (
             <QueueItem
               key={`queue_item_${item.id}`}
               entry={item.entry}
+              index={index + 1}
+              status={entryStatus(item.entry)}
+              onSelect={() => dialog.open(item.entry)}
               actions={[
                 {
-                  icon: <MaterialSymbolsKeyboardArrowUpRounded className="text-lg sm:text-xl md:text-2xl" />,
+                  icon: <MaterialSymbolsKeyboardArrowUpRounded className="text-2xl" />,
+                  label: "Move to next",
                   onClick: () => queueNextSong(item.id),
-                  variant: "secondary",
-                },
-                {
-                  icon: <MaterialSymbolsDeleteOutline className="text-lg sm:text-xl md:text-2xl" />,
-                  onClick: async () => {
-                    if (removingStates[item.id]) return;
-
-                    setRemovingStates(prev => ({ ...prev, [item.id]: true }));
-                    setErrorMessage(null);
-
-                    try {
-                      await removeSong(item.id);
-                    } catch (error) {
-                      console.error("Failed to remove song:", error);
-                      setErrorMessage(`Failed to remove "${item.entry.title}". Please try again.`);
-                      setTimeout(() => setErrorMessage(null), 3000);
-                    } finally {
-                      setRemovingStates(prev => ({ ...prev, [item.id]: false }));
-                    }
-                  },
-                  variant: "secondary",
                 },
               ]}
             />
           ))}
         </div>
-      </div>
+      )}
+
+      <SongActionsDialog
+        entry={dialog.selected}
+        status={dialog.status}
+        busy={dialog.busyLabel}
+        onClose={dialog.close}
+        actions={dialog.actions}
+      />
     </div>
   );
 }
 
-function ServerStatusBanner() {
+function RemoteHeader() {
   const { isOffline } = useServerStatus();
-
-  if (!isOffline) return null;
+  const { roomId, upNextQueue, connected } = useRoomContext();
 
   return (
-    <div className="bg-red-500/20 border-b border-red-500/50 px-3 sm:px-4 py-2 sm:py-3">
-      <div className="flex items-center justify-center space-x-2">
-        <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse flex-shrink-0" />
-        <Text size="xs" className="text-red-200 text-center sm:text-sm">
-          Server connection lost. Some features may not work properly.
+    <div className="flex items-stretch border-b-2 border-ka-line bg-ka-panel shrink-0">
+      <div className="flex items-center gap-2 px-3 py-1.5">
+        <span className={`w-2 h-2 ${isOffline || !connected ? "bg-ka-red blink" : "bg-ka-green"}`} />
+        <Text font="display" size="sm" tone="dim">
+          {isOffline ? "Offline" : connected ? "Linked" : "Connecting"}
+        </Text>
+      </div>
+      <div className="flex-1 flex items-center px-3 border-l-2 border-ka-line-dim min-w-0">
+        <Text font="mono" size="sm" truncate>
+          {roomId}
+        </Text>
+      </div>
+      <div className="flex items-center gap-2 px-3 border-l-2 border-ka-line-dim">
+        <Text font="display" size="sm" tone="dim">
+          Reserved
+        </Text>
+        <Text font="mono" size="sm" weight="bold" tone="accent">
+          {(upNextQueue?.items.length ?? 0).toString().padStart(2, "0")}
         </Text>
       </div>
     </div>
@@ -586,8 +582,7 @@ function ServerStatusBanner() {
 }
 
 function ControllerPageContent() {
-  const [tab, setTab] =
-    useState<(typeof CONTROLLER_TABS)[number]["id"]>("song-select");
+  const [tab, setTab] = useState<(typeof CONTROLLER_TABS)[number]["id"]>("song-select");
 
   const tabs: Tab[] = CONTROLLER_TABS.map((t) => ({
     id: t.id,
@@ -599,8 +594,9 @@ function ControllerPageContent() {
 
   return (
     <ControllerLayout>
-      <ServerStatusBanner />
+      <RemoteHeader />
       <TabNavigation
+        className="flex-1 min-h-0"
         tabs={tabs}
         activeTab={tab}
         onTabChange={(tabId) => setTab(tabId as (typeof CONTROLLER_TABS)[number]["id"])}
@@ -608,7 +604,6 @@ function ControllerPageContent() {
     </ControllerLayout>
   );
 }
-
 
 export default function ControllerPage() {
   const [searchParams] = useSearchParams();
@@ -627,12 +622,11 @@ export default function ControllerPage() {
     return <Navigate to="/" replace />;
   }
 
-  // Show verification states
   if (room.isVerifying) {
     return (
       <SystemMessage
-        title="Connecting..."
-        subtitle="Please wait while we verify your access to the room."
+        title="Connecting"
+        subtitle="Checking access to this room."
         variant="controller"
       />
     );
@@ -642,7 +636,7 @@ export default function ControllerPage() {
     if (room.requiresPassword) {
       return (
         <SystemMessage title="Password Required" variant="controller">
-          <PasswordInput roomId={roomId!} room={room} />
+          <PasswordInput roomId={roomId} room={room} />
         </SystemMessage>
       );
     }
@@ -660,10 +654,10 @@ export default function ControllerPage() {
   if (!room.isVerified || !room.hasJoinedRoom) {
     return (
       <SystemMessage
-        title={!room.isVerified ? "Loading..." : "Joining room..."}
+        title={!room.isVerified ? "Loading" : "Joining Room"}
         variant="controller"
       >
-        <LoadingSpinner size="xl" />
+        <LoadingIndicator size="lg" />
       </SystemMessage>
     );
   }

@@ -1,35 +1,29 @@
 import { Card } from "../organisms/Card";
+import { FullScreenLayout } from "./FullScreenLayout";
+import type { BackdropName } from "../../lib/backgrounds";
 
 interface MessageTemplateProps {
   title?: string;
   size?: "sm" | "md" | "lg" | "auto";
   className?: string;
   children: React.ReactNode;
-  background?: React.ReactNode;
+  backdrop?: BackdropName;
 }
 
-export function MessageTemplate({ 
-  title = "System Message", 
-  size = "auto", 
+export function MessageTemplate({
+  title = "System",
+  size = "auto",
   className = "",
   children,
-  background
+  backdrop = "notice",
 }: MessageTemplateProps) {
   return (
-    <div className="relative">
-      <div className="absolute top-0 inset-x-0 h-screen w-screen z-10 flex flex-col items-center justify-center">
-        <div className="max-w-5xl w-full mx-auto">
-          <Card
-            title={title}
-            size={size}
-            className={`w-full ${className}`}
-          >
-            {children}
-          </Card>
-        </div>
+    <FullScreenLayout background="image" backdrop={backdrop}>
+      <div className="h-full w-full flex items-center justify-center title-safe">
+        <Card title={title} size={size} className={`w-full max-w-3xl ${className}`.trim()}>
+          {children}
+        </Card>
       </div>
-
-      {background}
-    </div>
+    </FullScreenLayout>
   );
 }

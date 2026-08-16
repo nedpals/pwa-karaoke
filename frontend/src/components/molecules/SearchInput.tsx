@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Input, type BaseInputProps } from "../atoms/Input";
 import { Button } from "../atoms/Button";
+import { Text } from "../atoms/Text";
 import { cn } from "../../lib/utils";
 
 export interface SearchInputProps extends BaseInputProps {
@@ -8,6 +9,7 @@ export interface SearchInputProps extends BaseInputProps {
   isSearching?: boolean;
   searchButtonText?: string;
   searchingText?: string;
+  fieldLabel?: string;
   value?: string;
   onChange?: (e: React.ChangeEvent<HTMLInputElement>) => void;
   placeholder?: string;
@@ -18,11 +20,12 @@ export interface SearchInputProps extends BaseInputProps {
   onSelect?: (e: React.SyntheticEvent<HTMLInputElement>) => void;
 }
 
-export function SearchInput({ 
-  onSearch, 
-  isSearching = false, 
+export function SearchInput({
+  onSearch,
+  isSearching = false,
   searchButtonText = "Search",
-  searchingText = "Searching...",
+  searchingText = "Wait",
+  fieldLabel = "Song",
   value: controlledValue,
   onChange,
   className,
@@ -32,35 +35,40 @@ export function SearchInput({
   onClick,
   onKeyUp,
   onSelect,
-  ...props 
+  ...props
 }: SearchInputProps) {
   const [internalValue, setInternalValue] = useState("");
-  
+
   const value = controlledValue ?? internalValue;
   const isControlled = controlledValue !== undefined;
-  
+
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const newValue = e.target.value;
     if (isControlled) {
       onChange?.(e);
     } else {
-      setInternalValue(newValue);
+      setInternalValue(e.target.value);
     }
   };
-  
+
   const handleSearch = () => {
     if (!value.trim() || isSearching) return;
     onSearch(value);
   };
-  
+
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter") {
       handleSearch();
     }
   };
-  
+
   return (
-    <div className={cn("relative", className)}>
+    <div className={cn("flex items-stretch border-2 border-ka-line bg-ka-panel bevel", className)}>
+      <div className="hidden sm:flex items-center px-3 border-r-2 border-ka-line bg-ka-raised">
+        <Text font="display" size="lg" weight="bold" tone="accent">
+          {fieldLabel}
+        </Text>
+      </div>
+
       <Input
         ref={ref}
         value={value}
@@ -71,8 +79,7 @@ export function SearchInput({
         onClick={onClick}
         onSelect={onSelect}
         placeholder={placeholder}
-        glass
-        className="pr-16"
+        className="border-0 bevel-in focus:border-0"
         inputMode="text"
         autoComplete="off"
         autoCapitalize="off"
@@ -80,13 +87,13 @@ export function SearchInput({
         spellCheck={false}
         {...props}
       />
+
       <Button
         type="button"
         onClick={handleSearch}
         disabled={!value.trim() || isSearching}
-        variant="primary"
-        size="sm"
-        className="absolute right-2 top-1/2 -translate-y-1/2"
+        variant="accent"
+        className="border-y-0 border-r-0 border-l-2 border-l-ka-line px-4"
       >
         {isSearching ? searchingText : searchButtonText}
       </Button>

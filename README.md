@@ -87,25 +87,23 @@ Visit `http://localhost:8000` to access the application.
 ## Usage
 
 ### Rooms
-After starting the server, you will be prompted to **create** or **join** a room. Rooms allows multiple groups to create karaoke sessions independently.
+Rooms let multiple groups run karaoke sessions independently. The home screen has a single room field, filled with a generated name you can replace with your own.
 
-#### Joining a Room
-You can either browse our list of publically available rooms or enter a room ID to join a private room.
+Pressing **Join Room** opens a dialog whose contents depend on the name you entered:
+- **The room does not exist yet.** It gets created when you enter, and the dialog offers **Room Visibility** (shown in public listings, or private) and an optional **Room Password**.
+- **The room exists and is open.** You enter straight away.
+- **The room exists and is password protected.** The dialog asks for the password before letting you in.
 
-#### Creating a Room
 > [!TIP]
-> You can also add passwords to public rooms to restrict access while still being listed.
-
-When asked, you will be prompted with the following details:
-- **Room ID**: You will be provided with a randomly generated room ID or you can set your own.
-- **Room Visibility**: You can choose to make your room be shown **in public listings** or be **private**.
-- **Room Password**: Optionally, you can set a password for your room to restrict access.
+> Public rooms can have passwords too, so a room can stay listed while still being restricted.
 
 ### Modes
 
-Once you create or join a room, you are prompted to enter the room in two modes:
-- **Display Mode:** For TVs, projectors, or multiple screens to show the video playback and song queue. It supports playing to multiple displays in near real-time.
-- **Controller Mode:** For phones or tablets to search for songs and control playback.
+The same dialog is where you pick what this device becomes:
+- **Enter as Display:** For TVs, projectors, or multiple screens to show the video playback and song queue. It supports playing to multiple displays in near real-time. Not offered on small screens.
+- **Enter as Controller:** For phones or tablets to search for songs and control playback.
+
+The quickest way to add a controller is to scan the QR code the display shows while it is waiting.
 
 ### Development
 

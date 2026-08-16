@@ -1,23 +1,17 @@
-import { FullScreenLayout } from "./FullScreenLayout";
+import { cn } from "../../lib/utils";
+import { Backdrop } from "./Backdrop";
 
 export interface ControllerLayoutProps extends React.HTMLAttributes<HTMLDivElement> {
   children: React.ReactNode;
   backgroundImage?: string;
 }
 
-const defaultBackgroundImage = "https://images.unsplash.com/photo-1545569341-9eb8b30979d9?q=80&w=2070&auto=format&fit=crop&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D";
-
-export function ControllerLayout({ children, backgroundImage = defaultBackgroundImage, className = "", ...props }: ControllerLayoutProps) {
+export function ControllerLayout({ children, backgroundImage, className, ...props }: ControllerLayoutProps) {
   return (
-    <FullScreenLayout
-      background="image"
-      backgroundImage={backgroundImage}
-      className={`min-h-screen min-w-screen relative ${className}`.trim()}
-      {...props}
-    >
-      <div className="flex flex-col w-full h-full bg-black/30 absolute top-0 inset-x-0 z-50">
-        {children}
-      </div>
-    </FullScreenLayout>
+    <div className={cn("h-dvh w-full relative bg-ka-void overflow-hidden", className)} {...props}>
+      <Backdrop name="remote" image={backgroundImage} />
+      <div className="absolute inset-0 bg-ka-void/70" aria-hidden />
+      <div className="relative z-10 flex flex-col h-full w-full min-h-0 overflow-x-hidden">{children}</div>
+    </div>
   );
 }

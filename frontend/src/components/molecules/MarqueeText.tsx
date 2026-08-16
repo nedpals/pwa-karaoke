@@ -54,7 +54,7 @@ export function MarqueeText({
         className={cn(
           "whitespace-nowrap",
           shouldScroll && speedStyles[speed],
-          shouldScroll && pauseOnHover && "hover:animation-paused"
+          shouldScroll && pauseOnHover && "hover:[animation-play-state:paused]"
         )}
         {...props}
       >

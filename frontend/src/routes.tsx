@@ -1,8 +1,6 @@
-import { createBrowserRouter } from "react-router";
+import { createBrowserRouter, redirect } from "react-router";
 
 import HomePage from "./pages/HomePage";
-import JoinPage from "./pages/JoinPage";
-import CreatePage from "./pages/CreatePage";
 import ControllerPage from "./pages/ControllerPage";
 import PlayerPage from "./pages/PlayerPage";
 
@@ -11,13 +9,15 @@ const router = createBrowserRouter([
     path: "/",
     Component: HomePage,
   },
+  // Joining and creating both happen on the home screen now. Kept so old links
+  // and bookmarks land somewhere useful instead of the SPA fallback.
   {
     path: "/join",
-    Component: JoinPage,
+    loader: () => redirect("/"),
   },
   {
     path: "/create",
-    Component: CreatePage,
+    loader: () => redirect("/"),
   },
   {
     path: "/controller",

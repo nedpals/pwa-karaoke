@@ -42,13 +42,6 @@ export function SongDetails({ entry, status, singer, size = "md", className, ...
               </Text>
             </span>
           )}
-          {singer && (
-            <span className="px-2 bg-ka-cyan">
-              <Text font="display" size={scale.label} weight="bold" tone="inverse">
-                {singer}
-              </Text>
-            </span>
-          )}
           <Text font="display" size={scale.label} tone="dim">
             {entry.source}
           </Text>
@@ -62,6 +55,18 @@ export function SongDetails({ entry, status, singer, size = "md", className, ...
         </Text>
         {entry.duration !== null && (
           <TimeDisplay seconds={entry.duration} size={scale.duration} tone="dim" />
+        )}
+        {singer && (
+          <div className="flex items-center gap-2 pt-1">
+            <Text font="display" size={scale.label} tone="dim">
+              Reserved by
+            </Text>
+            <span className="px-2 bg-ka-cyan min-w-0">
+              <Text font="display" size={scale.label} weight="bold" tone="inverse" truncate className="block">
+                {singer}
+              </Text>
+            </span>
+          </div>
         )}
       </div>
     </div>

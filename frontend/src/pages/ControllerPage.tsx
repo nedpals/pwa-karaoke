@@ -330,7 +330,7 @@ function micNotice(status: MicStatus, yourTurn: boolean): string | null {
 
 function PlayerTab({ notice }: { notice: string | null }) {
   const {
-    playerState, playSong, pauseSong, playNext, setVolume,
+    playerState, playSong, pauseSong, skipSong, setVolume,
     sendReaction, connected, autoplay, setAutoplay, scoringActive,
   } = useRoomContext();
   const [isPlaybackLoading, setIsPlaybackLoading] = useState(false);
@@ -426,9 +426,15 @@ function PlayerTab({ notice }: { notice: string | null }) {
     setErrorMessage(null);
 
     try {
-      await playNext();
+      const { screens } = await skipSong();
+      // The screen carries out the skip, so saying so beats a button that
+      // looks like it worked
+      if (screens === 0) {
+        setErrorMessage("No screen is connected to this room.");
+        setTimeout(() => setErrorMessage(null), 3000);
+      }
     } catch (error) {
-      console.error("Failed to play next:", error);
+      console.error("Failed to skip:", error);
       setErrorMessage("Could not skip to the next song.");
       setTimeout(() => setErrorMessage(null), 3000);
     } finally {
@@ -547,7 +553,7 @@ function PlayerTab({ notice }: { notice: string | null }) {
 }
 
 function QueueTab() {
-  const { upNextQueue, playerState, autoplay, playNext, clearQueue, queueNextSong } = useRoomContext();
+  const { upNextQueue, playerState, autoplay, skipSong, clearQueue, queueNextSong } = useRoomContext();
   const entryStatus = useEntryStatus();
   const dialog = useSongDialog();
   const [isClearingQueue, setIsClearingQueue] = useState(false);
@@ -588,9 +594,9 @@ function QueueTab() {
                 label: "Next",
                 onClick: async () => {
                   try {
-                    await playNext();
+                    await skipSong();
                   } catch (error) {
-                    console.error("Failed to play next:", error);
+                    console.error("Failed to skip:", error);
                   }
                 },
               },

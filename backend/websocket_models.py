@@ -40,8 +40,7 @@ class SetAutoplayPayload(BaseModel):
     enabled: bool
 
 class PlayNextPayload(BaseModel):
-    """Play next command payload. `auto` marks an end-of-song rollover."""
-    auto: bool = False
+    """Play next command payload."""
     # The song the caller decided to advance from. Set by a display, whose
     # timers can fire after a remote has already moved the room on.
     from_entry_id: Optional[str] = None
@@ -122,6 +121,7 @@ COMMAND_PAYLOAD_MAP = {
     # Commands without payload validation
     "play_song": dict,
     "pause_song": dict,
+    "skip_song": dict,
     "clear_queue": dict,
     "request_queue_update": dict,
 }

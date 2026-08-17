@@ -29,7 +29,8 @@ export interface RoomState {
   isLeader: boolean;
   lastReaction: ReactionEvent | null;
   score: SongScore | null;
-  scoringCue: { entryId: string; quick: boolean; at: number } | null;
+  /** A remote asked to move on. The leader display decides what that means. */
+  skipRequest: { at: number } | null;
   scoringTurn: boolean;
   scoreReading: { entryId: string; performance: number; at: number } | null;
   scoringActive: boolean;
@@ -54,7 +55,8 @@ export interface RoomActions {
   removeSong: (id: string) => Promise<unknown>;
   playSong: () => Promise<unknown>;
   pauseSong: () => Promise<unknown>;
-  playNext: (options?: { auto?: boolean; fromEntryId?: string | null }) => Promise<unknown>;
+  playNext: (options?: { fromEntryId?: string | null }) => Promise<unknown>;
+  skipSong: () => Promise<{ screens: number }>;
   queueNextSong: (entryId: string) => void;
   clearQueue: () => Promise<unknown>;
   setVolume: (volume: number) => Promise<unknown>;
@@ -84,7 +86,7 @@ export function useRoom(clientType: ClientType, nickname?: string | null): UseRo
   const [isLeader, setIsLeader] = useState(false);
   const [lastReaction, setLastReaction] = useState<ReactionEvent | null>(null);
   const [score, setScore] = useState<SongScore | null>(null);
-  const [scoringCue, setScoringCue] = useState<RoomState["scoringCue"]>(null);
+  const [skipRequest, setSkipRequest] = useState<RoomState["skipRequest"]>(null);
   const [scoringTurn, setScoringTurn] = useState(false);
   const [scoreReading, setScoreReading] = useState<RoomState["scoreReading"]>(null);
   const [scoringActive, setScoringActive] = useState(false);
@@ -288,10 +290,9 @@ export function useRoom(clientType: ClientType, nickname?: string | null): UseRo
           setScoringTurn(Boolean((data as { active: boolean }).active));
         }
         break;
-      case "scoring":
+      case "skip_request":
         if (clientType === "display") {
-          const cue = data as { entry_id: string; quick: boolean };
-          setScoringCue({ entryId: cue.entry_id, quick: cue.quick, at: Date.now() });
+          setSkipRequest({ at: Date.now() });
         }
         break;
       case "set_volume":
@@ -315,7 +316,7 @@ export function useRoom(clientType: ClientType, nickname?: string | null): UseRo
       setIsLeader(false);
       setLastReaction(null);
       setScore(null);
-      setScoringCue(null);
+      setSkipRequest(null);
       setScoringTurn(false);
       setScoreReading(null);
       setScoringActive(false);
@@ -348,7 +349,7 @@ export function useRoom(clientType: ClientType, nickname?: string | null): UseRo
     isLeader,
     lastReaction,
     score,
-    scoringCue,
+    skipRequest,
     scoringTurn,
     scoreReading,
     scoringActive,
@@ -367,18 +368,25 @@ export function useRoom(clientType: ClientType, nickname?: string | null): UseRo
     removeSong: (id: string) => ws.sendCommandWithAck("remove_song", { entry_id: id }),
     playSong: () => ws.sendCommandWithAck("play_song"),
     pauseSong: () => ws.sendCommandWithAck("pause_song"),
-    playNext: (options?: { auto?: boolean; fromEntryId?: string | null }) => {
+    playNext: (options?: { fromEntryId?: string | null }) => {
       // Only leader displays should trigger next song
       if (clientType === "display" && !isLeader) {
         console.log(`[${clientType}] Non-leader display ignoring playNext request`);
         return Promise.resolve({});
       }
       return ws.sendCommandWithAck("play_next", {
-        auto: options?.auto ?? false,
         // Names the song this advance was decided for. A timer that fires after
         // a remote already skipped would otherwise eat the song after it too.
         from_entry_id: options?.fromEntryId ?? null,
       });
+    },
+    // A remote asks; the leader display decides whether that means scoring the
+    // song first or moving straight on
+    skipSong: async () => {
+      const ack = (await ws.sendCommandWithAck("skip_song")) as {
+        result?: { screens?: number };
+      };
+      return { screens: ack?.result?.screens ?? 0 };
     },
     queueNextSong: (entryId: string) => ws.sendCommand("queue_next_song", { entry_id: entryId }),
     clearQueue: () => ws.sendCommandWithAck("clear_queue"),

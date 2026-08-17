@@ -149,13 +149,13 @@ class ClientCommands:
         return {"room_id": room_id, "nickname": nickname, "success": True}
     
     async def play_next(self, payload=None):
-        # Asking advances the room. Autoplay is a setting the display enforces
-        # when a song ends, so nothing here reads it: a display that is holding
-        # the queue simply does not ask.
-        #
-        # `auto` marks an end-of-song rollover, which the display has already
-        # scored. A skip has not been scored yet.
-        is_auto = bool(payload.get("auto")) if isinstance(payload, dict) else False
+        """Pop the queue. Asking is the whole decision.
+
+        When a song starts, whether one is held for its score, and what autoplay
+        means are all the leader display's business: it is the only party that
+        knows how far the song actually got. Nothing here reads the clock or the
+        setting, so the room cannot disagree with the screen about either.
+        """
         from_entry_id = payload.get("from_entry_id") if isinstance(payload, dict) else None
 
         current_entry = self.room.player_state.entry if self.room.player_state else None
@@ -166,9 +166,6 @@ class ClientCommands:
         if from_entry_id and from_entry_id != current_entry_id:
             print(f"[DEBUG] Ignoring stale play_next for {from_entry_id} in room {self.client.room_id}")
             return {"advanced": False, "stale": True}
-
-        if not is_auto and await self._score_skipped_song():
-            return {"advanced": False, "scoring": True}
 
         next_song = self.room.play_next()
         print(f"[DEBUG] Playing next song: {next_song}")
@@ -186,41 +183,20 @@ class ClientCommands:
         await self._broadcast_room_state()
         return {"advanced": next_song is not None}
 
-    async def _score_skipped_song(self) -> bool:
-        """Hold a skipped song on screen for its score. True when it did."""
-        state = self.room.player_state
-        entry = state.entry if state else None
-
-        # Already finished means the display is back for the advance it was held from
-        if not entry or state.play_state == "finished":
-            return False
-
-        if state.current_time < MIN_SCORED_SECONDS:
-            return False
-
-        # Finishing rather than scoring leaves the grace window open for a report
-        await self._hold_at_end_of_song()
-        await self.session_manager.broadcast_to_room_displays(
-            self.client.room_id, "scoring", {"entry_id": entry.id, "quick": True}
-        )
-        return True
-
-    async def _hold_at_end_of_song(self):
-        """Stop on the finished song and leave the queue untouched."""
-        current = self.room.player_state
-        await self._update_player_state(DisplayPlayerState(
-            entry=current.entry if current else None,
-            play_state="finished",
-            current_time=current.current_time if current else 0.0,
-            duration=current.duration if current else 0.0,
-            volume=current.volume if current else 0.5,
-            version=int(time.time() * 1000),
-            timestamp=time.time()
-        ))
-
-        await self._broadcast_room_state()
-
 class ControllerCommands(ClientCommands):
+    async def skip_song(self, _: None):
+        """Pass a remote's Next to the screens and let the leader work it out.
+
+        A skip either ends the song for its score or moves on immediately, and
+        which one depends on how far the song got. Deciding that here would mean
+        the room second guessing a screen that knows better.
+        """
+        displays = self.session_manager.get_room_displays(self.client.room_id)
+        await self.session_manager.broadcast_to_room_displays(
+            self.client.room_id, "skip_request", {}
+        )
+        return {"screens": len(displays)}
+
     async def remove_song(self, payload):
         removed = self.room.remove_song(payload["entry_id"])
         if removed:
@@ -229,17 +205,14 @@ class ControllerCommands(ClientCommands):
     async def queue_song(self, payload):
         entry = KaraokeEntry.parse_obj(payload)
         print(f"[DEBUG] Controller queue_song received: {entry.title} by {entry.artist}")
-        
-        is_previously_empty = self.room.is_empty
-        is_currently_playing = self.room.player_state and self.room.player_state.entry is not None
 
         self.room.add_song(entry, self.client.nickname, self.client.device_id)
         await asyncio.sleep(0.1)  # Small delay to ensure state consistency
+
+        # Reserving does not start anything. A leader display seeing a
+        # reservation with nothing on air is what asks for it, which also covers
+        # a screen that joins a room where songs are already waiting.
         await self._broadcast_room_state()
-        
-        if is_previously_empty and not is_currently_playing:
-            # Directly play if queue is empty
-            await self.play_next(None)
 
     async def queue_next_song(self, payload):
         # Move song to next position in room queue and broadcast update

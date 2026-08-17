@@ -790,7 +790,7 @@ function PlayerStateProviderInternal({ children }: { children: React.ReactNode }
     lastQueueCommand,
     isLeader,
     playNext,
-    scoringCue,
+    skipRequest,
     scoreReading,
     publishScore,
     announceScoring,
@@ -816,18 +816,18 @@ function PlayerStateProviderInternal({ children }: { children: React.ReactNode }
   }, [hasInteracted, connected, scoring, playerState?.entry, clientCount]);
 
   const scoringRef = useRef<ScoringSession | null>(null);
-  const juryTimer = useRef<number | null>(null);
-  const readingRef = useRef<{ entryId: string; performance: number } | null>(null);
   const judged = useRef<string | null>(null);
   const advancing = useRef(false);
+  const starting = useRef(false);
   const currentEntryId = playerState?.entry?.id ?? null;
-  const currentEntryIdRef = useRef(currentEntryId);
 
-  // Read when the timer fires, so a display promoted mid-grace still judges
-  const isLeaderRef = useRef(isLeader);
+  // useRoom hands back fresh closures every render, so timers and one-shot
+  // effects reach them through refs rather than re-running on every render
   const publishScoreRef = useRef(publishScore);
   const announceScoringRef = useRef(announceScoring);
   const playNextRef = useRef(playNext);
+  const updatePlayerStateRef = useRef(updatePlayerState);
+  const playerStateRef = useRef(playerState);
   const announced = useRef<boolean | null>(null);
 
   const reservedCount = upNextQueue?.items.length ?? 0;
@@ -835,21 +835,21 @@ function PlayerStateProviderInternal({ children }: { children: React.ReactNode }
   const reservedCountRef = useRef(reservedCount);
 
   useEffect(() => {
-    isLeaderRef.current = isLeader;
     publishScoreRef.current = publishScore;
     announceScoringRef.current = announceScoring;
     playNextRef.current = playNext;
+    updatePlayerStateRef.current = updatePlayerState;
+    playerStateRef.current = playerState;
     scoringRef.current = scoring;
-    currentEntryIdRef.current = currentEntryId;
     autoplayRef.current = autoplay;
     reservedCountRef.current = reservedCount;
   }, [
-    isLeader,
     publishScore,
     announceScoring,
     playNext,
+    updatePlayerState,
+    playerState,
     scoring,
-    currentEntryId,
     autoplay,
     reservedCount,
   ]);
@@ -863,45 +863,62 @@ function PlayerStateProviderInternal({ children }: { children: React.ReactNode }
     // clear the room the same way an autoplaying one does
     if (!autoplayRef.current && reservedCountRef.current > 0) return null;
 
-    return Promise.resolve(playNextRef.current({ auto: true, fromEntryId: entryId }));
+    return Promise.resolve(playNextRef.current({ fromEntryId: entryId }));
   }, []);
+
+  // Nothing on air and something reserved, so the leader calls for it. This is
+  // also what starts a room whose screen joined after the songs did.
+  useEffect(() => {
+    if (!isLeader || currentEntryId || reservedCount === 0 || starting.current) return;
+
+    starting.current = true;
+    Promise.resolve(playNextRef.current({}))
+      .catch((error: unknown) => {
+        console.error("[Player] Could not start the queue:", error);
+      })
+      .finally(() => {
+        starting.current = false;
+      });
+  }, [isLeader, currentEntryId, reservedCount]);
 
   // The remotes cannot see the scoring screen, so the leader says when it is up
   useEffect(() => {
     const active = Boolean(scoring);
-    if (!isLeaderRef.current || announced.current === active) return;
+    if (!isLeader || announced.current === active) return;
 
     announced.current = active;
     announceScoringRef.current(active);
-  }, [scoring]);
+  }, [scoring, isLeader]);
 
+  // The leader is the jury. One screen decides, so the room shows one number,
+  // and being promoted mid grace re-arms it rather than costing the singer
+  // their score.
   useEffect(() => {
-    if (!scoreReading) return;
-    readingRef.current = { entryId: scoreReading.entryId, performance: scoreReading.performance };
-  }, [scoreReading]);
+    if (!isLeader || !scoring || judged.current === scoring.entryId) return;
 
-  const clearJuryTimer = useCallback(() => {
-    if (juryTimer.current === null) return;
+    const { entryId } = scoring;
+    const heard = scoreReading?.entryId === entryId ? scoreReading : null;
 
-    window.clearTimeout(juryTimer.current);
-    juryTimer.current = null;
-  }, []);
+    const publish = () => {
+      if (judged.current === entryId) return;
 
-  // Only the leader decides, so every screen in the room shows one number
-  const judge = useCallback((entryId: string) => {
-    clearJuryTimer();
-    if (!isLeaderRef.current || judged.current === entryId) return;
+      judged.current = entryId;
+      publishScoreRef.current(
+        entryId,
+        heard ? scoreFromPerformance(heard.performance) : rollScore(),
+        heard ? "mic" : "auto",
+      );
+    };
 
-    judged.current = entryId;
-    const reading = readingRef.current;
-    const heard = reading && reading.entryId === entryId;
+    // The phone's reading is already in hand, so there is nothing to wait for
+    if (heard) {
+      publish();
+      return;
+    }
 
-    publishScoreRef.current(
-      entryId,
-      heard ? scoreFromPerformance(reading.performance) : rollScore(),
-      heard ? "mic" : "auto",
-    );
-  }, [clearJuryTimer]);
+    const timer = window.setTimeout(publish, JURY_GRACE_MS);
+    return () => window.clearTimeout(timer);
+  }, [isLeader, scoring, scoreReading]);
 
   const clearScoreTimer = useCallback(() => {
     if (scoreTimer.current === null) return;
@@ -926,7 +943,7 @@ function PlayerStateProviderInternal({ children }: { children: React.ReactNode }
       // A skip advances whatever autoplay says, since someone asked for it.
       // The end of a song is the rollover autoplay governs.
       const advance = quick
-        ? Promise.resolve(playNextRef.current({ auto: false, fromEntryId: session.entryId }))
+        ? Promise.resolve(playNextRef.current({ fromEntryId: session.entryId }))
         : rollOver(session.entryId);
 
       if (!advance) {
@@ -952,72 +969,83 @@ function PlayerStateProviderInternal({ children }: { children: React.ReactNode }
     const session: ScoringSession = { entryId, quick, startedAt: Date.now() };
     scoringRef.current = session;
     setScoring(session);
-    clearJuryTimer();
-
-    // Judged at once when a reading is already in hand
-    if (readingRef.current?.entryId === entryId) {
-      judge(entryId);
-    } else {
-      juryTimer.current = window.setTimeout(() => judge(entryId), JURY_GRACE_MS);
-    }
 
     // Replaced by the reveal when one arrives
     finishScoring(quick, SCORE_WAIT_MAX_MS);
-  }, [clearJuryTimer, finishScoring, judge]);
+  }, [finishScoring]);
 
   const scoreRevealed = useCallback(() => {
     const quick = scoringRef.current?.quick ?? false;
     finishScoring(quick, quick ? SKIP_REVEAL_HOLD_MS : REVEAL_HOLD_MS);
   }, [finishScoring]);
 
-  const finishSong = useCallback((entryId: string, playedSeconds: number) => {
-    if (entryId !== currentEntryIdRef.current) return;
+  // A song reaching its own end, and a song ended early by a remote, are the
+  // same event from here on
+  const endSong = useCallback((entryId: string, playedSeconds: number, quick: boolean) => {
+    const current = playerStateRef.current;
+    if (current?.entry?.id !== entryId) return;
 
     // Too short to be worth a score, but the end of a song all the same
     if (playedSeconds < MIN_SCORED_SECONDS) {
-      rollOver(entryId);
+      if (quick) {
+        playNextRef.current({ fromEntryId: entryId });
+      } else {
+        rollOver(entryId);
+      }
       return;
     }
 
-    beginScoring(entryId, false);
+    beginScoring(entryId, quick);
   }, [beginScoring, rollOver]);
 
-  // Keyed on the cue, so a re-render cannot restart a hold already running
-  const handledCue = useRef<number | null>(null);
+  const finishSong = useCallback((entryId: string, playedSeconds: number) => {
+    endSong(entryId, playedSeconds, false);
+  }, [endSong]);
 
+  // Keyed on the request, so a re-render cannot skip twice
+  const handledSkip = useRef<number | null>(null);
+
+  // A remote pressed Next. Only a screen knows how far the song got, so the
+  // choice between scoring it and moving straight on is made here.
   useEffect(() => {
-    if (!scoring || !scoreReading || scoreReading.entryId !== scoring.entryId) return;
-    judge(scoring.entryId);
-  }, [scoring, scoreReading, judge]);
+    if (!skipRequest || handledSkip.current === skipRequest.at) return;
 
-  useEffect(() => {
-    if (!scoringCue || handledCue.current === scoringCue.at) return;
+    handledSkip.current = skipRequest.at;
 
-    handledCue.current = scoringCue.at;
+    const current = playerStateRef.current;
+    const entryId = current?.entry?.id;
+    if (!entryId) return;
 
-    // A cue for a song the room has already advanced past would strand the
-    // display on a score screen nothing is going to close
-    if (scoringCue.entryId !== currentEntryId) return;
+    // Already over: the score screen is up, or the queue is held. Either way
+    // the room was asked to move on, so move on.
+    if (current.play_state === "finished") {
+      playNextRef.current({ fromEntryId: entryId });
+      return;
+    }
 
-    beginScoring(scoringCue.entryId, scoringCue.quick);
-  }, [scoringCue, currentEntryId, beginScoring]);
+    // Ends it where it stands. The server broadcasts that back, which is what
+    // stops the video and tells the other screens the song is over.
+    updatePlayerStateRef.current({
+      ...current,
+      play_state: "finished",
+      version: Date.now(),
+      timestamp: Date.now(),
+    });
+
+    endSong(entryId, current.current_time, true);
+  }, [skipRequest, endSong]);
 
   useEffect(() => {
     scoringRef.current = null;
     advancing.current = false;
     setScoring(null);
     clearScoreTimer();
-    clearJuryTimer();
-    readingRef.current = null;
     judged.current = null;
-  }, [currentEntryId, clearScoreTimer, clearJuryTimer]);
+  }, [currentEntryId, clearScoreTimer]);
 
   useEffect(() => {
-    return () => {
-      clearScoreTimer();
-      clearJuryTimer();
-    };
-  }, [clearScoreTimer, clearJuryTimer]);
+    return () => clearScoreTimer();
+  }, [clearScoreTimer]);
 
   const lastPlayStateRef = useRef<string | null>(null);
 

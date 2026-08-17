@@ -15,6 +15,9 @@ services:
       # Reached over the internal network, so requests skip the reverse proxy.
       - COBALT_API_URL=http://cobalt:9000/
       - COBALT_VIDEO_QUALITY=${COBALT_VIDEO_QUALITY:-720}
+      # Must match cobalt's own API_URL, or tunnels are refused rather than
+      # handed to a browser that cannot fetch them.
+      - COBALT_PUBLIC_URL=${COBALT_PUBLIC_URL:-http://localhost/cobalt/}
     depends_on:
       - cobalt
     # Port 8000 is internal only - accessed via Caddy reverse proxy

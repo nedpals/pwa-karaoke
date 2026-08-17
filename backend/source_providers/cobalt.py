@@ -37,11 +37,14 @@ class CobaltClient:
         api_key: str = "",
         timeout: float = 30.0,
         video_quality: str = "1080",
+        public_url: str = "",
     ):
         self.api_url = api_url.rstrip("/")
         self.api_key = api_key
         self.timeout = timeout
         self.video_quality = video_quality
+        # Where a browser can reach this instance. Empty means it cannot.
+        self.public_url = public_url
         self.health = ProviderHealth(available=bool(api_url))
         self._session: Optional[aiohttp.ClientSession] = None
         self._lock = asyncio.Lock()
@@ -108,7 +111,20 @@ class CobaltClient:
             return self._ok(body.get("url"), REDIRECT_CACHE_TTL_SECONDS)
 
         if status == "tunnel":
-            return self._ok(body.get("url"), TUNNEL_CACHE_TTL_SECONDS)
+            # A tunnel is fetched by the browser, not by us, so accepting one we
+            # know the browser cannot reach would cache a URL that resolves
+            # here, reports healthy, and then fails silently at playback.
+            if not self.public_url:
+                return self._fail("cobalt tunnelled but COBALT_PUBLIC_URL is unset, so no browser can fetch it")
+
+            url = body.get("url") or ""
+            if not url.startswith(self.public_url):
+                return self._fail(
+                    f"cobalt tunnelled to {url[:60]!r}, which is not under COBALT_PUBLIC_URL "
+                    f"{self.public_url!r}; its API_URL and COBALT_PUBLIC_URL disagree"
+                )
+
+            return self._ok(url, TUNNEL_CACHE_TTL_SECONDS)
 
         if status == "error":
             error = body.get("error") or {}
@@ -148,4 +164,5 @@ def client_from_config() -> CobaltClient:
         api_key=config.COBALT_API_KEY,
         timeout=config.COBALT_TIMEOUT_SECONDS,
         video_quality=config.COBALT_VIDEO_QUALITY,
+        public_url=config.COBALT_PUBLIC_URL.rstrip("/") + "/" if config.COBALT_PUBLIC_URL else "",
     )

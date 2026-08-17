@@ -30,6 +30,7 @@ class Config:
     COBALT_API_KEY: str = os.getenv("COBALT_API_KEY", "")  # Sent as "Authorization: Api-Key ..." when set
     COBALT_TIMEOUT_SECONDS: float = _float_env("COBALT_TIMEOUT_SECONDS", 30.0)  # Hard limit per cobalt request
     COBALT_VIDEO_QUALITY: str = os.getenv("COBALT_VIDEO_QUALITY", "720")  # max/2160/1440/1080/720/480/360/240/144
+    COBALT_PUBLIC_URL: str = os.getenv("COBALT_PUBLIC_URL", "")  # Where a browser reaches cobalt; empty rejects tunnels
 
 
 # Global configuration instance

@@ -128,6 +128,8 @@ A song is scored when it ends or when someone skips it. The video and its banner
 
 The screen holds for a few seconds from the reveal rather than from the end of the song, so the number is readable for the same beat however long it took to arrive. It then plays the next reserved song, or returns to the idle screen when nothing is waiting.
 
+Controllers show the scoring as though it were the entry on air, titled **Scoring...** by an unknown artist. Play and pause are disabled, since nothing is mounted to control, and Next stays available so the reveal can be skipped.
+
 The leader display decides the score. The server neither computes nor stores one; it passes a reading from a controller to the displays, and passes the leader's verdict back out to the room. Follower displays take the leader's number, so every screen agrees.
 
 The verdict comes from one of two places:

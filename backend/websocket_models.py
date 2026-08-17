@@ -64,6 +64,10 @@ class PublishScorePayload(BaseModel):
     score: int = Field(..., ge=0, le=100)
     source: Literal["mic", "auto"]
 
+class ScoringStatePayload(BaseModel):
+    """Leader display reporting whether it is on the scoring screen"""
+    active: bool
+
 class QueueUpdatePayload(BaseModel):
     """Queue update payload"""
     items: list = Field(default_factory=list)
@@ -110,6 +114,7 @@ COMMAND_PAYLOAD_MAP = {
     "send_reaction": SendReactionPayload,
     "submit_score": SubmitScorePayload,
     "publish_score": PublishScorePayload,
+    "scoring_state": ScoringStatePayload,
     "ack": AckPayload,
     # Commands without payload validation
     "play_song": dict,

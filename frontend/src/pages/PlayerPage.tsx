@@ -753,6 +753,7 @@ function PlayerStateProviderInternal({ children }: { children: React.ReactNode }
     scoringCue,
     scoreReading,
     publishScore,
+    announceScoring,
   } = useRoomContext();
 
   // Use smart sync for non-leader displays
@@ -781,12 +782,24 @@ function PlayerStateProviderInternal({ children }: { children: React.ReactNode }
   // mid-grace still judges
   const isLeaderRef = useRef(isLeader);
   const publishScoreRef = useRef(publishScore);
+  const announceScoringRef = useRef(announceScoring);
+  const announced = useRef<boolean | null>(null);
 
   useEffect(() => {
     isLeaderRef.current = isLeader;
     publishScoreRef.current = publishScore;
+    announceScoringRef.current = announceScoring;
     scoringRef.current = scoring;
-  }, [isLeader, publishScore, scoring]);
+  }, [isLeader, publishScore, announceScoring, scoring]);
+
+  // The remotes cannot see the scoring screen, so the leader says when it is up
+  useEffect(() => {
+    const active = Boolean(scoring);
+    if (!isLeaderRef.current || announced.current === active) return;
+
+    announced.current = active;
+    announceScoringRef.current(active);
+  }, [scoring]);
 
   useEffect(() => {
     if (!scoreReading) return;

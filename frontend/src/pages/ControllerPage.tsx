@@ -303,7 +303,7 @@ function micNotice(status: MicStatus, yourTurn: boolean): string | null {
 function PlayerTab({ notice }: { notice: string | null }) {
   const {
     playerState, playSong, pauseSong, playNext, setVolume,
-    sendReaction, connected, autoplay, setAutoplay,
+    sendReaction, connected, autoplay, setAutoplay, scoringActive,
   } = useRoomContext();
   const [isPlaybackLoading, setIsPlaybackLoading] = useState(false);
   const [isVolumeLoading, setIsVolumeLoading] = useState(false);
@@ -318,6 +318,12 @@ function PlayerTab({ notice }: { notice: string | null }) {
   // Nothing is mounted to play or pause while the display is on the score or
   // holding what is up next
   const isFinished = hasEntry && playerState?.play_state === "finished";
+  const isScoring = isFinished && scoringActive;
+  // The scoring screen stands in as the entry on air, so the panel needs no
+  // case of its own for it
+  const nowPlaying = isScoring
+    ? { title: "Scoring...", artist: "Unknown Artist", uploader: null }
+    : playerState?.entry ?? null;
 
   // Clear optimistic volume once the server state catches up
   useEffect(() => {
@@ -410,21 +416,21 @@ function PlayerTab({ notice }: { notice: string | null }) {
 
       <Panel className="p-3">
         <div className="flex items-center gap-3 mb-3 border-b-2 border-ka-line pb-2">
-          <Text font="display" size="lg" weight="bold" tone={isPlaying ? "accent" : "dim"} className="flex-1">
-            {isPlaying ? "Playing" : isFinished ? "Finished" : hasEntry ? "Paused" : "Stopped"}
+          <Text font="display" size="lg" weight="bold" tone={isPlaying || isScoring ? "accent" : "dim"} className="flex-1">
+            {isPlaying || isScoring ? "Playing" : isFinished ? "Finished" : hasEntry ? "Paused" : "Stopped"}
           </Text>
-          {playerState?.entry?.uploader && (
+          {nowPlaying?.uploader && (
             <Text size="xs" tone="dim" truncate className="max-w-40">
-              {playerState.entry.uploader}
+              {nowPlaying.uploader}
             </Text>
           )}
         </div>
 
         <MarqueeText size="2xl" weight="bold" pauseOnHover>
-          {playerState?.entry ? playerState.entry.title : "No Song"}
+          {nowPlaying ? nowPlaying.title : "No Song"}
         </MarqueeText>
         <MarqueeText size="lg" tone="dim" pauseOnHover>
-          {playerState?.entry ? playerState.entry.artist : "--"}
+          {nowPlaying ? nowPlaying.artist : "--"}
         </MarqueeText>
 
         <div className="flex items-center gap-2 mt-3">

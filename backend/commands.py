@@ -327,6 +327,14 @@ class DisplayCommands(ClientCommands):
     async def queue_update(self, queue_data):
         await self.session_manager.broadcast_to_room_controllers(self.client.room_id, "queue_update", queue_data)
 
+    async def scoring_state(self, payload):
+        if not self.session_manager.is_display_leader(self.client):
+            return
+
+        await self.session_manager.broadcast_to_room_controllers(
+            self.client.room_id, "scoring_state", {"active": payload["active"]}
+        )
+
     async def publish_score(self, payload):
         if not self.session_manager.is_display_leader(self.client):
             return

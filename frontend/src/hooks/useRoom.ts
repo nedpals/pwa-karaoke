@@ -34,6 +34,8 @@ export interface RoomState {
   scoringTurn: boolean;
   /** A controller's loudness reading, for the leader display to judge. */
   scoreReading: { entryId: string; performance: number; at: number } | null;
+  /** Whether the display is on the scoring screen. */
+  scoringActive: boolean;
   lastQueueCommand: {
     command: string;
     data: unknown;
@@ -62,6 +64,7 @@ export interface RoomActions {
   sendReaction: (reaction: ReactionType) => void;
   submitScore: (entryId: string, performance: number) => void;
   publishScore: (entryId: string, score: number, source: ScoreSource) => void;
+  announceScoring: (active: boolean) => void;
   setAutoplay: (enabled: boolean) => Promise<unknown>;
 
   // Display commands (implemented here)
@@ -87,6 +90,7 @@ export function useRoom(clientType: ClientType, nickname?: string | null): UseRo
   const [scoringCue, setScoringCue] = useState<RoomState["scoringCue"]>(null);
   const [scoringTurn, setScoringTurn] = useState(false);
   const [scoreReading, setScoreReading] = useState<RoomState["scoreReading"]>(null);
+  const [scoringActive, setScoringActive] = useState(false);
   const [lastQueueCommand, setLastQueueCommand] = useState<{
     command: string;
     data: unknown;
@@ -269,6 +273,11 @@ export function useRoom(clientType: ClientType, nickname?: string | null): UseRo
           setScoreReading({ entryId: reading.entry_id, performance: reading.performance, at: Date.now() });
         }
         break;
+      case "scoring_state":
+        if (clientType === "controller") {
+          setScoringActive(Boolean((data as { active: boolean }).active));
+        }
+        break;
       case "scoring_turn":
         if (clientType === "controller") {
           setScoringTurn(Boolean((data as { active: boolean }).active));
@@ -304,6 +313,7 @@ export function useRoom(clientType: ClientType, nickname?: string | null): UseRo
       setScoringCue(null);
       setScoringTurn(false);
       setScoreReading(null);
+      setScoringActive(false);
       setLastQueueCommand(null);
       apiClient.clearRoomCredentials();
     } else if (ws.connected && clientType === "display") {
@@ -336,6 +346,7 @@ export function useRoom(clientType: ClientType, nickname?: string | null): UseRo
     scoringCue,
     scoringTurn,
     scoreReading,
+    scoringActive,
     lastQueueCommand,
 
     // Actions
@@ -367,6 +378,7 @@ export function useRoom(clientType: ClientType, nickname?: string | null): UseRo
       ws.sendCommand("submit_score", { entry_id: entryId, performance }),
     publishScore: (entryId: string, score: number, source: ScoreSource) =>
       ws.sendCommand("publish_score", { entry_id: entryId, score, source }),
+    announceScoring: (active: boolean) => ws.sendCommand("scoring_state", { active }),
     setAutoplay: async (enabled: boolean) => {
       const previousSettings = settings;
       setSettings((prev) =>

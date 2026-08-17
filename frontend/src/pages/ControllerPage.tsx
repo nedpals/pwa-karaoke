@@ -353,7 +353,7 @@ function PlayerTab({ notice }: { notice: string | null }) {
   // The room is sitting on a finished song with the next one on the card, so
   // Play starts that rather than resuming anything
   const isHolding = isFinished && !isScoring && reservedCount > 0;
-  // Nothing on air at all, and autoplay is not going to start it either
+  // Nothing on air but something reserved, so Play has a song to start
   const isCold = !hasEntry && reservedCount > 0;
   // Stands in as the entry on air, so the panel needs no case of its own
   const nowPlaying = isScoring

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { Text } from "../atoms/Text";
 import { cn } from "../../lib/utils";
 import { landingMs, ratingFor } from "../../lib/scoring";
@@ -84,7 +84,6 @@ export interface ScoreScreenProps {
   score: number | null;
   quick?: boolean;
   sound?: boolean;
-  onRevealed?: () => void;
   className?: string;
 }
 
@@ -92,22 +91,11 @@ export function ScoreScreen({
   score,
   quick = false,
   sound = false,
-  onRevealed,
   className,
 }: ScoreScreenProps) {
   const { value, phase } = useScoreReveal(score, landingMs(quick));
   const rating = score === null ? null : ratingFor(score);
   const revealed = phase === "revealed" && rating !== null;
-
-  const revealedRef = useRef(onRevealed);
-
-  useEffect(() => {
-    revealedRef.current = onRevealed;
-  }, [onRevealed]);
-
-  useEffect(() => {
-    if (revealed) revealedRef.current?.();
-  }, [revealed]);
 
   useEffect(() => {
     if (!sound) return;

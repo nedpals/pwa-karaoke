@@ -139,17 +139,20 @@ function VideoPlayerComponent({
       timestamp: Date.now(),
       ...partialState,
       entry,
+      // The room's own stamp, echoed back. Without it the room cannot tell this
+      // report from one about a turn it has already left, and drops it.
+      item_id: entry ? current?.item_id ?? null : null,
     });
   }, [updatePlayerState]);
 
   // One place decides whether the element runs, so a fresh mount, a buffer
-  // recovery and a controller command cannot disagree about it
+  // recovery and a change from the room cannot disagree about it
   const applyPlaybackState = useCallback((video: HTMLVideoElement) => {
     const current = playerStateRef.current;
     if (!current) return;
 
-    // Held on its last frame, and left there. Starting it again is how a
-    // skipped song replays itself instead of handing over.
+    // The room has stopped this element and means it. Starting it again is how
+    // a finished song replays itself instead of handing over to the next one.
     if (
       current.play_state === "finished" ||
       current.play_state === "error" ||
@@ -193,9 +196,8 @@ function VideoPlayerComponent({
     video.load();
   }, [videoUrl]);
 
-  // Handle play/pause state changes from controller commands. videoUrl is in
-  // here because the element only mounts once a URL resolves, which can be long
-  // after the song changed.
+  // Follow the room. videoUrl is in here because the element only mounts once a
+  // URL resolves, which can be long after the song changed.
   useEffect(() => {
     if (!videoRef.current) return;
     applyPlaybackState(videoRef.current);
@@ -483,8 +485,8 @@ function VideoPlayerComponent({
           const current = playerStateRef.current;
           const video = ev.currentTarget;
 
-          // Only clears the buffering report. A paused or finished song is
-          // left where the room put it.
+          // Only clears the buffering report. A song the room has stopped is
+          // left where it put it.
           if (current?.entry && current.play_state === "buffering") {
             updateVersionedPlayerState({
               entry: current.entry,

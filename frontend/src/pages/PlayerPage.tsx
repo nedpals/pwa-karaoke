@@ -36,6 +36,10 @@ const JURY_GRACE_MS = 1000;
 
 const MIN_SCORED_SECONDS = 5;
 
+// Longer than any score screen can run, so the watchdog only ever sees a
+// rollover that was genuinely dropped
+const ROLLOVER_WATCHDOG_MS = 12000;
+
 // Provider URLs expire mid-song. Two re-resolves, then the room is told the
 // disc is unreadable rather than left buffering at a dead link forever.
 const RECOVERY_ATTEMPTS = 2;
@@ -911,7 +915,9 @@ function PlayerStateProviderInternal({ children }: { children: React.ReactNode }
   const judged = useRef<string | null>(null);
   const advancing = useRef(false);
   const starting = useRef(false);
+  const recovering = useRef(false);
   const currentEntryId = playerState?.entry?.id ?? null;
+  const playState = playerState?.play_state ?? null;
 
   // useRoom hands back fresh closures every render, so timers and one-shot
   // effects reach them through refs rather than re-running on every render
@@ -972,6 +978,41 @@ function PlayerStateProviderInternal({ children }: { children: React.ReactNode }
         starting.current = false;
       });
   }, [isLeader, currentEntryId, reservedCount]);
+
+  // The ask that ends a finished song is a timer living in one screen, so
+  // reloading it during the score screen drops the rollover and parks the room
+  // on a dead song. Nothing was held in a cue that would need replaying: a
+  // finished song still sitting there is the whole story, so the leader reads
+  // it back off the state and finishes the job.
+  useEffect(() => {
+    const held =
+      isLeader &&
+      currentEntryId &&
+      playState === "finished" &&
+      autoplay &&
+      !scoring &&
+      !recovering.current;
+
+    if (!held) return;
+
+    const timer = window.setTimeout(() => {
+      // Re-read rather than trust the closure: a dozen seconds is long enough
+      // for any of this to have changed
+      if (scoringRef.current || playerStateRef.current?.play_state !== "finished") return;
+
+      console.warn("[Player] Finishing a rollover that was dropped");
+      recovering.current = true;
+      Promise.resolve(playNextRef.current({ fromEntryId: currentEntryId }))
+        .catch((error: unknown) => {
+          console.error("[Player] Could not finish the dropped rollover:", error);
+        })
+        .finally(() => {
+          recovering.current = false;
+        });
+    }, ROLLOVER_WATCHDOG_MS);
+
+    return () => window.clearTimeout(timer);
+  }, [isLeader, currentEntryId, playState, autoplay, scoring]);
 
   // The remotes cannot see the scoring screen, so the leader says when it is up
   useEffect(() => {

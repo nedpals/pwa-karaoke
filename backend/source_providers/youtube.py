@@ -24,6 +24,10 @@ MAX_VIDEO_HEIGHT = 1080
 # avc1 is hardware-decoded essentially everywhere; av01 rarely is.
 VIDEO_CODEC_PREFERENCE = ("avc1", "vp09", "vp9", "av01")
 
+# Protocols the player can play from a plain src. Everything else, HLS and DASH
+# included, needs MSE and a library on the frontend.
+PROGRESSIVE_PROTOCOLS = ("https", "http")
+
 # Words that mark a query as already asking for a karaoke cut.
 KARAOKE_QUERY_KEYWORDS = (
     "karaoke", "instrumental", "backing track", "sing along", "videoke", "minus one",
@@ -268,6 +272,19 @@ async def ytdlp_version(timeout: float = 15.0) -> str:
     return (await run_ytdlp(["--version"], timeout=timeout)).strip()
 
 
+def is_progressive(fmt: dict) -> bool:
+    """
+    Whether a format can be handed to a media element as a plain src.
+
+    HLS and DASH need Media Source Extensions and a library to drive them, so
+    selecting one would resolve cleanly here and then fail silently in the
+    browser. yt-dlp virtually always reports a protocol; when it does not, the
+    format is kept rather than discarded on a guess.
+    """
+    protocol = fmt.get("protocol")
+    return protocol is None or protocol in PROGRESSIVE_PROTOCOLS
+
+
 def _format_rank(fmt: dict) -> tuple:
     return (fmt.get("height") or 0, fmt.get("tbr") or 0, fmt.get("abr") or 0)
 
@@ -307,17 +324,24 @@ def select_stream_urls(info: dict) -> tuple[Optional[str], Optional[str]]:
         return None, None
 
     formats = [f for f in (info.get("formats") or []) if f.get("url")]
+    playable = [f for f in formats if is_progressive(f)]
+    if formats and not playable:
+        protocols = sorted({f.get("protocol") or "unknown" for f in formats})
+        print(
+            f"[YTDLP] No progressive format among {len(formats)}"
+            f" ({', '.join(protocols)}); this source needs MSE support"
+        )
 
     muxed = [
-        f for f in formats
+        f for f in playable
         if f.get("vcodec", "none") != "none" and f.get("acodec", "none") != "none"
     ]
     audio_only = [
-        f for f in formats
+        f for f in playable
         if f.get("vcodec", "none") == "none" and f.get("acodec", "none") != "none"
     ]
     video_only = [
-        f for f in formats
+        f for f in playable
         if f.get("vcodec", "none") != "none" and f.get("acodec", "none") == "none"
     ]
 
@@ -340,10 +364,13 @@ def select_stream_urls(info: dict) -> tuple[Optional[str], Optional[str]]:
         return None, audio_url
 
     for download in info.get("requested_downloads") or []:
-        if isinstance(download, dict) and download.get("url"):
+        if isinstance(download, dict) and download.get("url") and is_progressive(download):
             return download["url"], None
 
-    return info.get("url"), None
+    if info.get("url") and is_progressive(info):
+        return info["url"], None
+
+    return None, None
 
 
 def query_tokens(query: str) -> list[str]:

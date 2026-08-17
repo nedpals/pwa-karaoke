@@ -3,5 +3,15 @@
 }
 
 {$DOMAIN:localhost} {
-    reverse_proxy karaoke-app:8000
+    # Only cobalt's tunnel endpoint is published, and its URLs are signed. The
+    # API that creates them stays internal so the instance is not an open
+    # downloader for anyone who finds it.
+    handle /cobalt/tunnel* {
+        uri strip_prefix /cobalt
+        reverse_proxy cobalt:9000
+    }
+
+    handle {
+        reverse_proxy karaoke-app:8000
+    }
 }

@@ -3,7 +3,7 @@ import { useSearchParams, Navigate } from "react-router";
 import type { KaraokeEntry, KaraokeQueueItem } from "../types";
 import { useRoom } from "../hooks/useRoom";
 import { RoomProvider, useRoomContext } from "../providers/RoomProvider";
-import { useSearchMutation, useServerStatus } from "../hooks/useApi";
+import { useSearch, useServerStatus } from "../hooks/useApi";
 import { MaterialSymbolsFastForwardRounded } from "../components/icons/MaterialSymbolsFastForwardRounded";
 import { MaterialSymbolsKeyboardArrowUpRounded } from "../components/icons/MaterialSymbolsArrowUpRounded";
 import { MaterialSymbolsPauseRounded } from "../components/icons/MaterialSymbolsPauseRounded";
@@ -130,7 +130,6 @@ function useSongDialog() {
 function SearchResults({
   searchResults,
   isSearching,
-  hasSearched,
   searchError,
   searchQuery,
   entryStatus,
@@ -138,7 +137,6 @@ function SearchResults({
 }: {
   searchResults: { entries: KaraokeEntry[] } | undefined;
   isSearching: boolean;
-  hasSearched: boolean;
   searchError: string | null;
   searchQuery: string;
   entryStatus: (entry: KaraokeEntry) => EntryStatus | null;
@@ -187,7 +185,7 @@ function SearchResults({
     );
   }
 
-  if (hasSearched && searchQuery.trim()) {
+  if (searchQuery.trim()) {
     return (
       <div className="py-12 text-center space-y-2">
         <Text font="display" size="2xl" weight="bold" tone="dim">
@@ -212,35 +210,18 @@ function SearchResults({
 function SongSelectTab() {
   const entryStatus = useEntryStatus();
   const dialog = useSongDialog();
-  const [hasSearched, setHasSearched] = useState(false);
-  const [searchError, setSearchError] = useState<string | null>(null);
   const [textInput, setTextInput] = useState("");
+  const [query, setQuery] = useState("");
 
-  const {
-    trigger: triggerSearch,
-    data: searchResults,
-    isMutating: isSearching,
-  } = useSearchMutation();
-
-  const handleSearch = async (value: string) => {
-    if (!value.trim() || isSearching) return;
-    setTextInput(value);
-    setSearchError(null);
-    setHasSearched(true);
-
-    try {
-      await triggerSearch(value);
-    } catch (error) {
-      console.error("Search error:", error);
-      setSearchError("Search failed. Check the connection.");
-    }
-  };
+  const { data: searchResults, error, isLoading: isSearching } = useSearch(query);
 
   return (
     <div className="px-2 pb-8">
       <div className="sticky top-0 z-10 bg-ka-void/95 py-2 -mx-2 px-2 border-b-2 border-ka-line">
         <SearchInput
-          onSearch={handleSearch}
+          value={textInput}
+          onChange={(e) => setTextInput(e.target.value)}
+          onSearch={(value) => setQuery(value.trim())}
           isSearching={isSearching}
           placeholder="Song title or artist"
         />
@@ -252,9 +233,8 @@ function SongSelectTab() {
         <SearchResults
           searchResults={searchResults}
           isSearching={isSearching}
-          hasSearched={hasSearched}
-          searchError={searchError}
-          searchQuery={textInput}
+          searchError={error ? "Search failed. Check the connection." : null}
+          searchQuery={query}
           entryStatus={entryStatus}
           onSelect={dialog.open}
         />

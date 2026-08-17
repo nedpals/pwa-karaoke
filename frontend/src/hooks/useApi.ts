@@ -10,6 +10,9 @@ export function useSearch(query: string) {
     {
       revalidateOnFocus: false,
       revalidateOnReconnect: false,
+      // A song's karaoke tracks are the same a minute later, so a query that
+      // has already been run is served from the cache alone.
+      revalidateIfStale: false,
       shouldRetryOnError: true,
       errorRetryCount: 1, // Fewer retries for search to keep it responsive
       errorRetryInterval: 1500,
@@ -30,16 +33,6 @@ export function useVideoUrl(entry: KaraokeEntry | null) {
       onError: (error: Error) => {
         console.error(`[useVideoUrl] Error fetching video URL for ${entry?.title}:`, error);
       }
-    }
-  );
-}
-
-export function useSearchMutation() {
-  return useSWRMutation(
-    'search',
-    async (_: string, { arg }: { arg: string }) => {
-      if (!arg.trim()) throw new Error('Query cannot be empty');
-      return apiClient.search(arg);
     }
   );
 }

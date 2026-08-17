@@ -16,6 +16,12 @@ from config import config
 PLAYER_CLIENT = "android_sdkless"
 FORMAT_SELECTOR = "best[ext=mp4]/best[ext=webm]/best"
 
+# Words that mark a query as already asking for a karaoke cut. "videoke" and
+# "minus one" are here because they are what a lot of people actually type.
+KARAOKE_QUERY_KEYWORDS = (
+    "karaoke", "instrumental", "backing track", "sing along", "videoke", "minus one",
+)
+
 # Applied to every CLI invocation. --ignore-config keeps a stray user or system
 # config file from changing behaviour under us.
 YTDLP_BASE_ARGS = [
@@ -234,7 +240,9 @@ class YTKaraokeSourceProvider(KaraokeSourceProvider):
         self.health = YtdlpHealth()
         # Examples: ["KaraFun", "Sing King", "Lucky Voice", "Karaoke Mugen"]
         self.allowed_channels = allowed_channels or []
-        self.karaoke_keywords = karaoke_keywords or ["karaoke", "instrumental", "backing track", "sing along"]
+        # The first is what gets appended to a query that carries none of them;
+        # the rest are only ever recognised.
+        self.karaoke_keywords = karaoke_keywords or list(KARAOKE_QUERY_KEYWORDS)
 
     @property
     def provider_id(self) -> str:
@@ -337,10 +345,24 @@ class YTKaraokeSourceProvider(KaraokeSourceProvider):
 
 
     def _enhance_query_with_keywords(self, query: str) -> str:
+        """
+        Steer a search towards karaoke cuts without drowning out the song.
+
+        YouTube has no boolean search operators, so a list of alternatives is
+        read as more words to match rather than a choice between them. Spending
+        four of them on keywords leaves the song title outweighed, and the
+        results drift onto whatever else the keywords match: searching "my way"
+        that way returned ABBA and Toni Braxton in the top ten. One keyword,
+        added only when the query carries none, narrows the search instead.
+        """
         if not self.karaoke_keywords:
             return query
-        keywords_str = " OR ".join(self.karaoke_keywords)
-        return f"{query} ({keywords_str})"
+
+        lowered = query.lower()
+        if any(keyword in lowered for keyword in self.karaoke_keywords):
+            return query
+
+        return f"{query} {self.karaoke_keywords[0]}"
 
     def _is_allowed_channel(self, channel_name: str) -> bool:
         if not self.allowed_channels:

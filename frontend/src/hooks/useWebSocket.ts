@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback, useMemo } from "react";
 import useWebSocketHook from "react-use-websocket";
+import { getDeviceId } from "../lib/deviceId";
 
 type ClientType = "controller" | "display";
 type WebSocketMessage = [string, unknown];
@@ -118,7 +119,12 @@ export function useWebSocket(clientType: ClientType, initalAutoConnect = true): 
       pendingRequests.set(requestId, joinRoomRequest);
       sendJsonMessage([
         "join_room",
-        { room_id: roomId, nickname: nickname || null, request_id: requestId },
+        {
+          room_id: roomId,
+          nickname: nickname || null,
+          device_id: getDeviceId(),
+          request_id: requestId,
+        },
       ]);
     });
   }, [autoConnect, generateRequestId, clientType, pendingRequests, sendJsonMessage]);

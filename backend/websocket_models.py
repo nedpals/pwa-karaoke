@@ -75,6 +75,7 @@ class JoinRoomPayload(BaseModel):
     """Join room command payload"""
     room_id: str
     nickname: Optional[str] = None
+    device_id: Optional[str] = Field(None, max_length=64)
 
     @validator('nickname')
     def normalize_nickname(cls, v):

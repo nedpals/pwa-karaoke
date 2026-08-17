@@ -1,6 +1,3 @@
-// The reveal sting, built with oscillators rather than an audio file so the
-// display carries no extra asset and works offline.
-
 const ROLL_GAIN = 0.05;
 const ROLL_TREMOLO_HZ = 26;
 const ROLL_BAND_HZ = 1400;
@@ -8,13 +5,12 @@ const ROLL_BAND_HZ = 1400;
 const LAND_GAIN = 0.16;
 const NOTE_SECONDS = 0.55;
 
-// C5 E5 G5 C6, then the triad alone, then a falling minor third
+// C5 E5 G5 C6, the triad alone, then a falling minor third
 const GREAT = [523.25, 659.25, 783.99, 1046.5];
 const GOOD = [523.25, 659.25, 783.99];
 const POOR = [392.0, 311.13];
 
-// Notes struck together stack, so that tier is trimmed to sit at the same
-// loudness as the ones that arrive one at a time.
+// Struck together the notes stack, so that tier is trimmed to match the others
 function notesFor(score: number) {
   if (score >= 90) return { pitches: GREAT, spacing: 0.075, type: "triangle" as const, gain: 1 };
   if (score >= 75) return { pitches: GOOD, spacing: 0.0, type: "triangle" as const, gain: 0.5 };
@@ -33,8 +29,7 @@ function noiseBuffer(context: BaseAudioContext, seconds: number): AudioBuffer {
   return buffer;
 }
 
-/** Rattling build-up under the spinning digits. Returns its nodes so a live
- *  context can stop them; an offline render just lets them run out. */
+/** Returns its nodes so a live context can stop them early. */
 export function scheduleRoll(
   context: BaseAudioContext,
   destination: AudioNode,
@@ -74,7 +69,6 @@ export function scheduleRoll(
   return { source, tremolo, output };
 }
 
-/** The chord that lands with the number. */
 export function scheduleLand(
   context: BaseAudioContext,
   destination: AudioNode,
@@ -130,7 +124,7 @@ export function stopRoll() {
     rolling.source.stop();
     rolling.tremolo.stop();
   } catch {
-    // Already stopped on its own schedule
+    // Already stopped on schedule
   }
 
   rolling = null;

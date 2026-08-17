@@ -26,7 +26,7 @@ interface Reading {
 }
 
 export interface UseLoudnessScoreOptions {
-  /** False on songs someone else reserved, so their singing is not measured here. */
+  /** False on songs another remote reserved. */
   active: boolean;
   entryId: string | null;
   playState: DisplayPlayerState["play_state"] | null;
@@ -35,14 +35,13 @@ export interface UseLoudnessScoreOptions {
 
 export interface UseLoudnessScoreReturn {
   status: MicStatus;
-  /** Call straight from a click handler. Browsers will not open a microphone otherwise. */
+  /** Call from a click handler; browsers open no microphone without one. */
   start: () => void;
   decline: () => void;
 }
 
-// A low percentile rather than an average, so somebody singing over the intro
-// cannot drag the room's noise floor up to their own voice and lock themselves
-// out of the rest of the song.
+// A low percentile, not an average, so singing over the intro cannot drag the
+// floor up to your own voice and lock you out of the rest of the song.
 function percentile(values: number[], q: number): number {
   if (values.length === 0) return 0;
 
@@ -124,8 +123,7 @@ export function useLoudnessScore({
     }
 
     if (state === "playing") {
-      // The clock only starts once audio is actually coming out, so a slow
-      // buffer cannot eat the whole calibration window.
+      // Started on playback, so a slow buffer cannot eat the calibration window
       if (reading.startedAt === 0) {
         reading.startedAt = Date.now();
       }

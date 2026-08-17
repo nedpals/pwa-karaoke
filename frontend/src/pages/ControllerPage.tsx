@@ -283,8 +283,7 @@ function VolumeMeter({ value }: { value: number }) {
   );
 }
 
-// Scoring runs on its own, so this is a footnote rather than a control. The
-// states nobody can act on say nothing at all.
+// A footnote, not a control. States nobody can act on say nothing.
 const MIC_NOTICE: Partial<Record<MicStatus, string>> = {
   off: "Mic scoring is off. The machine will score you anyway.",
   denied: "Microphone blocked. The machine will score you anyway.",
@@ -678,14 +677,10 @@ function MicCheckScreen({ onAllow, onSkip }: { onAllow: () => void; onSkip: () =
 function ControllerPageContent() {
   const [tab, setTab] = useState<(typeof CONTROLLER_TABS)[number]["id"]>("song-select");
   const [micAsked, setMicAsked] = useState(false);
-  const { playerState, submitScore, nickname } = useRoomContext();
-
-  // Only the remote that reserved the song measures it, so several phones in
-  // one room do not all hear the same singer.
-  const yourTurn = Boolean(nickname && playerState?.singer && playerState.singer === nickname);
+  const { playerState, submitScore, scoringTurn } = useRoomContext();
 
   const mic = useLoudnessScore({
-    active: yourTurn,
+    active: scoringTurn,
     entryId: playerState?.entry?.id ?? null,
     playState: playerState?.play_state ?? null,
     onSubmit: submitScore,
@@ -695,7 +690,7 @@ function ControllerPageContent() {
     id: t.id,
     label: t.label,
     content: t.id === "song-select" ? <SongSelectTab /> :
-             t.id === "player" ? <PlayerTab notice={micNotice(mic.status, yourTurn)} /> :
+             t.id === "player" ? <PlayerTab notice={micNotice(mic.status, scoringTurn)} /> :
              <QueueTab />
   }));
 

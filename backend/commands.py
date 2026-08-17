@@ -22,11 +22,10 @@ ROOM_REACTION_RATE_WINDOW = 3.0
 SCORE_RATE_LIMIT = 4
 SCORE_RATE_WINDOW = 10.0
 
-# How long a controller with a microphone has to report before the machine
-# makes something up. The display holds the finished song for longer than this.
+# The display holds a finished song for longer than this, so a report always
+# has time to arrive before the fallback roll.
 SCORE_GRACE_SECONDS = 1.0
 
-# Nothing under this was sung at all, so it passes without a score.
 MIN_SCORED_SECONDS = 5.0
 
 class ClientCommands:
@@ -51,6 +50,13 @@ class ClientCommands:
         if self.room.score:
             await self.client.send_command("score", self.room.score.model_dump())
 
+        if self.client.client_type == "controller":
+            target = self.room.current_singer_device_id
+            await self.client.send_command(
+                "scoring_turn",
+                {"active": bool(target) and self.client.device_id == target},
+            )
+
         if self.client.client_type == "display":
             is_leader = self.session_manager.is_display_leader(self.client)
             await self.client.send_command("leader_status", {"is_leader": is_leader})
@@ -71,6 +77,7 @@ class ClientCommands:
 
         if entry_id != previous_entry_id:
             self.room.clear_score()
+            await self._send_scoring_turns(self.client.room_id)
 
         # Broadcast the room's copy so clients see the server-stamped version
         await self.session_manager.broadcast_to_room(self.client.room_id, "player_state", self.room.player_state.model_dump())
@@ -79,6 +86,17 @@ class ClientCommands:
             asyncio.create_task(
                 self._settle_score(self.room, self.client.room_id, entry_id, state.current_time)
             )
+
+    async def _send_scoring_turns(self, room_id: str):
+        target = self.room.current_singer_device_id
+
+        for client in self.session_manager.get_room_controllers(room_id):
+            mine = bool(target) and client.device_id == target
+            try:
+                await client.send_command("scoring_turn", {"active": mine})
+            except Exception:
+                # Dropped remotes are cleaned up elsewhere
+                pass
 
     async def _broadcast_score(self, room_id: str, score: SongScore):
         await self.session_manager.broadcast_to_room(room_id, "score", score.model_dump())
@@ -158,7 +176,8 @@ class ClientCommands:
     async def join_room(self, payload):
         room_id = payload.get("room_id", "default")
         nickname = payload.get("nickname")
-        self.room = await self.session_manager.join_room(self.client, room_id, nickname)
+        device_id = payload.get("device_id")
+        self.room = await self.session_manager.join_room(self.client, room_id, nickname, device_id)
         await self._receive_current_state()
         return {"room_id": room_id, "nickname": nickname, "success": True}
     
@@ -174,7 +193,6 @@ class ClientCommands:
             await self._hold_at_end_of_song()
             return {"advanced": False, "autoplay": False}
 
-        # A manual skip stops on the outgoing song long enough to score it
         if not is_auto and await self._score_skipped_song():
             return {"advanced": False, "scoring": True}
 
@@ -199,17 +217,15 @@ class ClientCommands:
         state = self.room.player_state
         entry = state.entry if state else None
 
-        # Already finished means this is the display coming back for the
-        # advance it was held off from
+        # Already finished means the display is back for the advance it was held from
         if not entry or state.play_state == "finished":
             return False
 
         if state.current_time < MIN_SCORED_SECONDS or self.room.has_score_for(entry.id):
             return False
 
-        # Finishing on the skipped song opens the usual grace window, so a
-        # remote that measured most of it is still heard. Only when nothing
-        # reports does this fall through to a rolled score.
+        # Finishing rather than scoring here leaves the grace window open, so a
+        # remote that measured most of the song is still heard
         await self._hold_at_end_of_song()
         await self.session_manager.broadcast_to_room_displays(
             self.client.room_id, "scoring", {"entry_id": entry.id, "quick": True}
@@ -244,7 +260,7 @@ class ControllerCommands(ClientCommands):
         is_previously_empty = self.room.is_empty
         is_currently_playing = self.room.player_state and self.room.player_state.entry is not None
 
-        self.room.add_song(entry, self.client.nickname)
+        self.room.add_song(entry, self.client.nickname, self.client.device_id)
         await asyncio.sleep(0.1)  # Small delay to ensure state consistency
         await self._broadcast_room_state()
         
@@ -302,17 +318,16 @@ class ControllerCommands(ClientCommands):
         if not self.client.allow_action("submit_score", SCORE_RATE_LIMIT, SCORE_RATE_WINDOW):
             return
 
-        # Only the remote that reserved the song is listened to, so a room
-        # full of microphones cannot score over each other
-        if not self.room.current_singer or self.client.nickname != self.room.current_singer:
+        # Matched on the device that reserved the song, not the nickname, which
+        # is neither unique nor its own to claim
+        target = self.room.current_singer_device_id
+        if not target or self.client.device_id != target:
             return
 
         entry_id = payload["entry_id"]
         state = self.room.player_state
         current = state.entry if state else None
 
-        # Only the song on screen can be scored, and only once. A second
-        # controller arriving late loses to the one already counted.
         if not current or current.id != entry_id:
             return
 

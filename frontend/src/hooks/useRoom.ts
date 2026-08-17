@@ -29,8 +29,9 @@ export interface RoomState {
   isLeader: boolean;
   lastReaction: ReactionEvent | null;
   score: SongScore | null;
-  /** Server asking a display to score a song it did not watch end. */
+  /** A song to score that no display watched end. */
   scoringCue: { entryId: string; quick: boolean; at: number } | null;
+  scoringTurn: boolean;
   lastQueueCommand: {
     command: string;
     data: unknown;
@@ -81,6 +82,7 @@ export function useRoom(clientType: ClientType, nickname?: string | null): UseRo
   const [lastReaction, setLastReaction] = useState<ReactionEvent | null>(null);
   const [score, setScore] = useState<SongScore | null>(null);
   const [scoringCue, setScoringCue] = useState<RoomState["scoringCue"]>(null);
+  const [scoringTurn, setScoringTurn] = useState(false);
   const [lastQueueCommand, setLastQueueCommand] = useState<{
     command: string;
     data: unknown;
@@ -257,6 +259,11 @@ export function useRoom(clientType: ClientType, nickname?: string | null): UseRo
       case "score":
         setScore(data as SongScore);
         break;
+      case "scoring_turn":
+        if (clientType === "controller") {
+          setScoringTurn(Boolean((data as { active: boolean }).active));
+        }
+        break;
       case "scoring":
         if (clientType === "display") {
           const cue = data as { entry_id: string; quick: boolean };
@@ -285,6 +292,7 @@ export function useRoom(clientType: ClientType, nickname?: string | null): UseRo
       setLastReaction(null);
       setScore(null);
       setScoringCue(null);
+      setScoringTurn(false);
       setLastQueueCommand(null);
       apiClient.clearRoomCredentials();
     } else if (ws.connected && clientType === "display") {
@@ -315,6 +323,7 @@ export function useRoom(clientType: ClientType, nickname?: string | null): UseRo
     lastReaction,
     score,
     scoringCue,
+    scoringTurn,
     lastQueueCommand,
 
     // Actions

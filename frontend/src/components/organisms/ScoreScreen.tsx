@@ -17,7 +17,7 @@ const ROLL_TICK_MAX_MS = 320;
 const LANDING_MS = 1500;
 const QUICK_LANDING_MS = 600;
 
-// Long enough to cover a score arriving late; it is cut short on the reveal
+// Cut short on the reveal; long enough to cover a score arriving late
 const ROLL_SECONDS = 6;
 const MAX_SPREAD = 45;
 
@@ -29,10 +29,6 @@ function randomBetween(low: number, high: number) {
   return low + Math.floor(Math.random() * (high - low + 1));
 }
 
-/**
- * Spins through digits while the room waits, then slows down and closes in on
- * the real score rather than jumping to it.
- */
 function useScoreReveal(target: number | null, landingMs: number) {
   const [value, setValue] = useState(0);
   const [settled, setSettled] = useState(false);
@@ -86,11 +82,11 @@ function useScoreReveal(target: number | null, landingMs: number) {
 }
 
 export interface ScoreScreenProps {
-  /** Null while the room is still waiting for a score to land. */
+  /** Null until the score lands. */
   score: number | null;
-  /** Lands sooner, for a score nobody stayed for. */
+  /** Lands sooner, for a skipped song. */
   quick?: boolean;
-  /** Off by default so nothing outside the display makes noise. */
+  /** Off by default so only the display makes noise. */
   sound?: boolean;
   className?: string;
 }
@@ -130,8 +126,7 @@ export function ScoreScreen({ score, quick = false, sound = false, className }: 
         {value.toString().padStart(2, "0")}
       </Text>
 
-      {/* A slot the height of one 6xl line, held whatever the rating says, so
-          the digits above it never move. */}
+      {/* Held at one line whatever the rating says, so the digits never move */}
       <div className={cn("flex items-center justify-center", RATING_SLOT)}>
         <Text
           font="display"

@@ -15,6 +15,7 @@ class ConnectionClient:
     client_type: Literal["controller", "display"]
     room_id: Optional[str]
     nickname: Optional[str]
+    device_id: Optional[str]
     last_pong: float
     heartbeat_task: asyncio.Task | None
 
@@ -24,6 +25,7 @@ class ConnectionClient:
         self.client_type = client_type
         self.room_id = room_id
         self.nickname = None
+        self.device_id = None
         self.last_pong = time.time()
         self.heartbeat_task = None
         self.limiter = SlidingWindowLimiter()

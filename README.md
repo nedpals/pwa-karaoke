@@ -133,7 +133,7 @@ A controller opens with a **Mic Check** screen, matching the Sound Check a displ
 
 There is no further control for it, only a footnote in the Player tab reporting whether it is on. Skipping the prompt, denying the browser, and plain `http` on a LAN address, where microphones are unavailable, all leave scoring running without one.
 
-Mic scoring only measures the remote that reserved the song, matched by nickname, so several phones in one room do not all hear the same singer. The server refuses a reading from any other remote, and a song reserved without a nickname falls back to a generated score.
+Mic scoring only measures the remote that reserved the song, so several phones in one room do not all hear the same singer. The server tells each remote whether the song on screen is theirs, matching on a device id kept in the browser rather than the nickname, which is neither unique nor its own to claim. A reading from any other remote is refused, and a song reserved by a remote the server cannot identify falls back to a generated score.
 
 A skipped song is held on screen to be scored the same way one that ended is, so a remote that measured most of it is still heard. Its reveal is shorter and silent. A song that played for less than five seconds is not scored at all.
 

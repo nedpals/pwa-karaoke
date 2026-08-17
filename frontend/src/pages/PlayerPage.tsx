@@ -25,17 +25,11 @@ import useSmartSync from "../hooks/useSmartSync";
 
 type AppState = "awaiting-interaction" | "connecting" | "connected" | "ready" | "scoring" | "playing";
 
-// How long the scoring screen holds before the display rolls over. The score
-// takes about 2.5s to arrive and land, so this leaves it up for a beat after
-// that. Comfortably longer than the server's grace window either way, so a
-// controller with a microphone always beats the fallback roll.
+// A score takes about 2.5s to arrive and land, so this leaves it readable
 const SCORE_HOLD_MS = 7000;
 
-// A skip is not a performance anyone is waiting on, so its score comes and
-// goes faster than one earned by playing a song out.
 const SKIP_SCORE_HOLD_MS = 3500;
 
-// Below this nothing was sung, so the song passes without a score at all
 const MIN_SCORED_SECONDS = 5;
 
 interface Announcement {
@@ -654,8 +648,7 @@ function ScoringStateScreen() {
   const { score } = useRoomContext();
   const { scoring } = usePlayerState();
 
-  // A score left over from an earlier song is ignored rather than shown
-  // against the wrong performance.
+  // A leftover score is ignored rather than shown against the wrong song
   const shownScore = score && scoring && score.entry_id === scoring.entryId ? score.score : null;
 
   return (
@@ -762,8 +755,6 @@ function PlayerStateProviderInternal({ children }: { children: React.ReactNode }
   const appState: AppState = useMemo(() => {
     if (!hasInteracted) return "awaiting-interaction";
     if (!connected) return "connecting";
-    // The finished song gets the screen to itself, so the video and its banner
-    // come down before the score goes up.
     if (scoring) return "scoring";
     if (playerState?.entry) return "playing";
     // If no entry is set, we are ready to play
@@ -798,8 +789,7 @@ function PlayerStateProviderInternal({ children }: { children: React.ReactNode }
     beginScoring(entryId, false);
   }, [beginScoring, playNext]);
 
-  // The server scores a skip, since no display watched that song end. Keyed
-  // on the cue itself, so a re-render cannot restart a hold already running.
+  // Keyed on the cue, so a re-render cannot restart a hold already running
   const handledCue = useRef<number | null>(null);
 
   useEffect(() => {

@@ -5,8 +5,7 @@ from pydantic import BaseModel, Field
 SCORE_FLOOR = 60
 SCORE_CEILING = 100
 
-# Both paths land on the same band so a room cannot tell who has a microphone
-# and who is being flattered by the machine.
+# Shared with the rolled scores so a room cannot tell the two paths apart
 MIC_BAND_BOTTOM = 82
 MIC_JITTER = 2.0
 

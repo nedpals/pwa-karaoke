@@ -120,34 +120,13 @@ Pressing **Next** always skips to the next reserved song, whatever the toggle is
 
 ### Scoring
 
-A song is scored when it ends or when someone skips it. The video and its banner come down and the display switches to a scoring screen, which passes through three states:
+Every song gets a score when it ends, and skipping one still scores it. The display switches to a scoring screen, spins through digits until the score lands, holds it for a few seconds and moves on to whatever is reserved next. A song that played for less than five seconds is not scored.
 
-- **Processing.** The digits spin while the room waits for a score. This lasts as long as the wait does, up to six seconds, after which the display gives up and moves on.
-- **Revealing.** A score has arrived and the digits close in on it.
-- **Revealed.** The digits stop, the rating appears and the sting plays.
+A controller opens with a **Mic Check**, the same way a display opens with a Sound Check. Allowing it lets the phone score singing through its microphone, measuring how much of the song was sung above the room's noise floor and how loudly. The audio stays on the phone and only the resulting number is sent.
 
-The screen holds for a few seconds from the reveal rather than from the end of the song, so the number is readable for the same beat however long it took to arrive. It then plays the next reserved song, or returns to the idle screen when nothing is waiting.
+Choosing **Not Now**, denying the browser prompt, or reaching the app over plain `http` on a LAN address, where microphones are unavailable, all leave scoring running without one and the score is made up instead. Both land in the same range, so the screen looks the same either way.
 
-The leader display decides the score. The server neither computes nor stores one; it passes a reading from a controller to the displays, and passes the leader's verdict back out to the room. Follower displays take the leader's number, so every screen agrees.
-
-The verdict comes from one of two places:
-
-- **Mic scoring on.** The controller measures loudness through the device microphone. It samples the room's noise floor over the first few seconds of the song, then scores the share of the song spent above that floor and how far above it went. Only the resulting 0..1 reading is sent, and it reaches the display without the server doing anything to it.
-- **Mic scoring off.** No reading arrives within a second of the song finishing, so the leader generates one, weighted towards the high end.
-
-Both use the same range, so the screen looks the same either way.
-
-A controller opens with a **Mic Check** screen, matching the Sound Check a display opens with. It states what the microphone is used for and offers **Allow Mic** or **Not Now**. A microphone cannot be opened without a user gesture, so that button is what requests one, and the browser permission prompt applies on top of it.
-
-There is no further control for it, only a footnote in the Player tab reporting whether it is on. Skipping the prompt, denying the browser, and plain `http` on a LAN address, where microphones are unavailable, all leave scoring running without one.
-
-Mic scoring only measures the remote that reserved the song, so several phones in one room do not all hear the same singer. The server tells each remote whether the song on screen is theirs, matching on a device id kept in the browser rather than the nickname, which is neither unique nor its own to claim. A reading from any other remote is not passed on, and a song reserved by a remote the server cannot identify falls back to a generated score.
-
-A skipped song is held on screen to be scored the same way one that ended is, so a remote that measured most of it is still heard. Its reveal is shorter and silent. A song that played for less than five seconds is not scored at all.
-
-The reveal is scored by the display with a short synthesised sting, built from oscillators rather than an audio file, so no asset ships with it.
-
-Because no score is kept anywhere, a display connecting midway through a reveal shows the spin without a number and moves on with the rest of the room.
+Only the remote that reserved the song listens, so several phones in one room do not all measure the same singer. A footnote in the Player tab says whether the microphone is on and whether the song on screen is yours.
 
 ### Development
 

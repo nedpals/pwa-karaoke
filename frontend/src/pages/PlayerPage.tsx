@@ -878,6 +878,7 @@ function PlayerStateProviderInternal({ children }: { children: React.ReactNode }
     lastQueueCommand,
     isLeader,
     playNext,
+    removeSong,
     skipRequest,
     playbackRequest,
     scoreReading,
@@ -917,32 +918,40 @@ function PlayerStateProviderInternal({ children }: { children: React.ReactNode }
   const publishScoreRef = useRef(publishScore);
   const announceScoringRef = useRef(announceScoring);
   const playNextRef = useRef(playNext);
+  const removeSongRef = useRef(removeSong);
   const updatePlayerStateRef = useRef(updatePlayerState);
   const playerStateRef = useRef(playerState);
   const announced = useRef<boolean | null>(null);
 
   const reservedCount = upNextQueue?.items.length ?? 0;
+  // What the Up Next card is showing, and so what a Next in the hold acts on
+  const cuedItem = upNextQueue?.items[0] ?? null;
   const autoplayRef = useRef(autoplay);
   const reservedCountRef = useRef(reservedCount);
+  const cuedItemRef = useRef(cuedItem);
 
   useEffect(() => {
     publishScoreRef.current = publishScore;
     announceScoringRef.current = announceScoring;
     playNextRef.current = playNext;
+    removeSongRef.current = removeSong;
     updatePlayerStateRef.current = updatePlayerState;
     playerStateRef.current = playerState;
     scoringRef.current = scoring;
     autoplayRef.current = autoplay;
     reservedCountRef.current = reservedCount;
+    cuedItemRef.current = cuedItem;
   }, [
     publishScore,
     announceScoring,
     playNext,
+    removeSong,
     updatePlayerState,
     playerState,
     scoring,
     autoplay,
     reservedCount,
+    cuedItem,
   ]);
 
   // Autoplay is enforced here, not by the server: asking always advances, so
@@ -1140,9 +1149,19 @@ function PlayerStateProviderInternal({ children }: { children: React.ReactNode }
     const itemId = performanceIdOf(current);
     if (!current || !itemId) return;
 
-    // Already over: the score screen is up, or the queue is held. Either way
-    // the room was asked to move on, so move on.
     if (current.play_state === "finished") {
+      const cued = cuedItemRef.current;
+
+      // Holding a cued song, so Next means what it means mid song: this one is
+      // not being sung. Dropping it leaves the one behind it cued, still held.
+      if (!scoringRef.current && !autoplayRef.current && cued) {
+        removeSongRef.current(cued.id).catch((error: unknown) => {
+          console.error("[Player] Could not drop the cued song:", error);
+        });
+        return;
+      }
+
+      // The score screen is up, or nothing is cued. Either way, move on.
       playNextRef.current({ fromItemId: itemId });
       return;
     }
@@ -1169,8 +1188,16 @@ function PlayerStateProviderInternal({ children }: { children: React.ReactNode }
     const current = playerStateRef.current;
     if (!current?.entry || current.play_state === playbackRequest.state) return;
 
-    // Finished and error are the room's, not a remote's, to undo
-    if (current.play_state === "finished" || current.play_state === "error") return;
+    // Nothing to resume, so Play means start what the Up Next card is showing
+    if (current.play_state === "finished") {
+      if (playbackRequest.state === "playing" && reservedCountRef.current > 0) {
+        playNextRef.current({ fromItemId: performanceIdOf(current) });
+      }
+      return;
+    }
+
+    // An unplayable song is the room's to clear, not a remote's to resume
+    if (current.play_state === "error") return;
 
     updatePlayerStateRef.current({
       ...current,

@@ -147,6 +147,12 @@ class ClientCommands:
             # Silent failure - client will handle fetching if needed
             print(f"[PREFETCH] ✗ Failed to prefetch URL for {queue_item.entry.title}: {e}")
 
+    async def _remove_song(self, item_id: str):
+        removed = self.room.remove_song(item_id)
+        if removed:
+            await self._broadcast_room_state()
+        return removed
+
     async def join_room(self, payload):
         room_id = payload.get("room_id", "default")
         nickname = payload.get("nickname")
@@ -189,6 +195,9 @@ class ClientCommands:
         return {"advanced": next_song is not None}
 
 class ControllerCommands(ClientCommands):
+    async def remove_song(self, payload):
+        await self._remove_song(payload["entry_id"])
+
     async def skip_song(self, _: None):
         """Pass a remote's Next to the screens and let the leader work it out.
 
@@ -201,11 +210,6 @@ class ControllerCommands(ClientCommands):
             self.client.room_id, "skip_request", {}
         )
         return {"screens": len(displays)}
-
-    async def remove_song(self, payload):
-        removed = self.room.remove_song(payload["entry_id"])
-        if removed:
-            await self._broadcast_room_state()
 
     async def queue_song(self, payload):
         entry = KaraokeEntry.parse_obj(payload)
@@ -298,6 +302,17 @@ class ControllerCommands(ClientCommands):
         return {"autoplay": self.room.autoplay}
 
 class DisplayCommands(ClientCommands):
+    async def remove_song(self, payload):
+        """The leader dropping the song it was holding, because Next was pressed.
+
+        Which reservation that is, is the screen's to know: it is the one on the
+        card it is showing.
+        """
+        if not self.session_manager.is_display_leader(self.client):
+            return {"removed": False}
+
+        return {"removed": await self._remove_song(payload["entry_id"])}
+
     async def update_player_state(self, _state):
         # Only allow leader displays to update player state
         if not self.session_manager.is_display_leader(self.client):

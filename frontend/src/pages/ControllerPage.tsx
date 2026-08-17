@@ -332,7 +332,7 @@ function micNotice(status: MicStatus, yourTurn: boolean): string | null {
 function PlayerTab({ notice }: { notice: string | null }) {
   const {
     playerState, playSong, pauseSong, skipSong, setVolume,
-    sendReaction, connected, autoplay, setAutoplay, scoringActive,
+    sendReaction, connected, autoplay, setAutoplay, scoringActive, upNextQueue,
   } = useRoomContext();
   const [isPlaybackLoading, setIsPlaybackLoading] = useState(false);
   const [isVolumeLoading, setIsVolumeLoading] = useState(false);
@@ -349,6 +349,9 @@ function PlayerTab({ notice }: { notice: string | null }) {
   // The stream stopped answering, so only Next gets the room moving again
   const isStreamError = hasEntry && playerState?.play_state === "error";
   const isScoring = isFinished && scoringActive;
+  // The room is sitting on a finished song with the next one on the card, so
+  // Play starts that rather than resuming anything
+  const isHolding = isFinished && !isScoring && (upNextQueue?.items.length ?? 0) > 0;
   // Stands in as the entry on air, so the panel needs no case of its own
   const nowPlaying = isScoring
     ? { title: "Scoring...", artist: "Unknown Artist", uploader: null }
@@ -504,10 +507,10 @@ function PlayerTab({ notice }: { notice: string | null }) {
               <MaterialSymbolsPlayArrowRounded className="text-5xl" />
             )
           }
-          label={isPlaying ? "Pause" : "Play"}
+          label={isPlaying ? "Pause" : isHolding ? "Play Next" : "Play"}
           showLabel
           onClick={handlePlayerPlayback}
-          disabled={!hasEntry || isFinished || isStreamError || isPlaybackLoading}
+          disabled={!hasEntry || (isFinished && !isHolding) || isStreamError || isPlaybackLoading}
           variant="accent"
           className="py-4"
         />
@@ -636,7 +639,9 @@ function QueueTab() {
       </div>
 
       {!autoplay && upNextItems.length > 0 && (
-        <Notice tone="dim">Autoplay is off. Press Next to start the song at the top.</Notice>
+        <Notice tone="dim">
+          Autoplay is off. Press Play to start the song at the top, or Next to skip it.
+        </Notice>
       )}
 
       {upNextItems.length === 0 ? (

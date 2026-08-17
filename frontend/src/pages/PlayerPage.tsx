@@ -187,11 +187,12 @@ function VideoPlayerComponent({
       return;
     }
 
-    // The pair parked itself to buffer and owns restarting both tracks. The
-    // room hears about that as "buffering", which reads as expecting sound
-    // below, so without this the report would restart the audio on its own and
-    // leave the video behind.
-    if (holdingRef.current) return;
+    // The pair parked itself to buffer and owns restarting both tracks, so its
+    // own report, which arrives as "buffering", is ignored here: acting on it
+    // would restart the audio and leave the parked video behind. Narrowed to
+    // that report on purpose. Ignoring everything while parked swallowed the
+    // play that follows a pause, and the song never came back.
+    if (holdingRef.current && current.play_state === "buffering") return;
 
     // A follower mirrors the leader rather than the room's intent: left running
     // through the leader's stall it advances past the leader's frozen time, and
@@ -299,9 +300,14 @@ function VideoPlayerComponent({
     holdingRef.current = holding;
     isBufferingRef.current = holding;
 
+    // Only the engage is announced. On release the pair restarts itself and the
+    // resulting play event reports playing, whereas announcing it here would
+    // override a pause the room asked for while the tracks were parked.
+    if (!holding) return;
+
     updateVersionedPlayerState({
       entry: current.entry,
-      play_state: holding ? "buffering" : "playing",
+      play_state: "buffering",
       current_time: media?.currentTime ?? current.current_time,
       duration: media?.duration ?? current.duration,
       volume: media?.volume ?? current.volume,

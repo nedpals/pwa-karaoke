@@ -50,6 +50,16 @@ YTDLP_BASE_ARGS = [
     "--no-playlist",
 ]
 
+# The source refused the caller, not the request: a bot check follows the IP.
+# Retrying now changes nothing, and remembering it against the video would keep
+# a song unplayable long after cookies or a cleaner address fixed the cause.
+BLOCKED_ERROR_MARKERS = (
+    "sign in to confirm",
+    "not a bot",
+    "confirm your age",
+    "requires authentication",
+)
+
 RETRYABLE_ERROR_MARKERS = (
     "proxy", "407", "429", "rate limit",
     "connection", "timeout", "timed out", "network",
@@ -487,29 +497,43 @@ class YTKaraokeSourceProvider(KaraokeSourceProvider):
         return VideoURLResult.failed() if outcome.environmental_failure else VideoURLResult.unavailable()
 
     @staticmethod
-    def _is_environmental(error: Exception) -> bool:
+    def _error_details(error: Exception) -> str:
+        return error.details if isinstance(error, YtdlpError) else str(error)
+
+    @classmethod
+    def _is_blocked(cls, error: Exception) -> bool:
+        """Whether the source refused us rather than answering about the video."""
+        details = cls._error_details(error).lower()
+        return any(marker in details for marker in BLOCKED_ERROR_MARKERS)
+
+    @classmethod
+    def _is_environmental(cls, error: Exception) -> bool:
         """
-        Whether a failure is about the extractor or the network rather than the
-        video itself. A private or deleted video is a stable answer worth
-        caching; a dead proxy is not.
+        Whether a failure is about the extractor, the network or who is asking,
+        rather than the video itself. A private or deleted video is a stable
+        answer worth caching; a dead proxy or a bot check is not.
         """
         if isinstance(error, (YtdlpMissing, YtdlpTimeout)):
             return True
 
-        if isinstance(error, YtdlpError):
-            # No exit code means yt-dlp never ran or never produced usable output.
-            if error.returncode is None:
-                return True
-            details = error.details
-        else:
-            details = str(error)
+        if isinstance(error, YtdlpError) and error.returncode is None:
+            # yt-dlp never ran, or never produced usable output.
+            return True
 
-        return any(marker in details.lower() for marker in RETRYABLE_ERROR_MARKERS)
+        if cls._is_blocked(error):
+            return True
+
+        details = cls._error_details(error).lower()
+        return any(marker in details for marker in RETRYABLE_ERROR_MARKERS)
 
     @classmethod
     def _should_retry(cls, error: Exception) -> bool:
         # A missing binary will not appear part way through the loop.
         if isinstance(error, YtdlpMissing):
+            return False
+        # A block on the caller answers the same way however many times it is
+        # asked, and each attempt costs another extraction.
+        if cls._is_blocked(error):
             return False
         return cls._is_environmental(error)
 

@@ -162,8 +162,36 @@ export const DualTrackVideo = forwardRef<DualTrackHandle, DualTrackVideoProps>(
         });
     }, [alignVideo]);
 
+    /**
+     * Lifts the hold once both tracks can play again.
+     *
+     * Driven from the interval as well as from the media events, because a
+     * brief stall can fire `waiting` without the readyState ever dipping, and
+     * then no `canplay` follows to lift it. A hold that never lifts would park
+     * the song for good.
+     */
+    const tryRelease = useCallback(() => {
+      const video = videoRef.current;
+      const audio = audioRef.current;
+      if (!holdingRef.current || !video || !audio) return;
+
+      if (!intendsPlaybackRef.current) {
+        setHolding(false);
+        return;
+      }
+
+      if (video.readyState < HAVE_FUTURE_DATA || audio.readyState < HAVE_FUTURE_DATA) return;
+
+      setHolding(false);
+      startPaired();
+    }, [setHolding, startPaired]);
+
     const play = useCallback((): Promise<void> => {
       intendsPlaybackRef.current = true;
+      // An explicit command supersedes the park. Leaving the flag set would
+      // start playback behind the hold's back, which also suspends the drift
+      // correction and lets the video run free.
+      setHolding(false);
 
       // The muxed path returns the element's own promise, so a caller's
       // existing rejection handling behaves exactly as it does without pairing.
@@ -171,13 +199,14 @@ export const DualTrackVideo = forwardRef<DualTrackHandle, DualTrackVideoProps>(
         return videoRef.current?.play() ?? Promise.resolve();
       }
       return startPaired();
-    }, [separateAudio, startPaired]);
+    }, [separateAudio, startPaired, setHolding]);
 
     const pause = useCallback(() => {
       intendsPlaybackRef.current = false;
+      setHolding(false);
       videoRef.current?.pause();
       if (separateAudio) audioRef.current?.pause();
-    }, [separateAudio]);
+    }, [separateAudio, setHolding]);
 
     const seek = useCallback(
       (time: number) => {
@@ -205,7 +234,13 @@ export const DualTrackVideo = forwardRef<DualTrackHandle, DualTrackVideoProps>(
         const video = videoRef.current;
         const audio = audioRef.current;
         if (!video || !audio) return;
-        if (audio.paused || video.seeking || holdingRef.current) return;
+
+        if (holdingRef.current) {
+          tryRelease();
+          return;
+        }
+
+        if (audio.paused || video.seeking) return;
 
         const drift = video.currentTime - audio.currentTime;
         const magnitude = Math.abs(drift);
@@ -223,7 +258,7 @@ export const DualTrackVideo = forwardRef<DualTrackHandle, DualTrackVideoProps>(
       }, SYNC_INTERVAL_MS);
 
       return () => clearInterval(interval);
-    }, [separateAudio]);
+    }, [separateAudio, tryRelease]);
 
     // Either track stalling parks both, otherwise one runs ahead while the
     // other rebuffers and they never recover without a hard seek.
@@ -241,17 +276,7 @@ export const DualTrackVideo = forwardRef<DualTrackHandle, DualTrackVideoProps>(
         audio.pause();
       };
 
-      const release = () => {
-        if (!holdingRef.current) return;
-        if (!intendsPlaybackRef.current) {
-          setHolding(false);
-          return;
-        }
-        if (video.readyState < HAVE_FUTURE_DATA || audio.readyState < HAVE_FUTURE_DATA) return;
-
-        setHolding(false);
-        startPaired();
-      };
+      const release = tryRelease;
 
       video.addEventListener("waiting", hold);
       audio.addEventListener("waiting", hold);
@@ -272,7 +297,7 @@ export const DualTrackVideo = forwardRef<DualTrackHandle, DualTrackVideoProps>(
         audio.removeEventListener("play", alignVideo);
         audio.removeEventListener("seeked", alignVideo);
       };
-    }, [separateAudio, alignVideo, startPaired, setHolding]);
+    }, [separateAudio, alignVideo, tryRelease, setHolding]);
 
     useImperativeHandle(
       ref,

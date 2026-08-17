@@ -120,7 +120,13 @@ Pressing **Next** always skips to the next reserved song, whatever the toggle is
 
 ### Scoring
 
-A song is scored when it ends or when someone skips it. The video and its banner come down, the display switches to a scoring screen, and the digits spin before settling on a number with a rating under it. It then plays the next reserved song, or returns to the idle screen when nothing is waiting.
+A song is scored when it ends or when someone skips it. The video and its banner come down and the display switches to a scoring screen, which passes through three states:
+
+- **Processing.** The digits spin while the room waits for a score. This lasts as long as the wait does, up to six seconds, after which the display gives up and moves on.
+- **Revealing.** A score has arrived and the digits close in on it.
+- **Revealed.** The digits stop, the rating appears and the sting plays.
+
+The screen holds for a few seconds from the reveal rather than from the end of the song, so the number is readable for the same beat however long it took to arrive. It then plays the next reserved song, or returns to the idle screen when nothing is waiting.
 
 The leader display decides the score. The server neither computes nor stores one; it passes a reading from a controller to the displays, and passes the leader's verdict back out to the room. Follower displays take the leader's number, so every screen agrees.
 

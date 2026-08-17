@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Text } from "../atoms/Text";
 import { cn } from "../../lib/utils";
 import { ratingFor } from "../../lib/scoring";
@@ -29,18 +29,24 @@ function randomBetween(low: number, high: number) {
   return low + Math.floor(Math.random() * (high - low + 1));
 }
 
+/**
+ * processing while the room waits for a score, revealing while the digits
+ * close in on it, revealed once they stop.
+ */
+export type RevealPhase = "processing" | "revealing" | "revealed";
+
 function useScoreReveal(target: number | null, landingMs: number) {
   const [value, setValue] = useState(0);
-  const [settled, setSettled] = useState(false);
+  const [phase, setPhase] = useState<RevealPhase>("processing");
 
   useEffect(() => {
     if (prefersReducedMotion()) {
       setValue(target ?? 0);
-      setSettled(target !== null);
+      setPhase(target === null ? "processing" : "revealed");
       return;
     }
 
-    setSettled(false);
+    setPhase(target === null ? "processing" : "revealing");
 
     let frame = 0;
     let lastTick = 0;
@@ -56,7 +62,7 @@ function useScoreReveal(target: number | null, landingMs: number) {
 
       if (target !== null && progress >= 1) {
         setValue(target);
-        setSettled(true);
+        setPhase("revealed");
         return;
       }
 
@@ -78,7 +84,7 @@ function useScoreReveal(target: number | null, landingMs: number) {
     return () => cancelAnimationFrame(frame);
   }, [target, landingMs]);
 
-  return { value, settled };
+  return { value, phase };
 }
 
 export interface ScoreScreenProps {
@@ -88,13 +94,31 @@ export interface ScoreScreenProps {
   quick?: boolean;
   /** Off by default so only the display makes noise. */
   sound?: boolean;
+  /** Fires when the digits stop and the rating appears. */
+  onRevealed?: () => void;
   className?: string;
 }
 
-export function ScoreScreen({ score, quick = false, sound = false, className }: ScoreScreenProps) {
-  const { value, settled } = useScoreReveal(score, quick ? QUICK_LANDING_MS : LANDING_MS);
+export function ScoreScreen({
+  score,
+  quick = false,
+  sound = false,
+  onRevealed,
+  className,
+}: ScoreScreenProps) {
+  const { value, phase } = useScoreReveal(score, quick ? QUICK_LANDING_MS : LANDING_MS);
   const rating = score === null ? null : ratingFor(score);
-  const revealed = settled && rating !== null;
+  const revealed = phase === "revealed" && rating !== null;
+
+  const revealedRef = useRef(onRevealed);
+
+  useEffect(() => {
+    revealedRef.current = onRevealed;
+  }, [onRevealed]);
+
+  useEffect(() => {
+    if (revealed) revealedRef.current?.();
+  }, [revealed]);
 
   useEffect(() => {
     if (!sound) return;
@@ -120,7 +144,7 @@ export function ScoreScreen({ score, quick = false, sound = false, className }: 
         font="mono"
         weight="bold"
         tone={revealed ? rating.tone : "dim"}
-        className={cn("leading-none", settled && "score-land")}
+        className={cn("leading-none", phase === "revealed" && "score-land")}
         style={{ fontSize: "34vh", textShadow: STENCIL_SHADOW }}
       >
         {value.toString().padStart(2, "0")}

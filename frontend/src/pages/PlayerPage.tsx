@@ -26,10 +26,13 @@ import { rollScore, scoreFromPerformance } from "../lib/scoring";
 
 type AppState = "awaiting-interaction" | "connecting" | "connected" | "ready" | "scoring" | "playing";
 
-// A score takes about 2.5s to arrive and land, so this leaves it readable
-const SCORE_HOLD_MS = 7000;
+// Measured from the reveal, not from the end of the song, so the number is
+// readable for the same beat however long it took to arrive
+const REVEAL_HOLD_MS = 4000;
+const SKIP_REVEAL_HOLD_MS = 2000;
 
-const SKIP_SCORE_HOLD_MS = 3500;
+// The digits scramble until a score lands. Past this nothing is coming.
+const SCORE_WAIT_MAX_MS = 6000;
 
 // How long the leader waits for a reading before deciding the score itself
 const JURY_GRACE_MS = 1000;
@@ -54,6 +57,7 @@ interface PlayerContextType {
   setHasInteracted: (value: boolean) => void;
   playerState: DisplayPlayerState | null;
   scoring: { entryId: string; quick: boolean } | null;
+  scoreRevealed: () => void;
   finishSong: (entryId: string, playedSeconds: number) => void;
   osd: OSDState;
   setOSD: (osd: OSDState, options?: TempStateSetterOptions<OSDState>) => void;
@@ -650,7 +654,7 @@ function ConnectedStateScreen() {
 
 function ScoringStateScreen() {
   const { score } = useRoomContext();
-  const { scoring } = usePlayerState();
+  const { scoring, scoreRevealed } = usePlayerState();
 
   // A leftover score is ignored rather than shown against the wrong song
   const shownScore = score && scoring && score.entry_id === scoring.entryId ? score.score : null;
@@ -664,6 +668,7 @@ function ScoringStateScreen() {
           score={shownScore}
           quick={scoring?.quick ?? false}
           sound={!scoring?.quick}
+          onRevealed={scoreRevealed}
         />
       </div>
     </div>
@@ -767,6 +772,7 @@ function PlayerStateProviderInternal({ children }: { children: React.ReactNode }
     return clientCount > 1 ? "ready" : "connected";
   }, [hasInteracted, connected, scoring, playerState?.entry, clientCount]);
 
+  const scoringRef = useRef<{ entryId: string; quick: boolean } | null>(null);
   const juryTimer = useRef<number | null>(null);
   const readingRef = useRef<{ entryId: string; performance: number } | null>(null);
   const judged = useRef<string | null>(null);
@@ -779,7 +785,8 @@ function PlayerStateProviderInternal({ children }: { children: React.ReactNode }
   useEffect(() => {
     isLeaderRef.current = isLeader;
     publishScoreRef.current = publishScore;
-  }, [isLeader, publishScore]);
+    scoringRef.current = scoring;
+  }, [isLeader, publishScore, scoring]);
 
   useEffect(() => {
     if (!scoreReading) return;
@@ -816,9 +823,19 @@ function PlayerStateProviderInternal({ children }: { children: React.ReactNode }
     scoreTimer.current = null;
   }, []);
 
+  const finishScoring = useCallback((quick: boolean, delay: number) => {
+    clearScoreTimer();
+
+    scoreTimer.current = window.setTimeout(() => {
+      scoreTimer.current = null;
+      setScoring(null);
+      // A skip advances whatever autoplay says, since someone asked for it
+      playNext({ auto: !quick });
+    }, delay);
+  }, [clearScoreTimer, playNext]);
+
   const beginScoring = useCallback((entryId: string, quick: boolean) => {
     setScoring({ entryId, quick });
-    clearScoreTimer();
     clearJuryTimer();
 
     // A reading already in hand is judged at once, otherwise the roll waits
@@ -829,13 +846,14 @@ function PlayerStateProviderInternal({ children }: { children: React.ReactNode }
       juryTimer.current = window.setTimeout(() => judge(entryId), JURY_GRACE_MS);
     }
 
-    scoreTimer.current = window.setTimeout(() => {
-      scoreTimer.current = null;
-      setScoring(null);
-      // A skip advances whatever autoplay says, since someone asked for it
-      playNext({ auto: !quick });
-    }, quick ? SKIP_SCORE_HOLD_MS : SCORE_HOLD_MS);
-  }, [clearScoreTimer, clearJuryTimer, judge, playNext]);
+    // Replaced by the reveal when one arrives
+    finishScoring(quick, SCORE_WAIT_MAX_MS);
+  }, [clearJuryTimer, finishScoring, judge]);
+
+  const scoreRevealed = useCallback(() => {
+    const quick = scoringRef.current?.quick ?? false;
+    finishScoring(quick, quick ? SKIP_REVEAL_HOLD_MS : REVEAL_HOLD_MS);
+  }, [finishScoring]);
 
   const finishSong = useCallback((entryId: string, playedSeconds: number) => {
     if (playedSeconds < MIN_SCORED_SECONDS) {
@@ -926,6 +944,7 @@ function PlayerStateProviderInternal({ children }: { children: React.ReactNode }
     setHasInteracted,
     playerState,
     scoring,
+    scoreRevealed,
     finishSong,
     osd,
     setOSD,

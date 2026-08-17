@@ -3,7 +3,7 @@ import { useWebSocket } from './useWebSocket';
 import { useServerStatus, useVerifyRoomMutation } from './useApi';
 import { getRoomPassword, storeRoomPassword } from '../lib/roomStorage';
 import { apiClient } from '../api/client';
-import type { DisplayPlayerState, KaraokeQueue, KaraokeEntry, ReactionEvent, ReactionType, RoomSettings, SongScore } from '../types';
+import type { DisplayPlayerState, KaraokeQueue, KaraokeEntry, ReactionEvent, ReactionType, RoomSettings, ScoreSource, SongScore } from '../types';
 
 type ClientType = "controller" | "display";
 
@@ -32,6 +32,8 @@ export interface RoomState {
   /** A song to score that no display watched end. */
   scoringCue: { entryId: string; quick: boolean; at: number } | null;
   scoringTurn: boolean;
+  /** A controller's loudness reading, for the leader display to judge. */
+  scoreReading: { entryId: string; performance: number; at: number } | null;
   lastQueueCommand: {
     command: string;
     data: unknown;
@@ -59,6 +61,7 @@ export interface RoomActions {
   setVolume: (volume: number) => Promise<unknown>;
   sendReaction: (reaction: ReactionType) => void;
   submitScore: (entryId: string, performance: number) => void;
+  publishScore: (entryId: string, score: number, source: ScoreSource) => void;
   setAutoplay: (enabled: boolean) => Promise<unknown>;
 
   // Display commands (implemented here)
@@ -83,6 +86,7 @@ export function useRoom(clientType: ClientType, nickname?: string | null): UseRo
   const [score, setScore] = useState<SongScore | null>(null);
   const [scoringCue, setScoringCue] = useState<RoomState["scoringCue"]>(null);
   const [scoringTurn, setScoringTurn] = useState(false);
+  const [scoreReading, setScoreReading] = useState<RoomState["scoreReading"]>(null);
   const [lastQueueCommand, setLastQueueCommand] = useState<{
     command: string;
     data: unknown;
@@ -259,6 +263,12 @@ export function useRoom(clientType: ClientType, nickname?: string | null): UseRo
       case "score":
         setScore(data as SongScore);
         break;
+      case "score_reading":
+        if (clientType === "display") {
+          const reading = data as { entry_id: string; performance: number };
+          setScoreReading({ entryId: reading.entry_id, performance: reading.performance, at: Date.now() });
+        }
+        break;
       case "scoring_turn":
         if (clientType === "controller") {
           setScoringTurn(Boolean((data as { active: boolean }).active));
@@ -293,6 +303,7 @@ export function useRoom(clientType: ClientType, nickname?: string | null): UseRo
       setScore(null);
       setScoringCue(null);
       setScoringTurn(false);
+      setScoreReading(null);
       setLastQueueCommand(null);
       apiClient.clearRoomCredentials();
     } else if (ws.connected && clientType === "display") {
@@ -324,6 +335,7 @@ export function useRoom(clientType: ClientType, nickname?: string | null): UseRo
     score,
     scoringCue,
     scoringTurn,
+    scoreReading,
     lastQueueCommand,
 
     // Actions
@@ -353,6 +365,8 @@ export function useRoom(clientType: ClientType, nickname?: string | null): UseRo
     sendReaction: (reaction: ReactionType) => ws.sendCommand("send_reaction", { reaction }),
     submitScore: (entryId: string, performance: number) =>
       ws.sendCommand("submit_score", { entry_id: entryId, performance }),
+    publishScore: (entryId: string, score: number, source: ScoreSource) =>
+      ws.sendCommand("publish_score", { entry_id: entryId, score, source }),
     setAutoplay: async (enabled: boolean) => {
       const previousSettings = settings;
       setSettings((prev) =>

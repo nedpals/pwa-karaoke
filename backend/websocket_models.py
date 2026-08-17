@@ -58,6 +58,12 @@ class SubmitScorePayload(BaseModel):
     entry_id: str = Field(..., min_length=1)
     performance: float = Field(..., ge=0.0, le=1.0)
 
+class PublishScorePayload(BaseModel):
+    """Score decided by the leader display"""
+    entry_id: str = Field(..., min_length=1)
+    score: int = Field(..., ge=0, le=100)
+    source: Literal["mic", "auto"]
+
 class QueueUpdatePayload(BaseModel):
     """Queue update payload"""
     items: list = Field(default_factory=list)
@@ -103,6 +109,7 @@ COMMAND_PAYLOAD_MAP = {
     "video_loaded": PlayerStatePayload,
     "send_reaction": SendReactionPayload,
     "submit_score": SubmitScorePayload,
+    "publish_score": PublishScorePayload,
     "ack": AckPayload,
     # Commands without payload validation
     "play_song": dict,

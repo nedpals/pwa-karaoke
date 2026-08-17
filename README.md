@@ -122,10 +122,12 @@ Pressing **Next** always skips to the next reserved song, whatever the toggle is
 
 A song is scored when it ends or when someone skips it. The video and its banner come down, the display switches to a scoring screen, and the digits spin before settling on a number with a rating under it. It then plays the next reserved song, or returns to the idle screen when nothing is waiting.
 
-The score comes from one of two places:
+The leader display decides the score. The server neither computes nor stores one; it passes a reading from a controller to the displays, and passes the leader's verdict back out to the room. Follower displays take the leader's number, so every screen agrees.
 
-- **Mic scoring on.** The controller measures loudness through the device microphone. It samples the room's noise floor over the first few seconds of the song, then scores the share of the song spent above that floor and how far above it went. Only the resulting number is sent.
-- **Mic scoring off.** The server generates one, weighted towards the high end.
+The verdict comes from one of two places:
+
+- **Mic scoring on.** The controller measures loudness through the device microphone. It samples the room's noise floor over the first few seconds of the song, then scores the share of the song spent above that floor and how far above it went. Only the resulting 0..1 reading is sent, and it reaches the display without the server doing anything to it.
+- **Mic scoring off.** No reading arrives within a second of the song finishing, so the leader generates one, weighted towards the high end.
 
 Both use the same range, so the screen looks the same either way.
 
@@ -133,13 +135,13 @@ A controller opens with a **Mic Check** screen, matching the Sound Check a displ
 
 There is no further control for it, only a footnote in the Player tab reporting whether it is on. Skipping the prompt, denying the browser, and plain `http` on a LAN address, where microphones are unavailable, all leave scoring running without one.
 
-Mic scoring only measures the remote that reserved the song, so several phones in one room do not all hear the same singer. The server tells each remote whether the song on screen is theirs, matching on a device id kept in the browser rather than the nickname, which is neither unique nor its own to claim. A reading from any other remote is refused, and a song reserved by a remote the server cannot identify falls back to a generated score.
+Mic scoring only measures the remote that reserved the song, so several phones in one room do not all hear the same singer. The server tells each remote whether the song on screen is theirs, matching on a device id kept in the browser rather than the nickname, which is neither unique nor its own to claim. A reading from any other remote is not passed on, and a song reserved by a remote the server cannot identify falls back to a generated score.
 
 A skipped song is held on screen to be scored the same way one that ended is, so a remote that measured most of it is still heard. Its reveal is shorter and silent. A song that played for less than five seconds is not scored at all.
 
 The reveal is scored by the display with a short synthesised sting, built from oscillators rather than an audio file, so no asset ships with it.
 
-The score is held by the room, so every display shows the same number, and a display that connects while one is up receives it.
+Because no score is kept anywhere, a display connecting midway through a reveal shows the spin without a number and moves on with the rest of the room.
 
 ### Development
 

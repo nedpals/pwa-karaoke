@@ -22,6 +22,7 @@ import { useVideoUrlWithRetry } from "../hooks/useVideoUrlWithRetry";
 import { getDisplayNickname } from "../lib/nicknameStorage";
 import type { DisplayPlayerState } from "../types";
 import useSmartSync from "../hooks/useSmartSync";
+import { rollScore, scoreFromPerformance } from "../lib/scoring";
 
 type AppState = "awaiting-interaction" | "connecting" | "connected" | "ready" | "scoring" | "playing";
 
@@ -29,6 +30,9 @@ type AppState = "awaiting-interaction" | "connecting" | "connected" | "ready" | 
 const SCORE_HOLD_MS = 7000;
 
 const SKIP_SCORE_HOLD_MS = 3500;
+
+// How long the leader waits for a reading before deciding the score itself
+const JURY_GRACE_MS = 1000;
 
 const MIN_SCORED_SECONDS = 5;
 
@@ -742,6 +746,8 @@ function PlayerStateProviderInternal({ children }: { children: React.ReactNode }
     isLeader,
     playNext,
     scoringCue,
+    scoreReading,
+    publishScore,
   } = useRoomContext();
 
   // Use smart sync for non-leader displays
@@ -761,6 +767,48 @@ function PlayerStateProviderInternal({ children }: { children: React.ReactNode }
     return clientCount > 1 ? "ready" : "connected";
   }, [hasInteracted, connected, scoring, playerState?.entry, clientCount]);
 
+  const juryTimer = useRef<number | null>(null);
+  const readingRef = useRef<{ entryId: string; performance: number } | null>(null);
+  const judged = useRef<string | null>(null);
+
+  // Read when the timer fires, not when it was set, so a display promoted
+  // mid-grace still judges
+  const isLeaderRef = useRef(isLeader);
+  const publishScoreRef = useRef(publishScore);
+
+  useEffect(() => {
+    isLeaderRef.current = isLeader;
+    publishScoreRef.current = publishScore;
+  }, [isLeader, publishScore]);
+
+  useEffect(() => {
+    if (!scoreReading) return;
+    readingRef.current = { entryId: scoreReading.entryId, performance: scoreReading.performance };
+  }, [scoreReading]);
+
+  const clearJuryTimer = useCallback(() => {
+    if (juryTimer.current === null) return;
+
+    window.clearTimeout(juryTimer.current);
+    juryTimer.current = null;
+  }, []);
+
+  // Only the leader decides, so every screen in the room shows one number
+  const judge = useCallback((entryId: string) => {
+    clearJuryTimer();
+    if (!isLeaderRef.current || judged.current === entryId) return;
+
+    judged.current = entryId;
+    const reading = readingRef.current;
+    const heard = reading && reading.entryId === entryId;
+
+    publishScoreRef.current(
+      entryId,
+      heard ? scoreFromPerformance(reading.performance) : rollScore(),
+      heard ? "mic" : "auto",
+    );
+  }, [clearJuryTimer]);
+
   const clearScoreTimer = useCallback(() => {
     if (scoreTimer.current === null) return;
 
@@ -771,6 +819,15 @@ function PlayerStateProviderInternal({ children }: { children: React.ReactNode }
   const beginScoring = useCallback((entryId: string, quick: boolean) => {
     setScoring({ entryId, quick });
     clearScoreTimer();
+    clearJuryTimer();
+
+    // A reading already in hand is judged at once, otherwise the roll waits
+    // out the grace in case one is on its way
+    if (readingRef.current?.entryId === entryId) {
+      judge(entryId);
+    } else {
+      juryTimer.current = window.setTimeout(() => judge(entryId), JURY_GRACE_MS);
+    }
 
     scoreTimer.current = window.setTimeout(() => {
       scoreTimer.current = null;
@@ -778,7 +835,7 @@ function PlayerStateProviderInternal({ children }: { children: React.ReactNode }
       // A skip advances whatever autoplay says, since someone asked for it
       playNext({ auto: !quick });
     }, quick ? SKIP_SCORE_HOLD_MS : SCORE_HOLD_MS);
-  }, [clearScoreTimer, playNext]);
+  }, [clearScoreTimer, clearJuryTimer, judge, playNext]);
 
   const finishSong = useCallback((entryId: string, playedSeconds: number) => {
     if (playedSeconds < MIN_SCORED_SECONDS) {
@@ -793,6 +850,11 @@ function PlayerStateProviderInternal({ children }: { children: React.ReactNode }
   const handledCue = useRef<number | null>(null);
 
   useEffect(() => {
+    if (!scoring || !scoreReading || scoreReading.entryId !== scoring.entryId) return;
+    judge(scoring.entryId);
+  }, [scoring, scoreReading, judge]);
+
+  useEffect(() => {
     if (!scoringCue || handledCue.current === scoringCue.at) return;
 
     handledCue.current = scoringCue.at;
@@ -802,9 +864,17 @@ function PlayerStateProviderInternal({ children }: { children: React.ReactNode }
   useEffect(() => {
     setScoring(null);
     clearScoreTimer();
-  }, [playerState?.entry?.id, clearScoreTimer]);
+    clearJuryTimer();
+    readingRef.current = null;
+    judged.current = null;
+  }, [playerState?.entry?.id, clearScoreTimer, clearJuryTimer]);
 
-  useEffect(() => clearScoreTimer, [clearScoreTimer]);
+  useEffect(() => {
+    return () => {
+      clearScoreTimer();
+      clearJuryTimer();
+    };
+  }, [clearScoreTimer, clearJuryTimer]);
 
   const lastPlayStateRef = useRef<string | null>(null);
 

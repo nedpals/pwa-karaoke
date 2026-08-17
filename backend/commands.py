@@ -6,7 +6,6 @@ from nanoid import generate as generate_nanoid
 
 from core.search import KaraokeEntry
 from core.player import DisplayPlayerState
-from core.score import SongScore, roll_score, score_from_performance
 from services.karaoke_service import KaraokeService
 from client_manager import ConnectionClient
 from session_manager import SessionManager
@@ -21,10 +20,6 @@ ROOM_REACTION_RATE_WINDOW = 3.0
 
 SCORE_RATE_LIMIT = 4
 SCORE_RATE_WINDOW = 10.0
-
-# The display holds a finished song for longer than this, so a report always
-# has time to arrive before the fallback roll.
-SCORE_GRACE_SECONDS = 1.0
 
 MIN_SCORED_SECONDS = 5.0
 
@@ -46,9 +41,6 @@ class ClientCommands:
         await self.client.send_command("room_settings", self.room.get_settings_payload())
         if self.room.player_state:
             await self.client.send_command("player_state", self.room.player_state.model_dump())
-
-        if self.room.score:
-            await self.client.send_command("score", self.room.score.model_dump())
 
         if self.client.client_type == "controller":
             target = self.room.current_singer_device_id
@@ -76,16 +68,11 @@ class ClientCommands:
         self.room.update_player_state(state)
 
         if entry_id != previous_entry_id:
-            self.room.clear_score()
             await self._send_scoring_turns(self.client.room_id)
 
         # Broadcast the room's copy so clients see the server-stamped version
         await self.session_manager.broadcast_to_room(self.client.room_id, "player_state", self.room.player_state.model_dump())
 
-        if entry_id and state.play_state == "finished":
-            asyncio.create_task(
-                self._settle_score(self.room, self.client.room_id, entry_id, state.current_time)
-            )
 
     async def _send_scoring_turns(self, room_id: str):
         target = self.room.current_singer_device_id
@@ -97,26 +84,6 @@ class ClientCommands:
             except Exception:
                 # Dropped remotes are cleaned up elsewhere
                 pass
-
-    async def _broadcast_score(self, room_id: str, score: SongScore):
-        await self.session_manager.broadcast_to_room(room_id, "score", score.model_dump())
-
-    async def _settle_score(self, room, room_id: str, entry_id: str, played_seconds: float):
-        if not room.begin_score_settle(entry_id):
-            return
-
-        try:
-            if played_seconds < MIN_SCORED_SECONDS:
-                return
-
-            await asyncio.sleep(SCORE_GRACE_SECONDS)
-            if room.has_score_for(entry_id):
-                return
-
-            score = room.set_score(entry_id, roll_score(), "auto")
-            await self._broadcast_score(room_id, score)
-        finally:
-            room.end_score_settle(entry_id)
 
     async def _toggle_playback_state(self, playback_state: Literal["play", "pause"]):
         command = "play_song" if playback_state == "play" else "pause_song"
@@ -221,7 +188,7 @@ class ClientCommands:
         if not entry or state.play_state == "finished":
             return False
 
-        if state.current_time < MIN_SCORED_SECONDS or self.room.has_score_for(entry.id):
+        if state.current_time < MIN_SCORED_SECONDS:
             return False
 
         # Finishing rather than scoring here leaves the grace window open, so a
@@ -334,11 +301,11 @@ class ControllerCommands(ClientCommands):
         if state.current_time < MIN_SCORED_SECONDS:
             return
 
-        if self.room.has_score_for(entry_id):
-            return
-
-        score = self.room.set_score(entry_id, score_from_performance(payload["performance"]), "mic")
-        await self._broadcast_score(self.client.room_id, score)
+        await self.session_manager.broadcast_to_room_displays(
+            self.client.room_id,
+            "score_reading",
+            {"entry_id": entry_id, "performance": payload["performance"]},
+        )
 
     async def set_autoplay(self, payload):
         changed = self.room.set_autoplay(payload["enabled"])
@@ -359,6 +326,21 @@ class DisplayCommands(ClientCommands):
 
     async def queue_update(self, queue_data):
         await self.session_manager.broadcast_to_room_controllers(self.client.room_id, "queue_update", queue_data)
+
+    async def publish_score(self, payload):
+        if not self.session_manager.is_display_leader(self.client):
+            return
+
+        await self.session_manager.broadcast_to_room(
+            self.client.room_id,
+            "score",
+            {
+                "entry_id": payload["entry_id"],
+                "score": payload["score"],
+                "source": payload["source"],
+                "timestamp": time.time(),
+            },
+        )
 
     async def video_loaded(self, payload):
         # Only allow leader displays to broadcast video loaded state

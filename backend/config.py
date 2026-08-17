@@ -4,6 +4,10 @@ Configuration settings for PWA Karaoke backend.
 import os
 
 
+def _list_env(name: str) -> list[str]:
+    return [part.strip() for part in os.getenv(name, "").split(",") if part.strip()]
+
+
 def _float_env(name: str, default: float) -> float:
     try:
         return float(os.getenv(name, ""))
@@ -21,6 +25,7 @@ class Config:
     YTDLP_TIMEOUT_SECONDS: float = _float_env("YTDLP_TIMEOUT_SECONDS", 45.0)  # Hard limit per yt-dlp invocation
     YTDLP_EXTRA_ARGS: str = os.getenv("YTDLP_EXTRA_ARGS", "")  # Extra CLI flags, shell quoted
     SEARCH_TIMEOUT_SECONDS: float = _float_env("SEARCH_TIMEOUT_SECONDS", 20.0)  # Hard limit per search
+    KARAOKE_SOURCES: list[str] = _list_env("KARAOKE_SOURCES")  # Provider IDs to enable; empty enables all
 
 
 # Global configuration instance

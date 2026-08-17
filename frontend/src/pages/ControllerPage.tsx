@@ -315,6 +315,9 @@ function PlayerTab({ notice }: { notice: string | null }) {
   const volumePerc = Math.round(volume * 100);
   const isPlaying = playerState?.play_state === "playing";
   const hasEntry = Boolean(playerState?.entry);
+  // Nothing is mounted to play or pause while the display is on the score or
+  // holding what is up next
+  const isFinished = hasEntry && playerState?.play_state === "finished";
 
   // Clear optimistic volume once the server state catches up
   useEffect(() => {
@@ -408,7 +411,7 @@ function PlayerTab({ notice }: { notice: string | null }) {
       <Panel className="p-3">
         <div className="flex items-center gap-3 mb-3 border-b-2 border-ka-line pb-2">
           <Text font="display" size="lg" weight="bold" tone={isPlaying ? "accent" : "dim"} className="flex-1">
-            {isPlaying ? "Playing" : hasEntry ? "Paused" : "Stopped"}
+            {isPlaying ? "Playing" : isFinished ? "Finished" : hasEntry ? "Paused" : "Stopped"}
           </Text>
           {playerState?.entry?.uploader && (
             <Text size="xs" tone="dim" truncate className="max-w-40">
@@ -447,7 +450,7 @@ function PlayerTab({ notice }: { notice: string | null }) {
           label={isPlaying ? "Pause" : "Play"}
           showLabel
           onClick={handlePlayerPlayback}
-          disabled={!hasEntry || isPlaybackLoading}
+          disabled={!hasEntry || isFinished || isPlaybackLoading}
           variant="accent"
           className="py-4"
         />

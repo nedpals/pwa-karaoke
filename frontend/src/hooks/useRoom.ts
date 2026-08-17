@@ -7,6 +7,13 @@ import type { DisplayPlayerState, KaraokeQueue, KaraokeEntry, ReactionEvent, Rea
 
 type ClientType = "controller" | "display";
 
+// Commands a screen carries out report how many heard them, so a remote can
+// say nothing happened rather than look like it worked
+async function screensAck(pending: Promise<unknown>): Promise<{ screens: number }> {
+  const ack = (await pending) as { result?: { screens?: number } };
+  return { screens: ack?.result?.screens ?? 0 };
+}
+
 export interface RoomState {
   // Room status
   roomId: string | null;
@@ -31,6 +38,8 @@ export interface RoomState {
   score: SongScore | null;
   /** A remote asked to move on. The leader display decides what that means. */
   skipRequest: { at: number } | null;
+  /** A remote asked to play or pause. The leader display carries it out. */
+  playbackRequest: { state: "playing" | "paused"; at: number } | null;
   scoringTurn: boolean;
   scoreReading: { itemId: string; performance: number; at: number } | null;
   scoringActive: boolean;
@@ -53,8 +62,8 @@ export interface RoomActions {
   // Controller commands (implemented here)
   queueSong: (entry: KaraokeEntry) => Promise<unknown>;
   removeSong: (id: string) => Promise<unknown>;
-  playSong: () => Promise<unknown>;
-  pauseSong: () => Promise<unknown>;
+  playSong: () => Promise<{ screens: number }>;
+  pauseSong: () => Promise<{ screens: number }>;
   playNext: (options?: { fromItemId?: string | null }) => Promise<unknown>;
   skipSong: () => Promise<{ screens: number }>;
   queueNextSong: (entryId: string) => void;
@@ -88,6 +97,7 @@ export function useRoom(clientType: ClientType, nickname?: string | null): UseRo
   const [lastReaction, setLastReaction] = useState<ReactionEvent | null>(null);
   const [score, setScore] = useState<SongScore | null>(null);
   const [skipRequest, setSkipRequest] = useState<RoomState["skipRequest"]>(null);
+  const [playbackRequest, setPlaybackRequest] = useState<RoomState["playbackRequest"]>(null);
   const [scoringTurn, setScoringTurn] = useState(false);
   const [scoreReading, setScoreReading] = useState<RoomState["scoreReading"]>(null);
   const [scoringActive, setScoringActive] = useState(false);
@@ -244,21 +254,18 @@ export function useRoom(clientType: ClientType, nickname?: string | null): UseRo
         });
         break;
       }
-      // A finished song is not resumable, so these are ignored rather than
-      // allowed to restart it out from under the score screen
+      // Requests, not state. The leader carries them out and reports back, so
+      // the room's play state stays something a screen observed rather than
+      // something every client guessed at separately.
       case "play_song":
-        setPlayerState((prev) =>
-          prev && prev.entry && prev.play_state !== "finished"
-            ? { ...prev, play_state: "playing" }
-            : prev,
-        );
+        if (clientType === "display") {
+          setPlaybackRequest({ state: "playing", at: Date.now() });
+        }
         break;
       case "pause_song":
-        setPlayerState((prev) =>
-          prev && prev.entry && prev.play_state !== "finished"
-            ? { ...prev, play_state: "paused" }
-            : prev,
-        );
+        if (clientType === "display") {
+          setPlaybackRequest({ state: "paused", at: Date.now() });
+        }
         break;
       case "leader_status":
         if (clientType === "display") {
@@ -316,6 +323,7 @@ export function useRoom(clientType: ClientType, nickname?: string | null): UseRo
       setLastReaction(null);
       setScore(null);
       setSkipRequest(null);
+      setPlaybackRequest(null);
       setScoringTurn(false);
       setScoreReading(null);
       setScoringActive(false);
@@ -349,6 +357,7 @@ export function useRoom(clientType: ClientType, nickname?: string | null): UseRo
     lastReaction,
     score,
     skipRequest,
+    playbackRequest,
     scoringTurn,
     scoreReading,
     scoringActive,
@@ -365,8 +374,8 @@ export function useRoom(clientType: ClientType, nickname?: string | null): UseRo
     // Action commands (implemented here)
     queueSong: (entry: KaraokeEntry) => ws.sendCommandWithAck("queue_song", entry),
     removeSong: (id: string) => ws.sendCommandWithAck("remove_song", { entry_id: id }),
-    playSong: () => ws.sendCommandWithAck("play_song"),
-    pauseSong: () => ws.sendCommandWithAck("pause_song"),
+    playSong: () => screensAck(ws.sendCommandWithAck("play_song")),
+    pauseSong: () => screensAck(ws.sendCommandWithAck("pause_song")),
     playNext: (options?: { fromItemId?: string | null }) => {
       // Only leader displays should trigger next song
       if (clientType === "display" && !isLeader) {
@@ -381,12 +390,7 @@ export function useRoom(clientType: ClientType, nickname?: string | null): UseRo
     },
     // A remote asks; the leader display decides whether that means scoring the
     // song first or moving straight on
-    skipSong: async () => {
-      const ack = (await ws.sendCommandWithAck("skip_song")) as {
-        result?: { screens?: number };
-      };
-      return { screens: ack?.result?.screens ?? 0 };
-    },
+    skipSong: () => screensAck(ws.sendCommandWithAck("skip_song")),
     queueNextSong: (entryId: string) => ws.sendCommand("queue_next_song", { entry_id: entryId }),
     // The room hands the same URL to every screen and to the next reload, so a
     // link that stopped playing has to be replaced at the source

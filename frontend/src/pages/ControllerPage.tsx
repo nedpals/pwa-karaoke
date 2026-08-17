@@ -380,10 +380,10 @@ function PlayerTab({ notice }: { notice: string | null }) {
     setErrorMessage(null);
 
     try {
-      if (isPlaying) {
-        await pauseSong();
-      } else {
-        await playSong();
+      const { screens } = isPlaying ? await pauseSong() : await playSong();
+      if (screens === 0) {
+        setErrorMessage("No screen is connected to this room.");
+        setTimeout(() => setErrorMessage(null), 3000);
       }
     } catch (error) {
       console.error("Failed to control playback:", error);

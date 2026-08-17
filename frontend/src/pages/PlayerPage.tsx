@@ -879,6 +879,7 @@ function PlayerStateProviderInternal({ children }: { children: React.ReactNode }
     isLeader,
     playNext,
     skipRequest,
+    playbackRequest,
     scoreReading,
     publishScore,
     announceScoring,
@@ -1124,8 +1125,9 @@ function PlayerStateProviderInternal({ children }: { children: React.ReactNode }
     endSong(itemId, playedSeconds, false);
   }, [endSong]);
 
-  // Keyed on the request, so a re-render cannot skip twice
+  // Keyed on the request, so a re-render cannot act on one twice
   const handledSkip = useRef<number | null>(null);
+  const handledPlayback = useRef<number | null>(null);
 
   // A remote pressed Next. Only a screen knows how far the song got, so the
   // choice between scoring it and moving straight on is made here.
@@ -1156,6 +1158,27 @@ function PlayerStateProviderInternal({ children }: { children: React.ReactNode }
 
     endSong(itemId, current.current_time, true);
   }, [skipRequest, endSong]);
+
+  // A remote asked to play or pause. The leader reports the change and every
+  // screen follows the room, rather than each guessing at it separately.
+  useEffect(() => {
+    if (!playbackRequest || handledPlayback.current === playbackRequest.at) return;
+
+    handledPlayback.current = playbackRequest.at;
+
+    const current = playerStateRef.current;
+    if (!current?.entry || current.play_state === playbackRequest.state) return;
+
+    // Finished and error are the room's, not a remote's, to undo
+    if (current.play_state === "finished" || current.play_state === "error") return;
+
+    updatePlayerStateRef.current({
+      ...current,
+      play_state: playbackRequest.state,
+      version: Date.now(),
+      timestamp: Date.now(),
+    });
+  }, [playbackRequest]);
 
   useEffect(() => {
     scoringRef.current = null;

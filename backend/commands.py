@@ -86,8 +86,15 @@ class ClientCommands:
                 pass
 
     async def _toggle_playback_state(self, playback_state: Literal["play", "pause"]):
+        """Pass a remote's play or pause to the screens.
+
+        Same shape as a skip: the room does not set its own play state, it
+        learns it from the leader's report of what the element actually did.
+        """
         command = "play_song" if playback_state == "play" else "pause_song"
+        displays = self.session_manager.get_room_displays(self.client.room_id)
         await self.session_manager.broadcast_to_room_displays(self.client.room_id, command, {})
+        return {"screens": len(displays)}
 
     async def _broadcast_room_state(self, should_prefetch: bool = True):
         # Broadcast queue update to all clients
@@ -224,10 +231,10 @@ class ControllerCommands(ClientCommands):
         await self._broadcast_room_state()
 
     async def play_song(self, _: None):
-        await self._toggle_playback_state("play")
+        return await self._toggle_playback_state("play")
 
     async def pause_song(self, _: None):
-        await self._toggle_playback_state("pause")
+        return await self._toggle_playback_state("pause")
 
     async def player_state(self, _state):
         await self._update_player_state(_state)

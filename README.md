@@ -120,13 +120,11 @@ Pressing **Next** always skips to the next reserved song, whatever the toggle is
 
 ### Scoring
 
-Every song gets a score when it ends, and skipping one still scores it. The display switches to a scoring screen, spins through digits until the score lands, holds it for a few seconds and moves on to whatever is reserved next. A song that played for less than five seconds is not scored.
+Every song is scored when it ends, and skipping one still scores it. The display spins through digits until the score lands, holds it, then moves on. Anything that played for less than five seconds is not scored.
 
-A controller opens with a **Mic Check**, the same way a display opens with a Sound Check. Allowing it lets the phone score singing through its microphone, measuring how much of the song was sung above the room's noise floor and how loudly. The audio stays on the phone and only the resulting number is sent.
+A controller opens with a **Mic Check**, the same way a display opens with a Sound Check. Allowing it scores singing through the phone's microphone, with the audio staying on the device and only the score sent. Only the remote that reserved the song listens.
 
-Choosing **Not Now**, denying the browser prompt, or reaching the app over plain `http` on a LAN address, where microphones are unavailable, all leave scoring running without one and the score is made up instead. Both land in the same range, so the screen looks the same either way.
-
-Only the remote that reserved the song listens, so several phones in one room do not all measure the same singer. A footnote in the Player tab says whether the microphone is on and whether the song on screen is yours.
+Declining, denying the browser, or reaching the app over plain `http`, where microphones are unavailable, leaves the machine to invent the score instead. Both land in the same range.
 
 ### Development
 

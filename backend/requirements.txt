@@ -56,5 +56,6 @@ uvloop==0.21.0
 watchfiles==1.1.0
 websockets==15.0.1
 yarl==1.20.1
-yt-dlp==2025.12.8
-yt-dlp-ejs==0.3.2
+
+# yt-dlp and yt-dlp-ejs are installed unpinned, and together, in their own
+# layer. See the Dockerfile.

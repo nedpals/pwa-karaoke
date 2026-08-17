@@ -19,6 +19,7 @@ from websocket_errors import WebSocketErrorType, create_error_response
 from websocket_models import validate_websocket_message, QUIET_COMMANDS
 from session_manager import SessionManager
 from cache_store import get_cache_store, set_cache_store, clear_cache_store, CacheStore
+from source_providers.youtube import ytdlp_version, YtdlpError
 
 # Request/Response models
 class CreateRoomRequest(BaseModel):
@@ -49,6 +50,11 @@ async def lifespan(app: FastAPI):
     cache = CacheStore()
     set_cache_store(cache)
     print(f"[STARTUP] Cache initialized: {cache.get_stats()}")
+
+    try:
+        print(f"[STARTUP] yt-dlp version: {await ytdlp_version()}")
+    except YtdlpError as e:
+        print(f"[STARTUP] yt-dlp unavailable, video playback will fail: {e}")
 
     yield
 

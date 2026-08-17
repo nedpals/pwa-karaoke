@@ -11,6 +11,8 @@ A FastAPI-based WebSocket server for managing karaoke rooms, song queues, and pl
   - [Configuration](#configuration)
 - [Source Providers](#source-providers)
   - [Creating a New Source Provider](#creating-a-new-source-provider)
+  - [Registration](#registration)
+  - [Health](#health)
   - [Provider Interface](#provider-interface)
   - [Built-in Providers](#built-in-providers)
 - [HTTP API Endpoints](#http-api-endpoints)
@@ -163,19 +165,35 @@ class BasicVideoProvider(KaraokeSourceProvider):
 
 ### Registration
 
-Add your provider to the service in `services/karaoke_service.py`:
+Add your provider to the shared registry in `services/karaoke_service.py`:
 
 ```python
 from source_providers.basic_provider import BasicVideoProvider
 
-class KaraokeService:
-    def __init__(self, cache):
-        self.source_providers = [
-            YTKaraokeSourceProvider(),
-            BasicVideoProvider(),  # Add your provider here
-        ]
-        self.cache = cache
+SOURCE_PROVIDERS: list[KaraokeSourceProvider] = [
+    YTKaraokeSourceProvider(),
+    BasicVideoProvider(),  # Add your provider here
+]
 ```
+
+Providers are constructed once and shared across requests, so anything a provider accumulates survives between calls.
+
+### Health
+
+A provider is assumed usable by default. If yours depends on something that can break on its own, such as an external tool or an API credential, override `check_health` to report it:
+
+```python
+class BasicVideoProvider(KaraokeSourceProvider):
+    async def check_health(self) -> dict:
+        try:
+            await your_api_ping()
+            self.health.record_ok()
+        except Exception as e:
+            self.health.record_failure(str(e), fatal=True)
+        return self.health.snapshot()
+```
+
+Every provider's state is reported under `sources` on `/health`, which returns 503 once no provider can resolve a video.
 
 ### Lazy Loading with get_video_url
 

@@ -3,13 +3,14 @@ import json
 import os
 import random
 import shlex
+import time
 from concurrent.futures import ThreadPoolExecutor
-from typing import Optional, Union
+from typing import NamedTuple, Optional, Union
 from urllib.parse import urlparse, urlunparse
 
 import yt_dlp
 
-from core.search import KaraokeSourceProvider, KaraokeSearchResult, KaraokeEntry, VideoURLResult
+from core.search import KaraokeSourceProvider, KaraokeSearchResult, KaraokeEntry, VideoURLResult, ProviderHealth
 from config import config
 
 PLAYER_CLIENT = "android_sdkless"
@@ -34,6 +35,9 @@ RETRYABLE_ERROR_MARKERS = (
 
 KILL_GRACE_SECONDS = 5.0
 
+# How long a failed probe is trusted before /health tries again.
+PROBE_INTERVAL_SECONDS = 60.0
+
 
 class YtdlpError(Exception):
     def __init__(self, message: str, returncode: Optional[int] = None, stderr: str = ""):
@@ -52,6 +56,54 @@ class YtdlpTimeout(YtdlpError):
 
 class YtdlpMissing(YtdlpError):
     pass
+
+
+class ExtractionOutcome(NamedTuple):
+    url: Optional[str]
+    # True when the attempt failed for a reason that says nothing about this
+    # particular video, so the result is not worth remembering.
+    environmental_failure: bool
+
+
+class YtdlpHealth(ProviderHealth):
+    """
+    Provider health backed by a version probe of the yt-dlp binary.
+
+    Starts unavailable because the binary has to be confirmed before anything
+    can be resolved.
+    """
+
+    def __init__(self):
+        super().__init__(available=False)
+        self.last_probe_at: float = 0.0
+        self._lock = asyncio.Lock()
+
+    async def probe(self, force: bool = False) -> dict:
+        """
+        Refresh the version probe.
+
+        Skipped while the binary is known good and rate limited otherwise, so
+        /health can call it on every request. Probing on the way back up is what
+        lets an install into a running container recover without a restart.
+        """
+        if not force and self.available and self.version:
+            return self.snapshot()
+
+        async with self._lock:
+            if not force and self.available and self.version:
+                return self.snapshot()
+
+            now = time.time()
+            if not force and now - self.last_probe_at < PROBE_INTERVAL_SECONDS:
+                return self.snapshot()
+            self.last_probe_at = now
+
+            try:
+                self.record_ok(version=await ytdlp_version())
+            except YtdlpError as e:
+                self.record_failure(e.details, fatal=True)
+
+        return self.snapshot()
 
 
 def proxy_url() -> Optional[str]:
@@ -179,6 +231,7 @@ def select_stream_url(info: dict) -> Optional[str]:
 class YTKaraokeSourceProvider(KaraokeSourceProvider):
     def __init__(self, allowed_channels: list[str] = None, karaoke_keywords: list[str] = None):
         super().__init__()
+        self.health = YtdlpHealth()
         # Examples: ["KaraFun", "Sing King", "Lucky Voice", "Karaoke Mugen"]
         self.allowed_channels = allowed_channels or []
         self.karaoke_keywords = karaoke_keywords or ["karaoke", "instrumental", "backing track", "sing along"]
@@ -186,6 +239,9 @@ class YTKaraokeSourceProvider(KaraokeSourceProvider):
     @property
     def provider_id(self) -> str:
         return "youtube"
+
+    async def check_health(self) -> dict:
+        return await self.health.probe()
 
 
     @staticmethod
@@ -306,32 +362,53 @@ class YTKaraokeSourceProvider(KaraokeSourceProvider):
 
         # Construct YouTube URL from video ID
         youtube_url = f"https://www.youtube.com/watch?v={entry.id}"
-        video_url = await self._get_raw_video_url(youtube_url)
+        outcome = await self._get_raw_video_url(youtube_url)
 
-        if video_url:
+        if outcome.url:
             return VideoURLResult(
-                video_url=video_url,
+                video_url=outcome.url,
                 cache_ttl_seconds=4 * 3600,  # 4 hours - YouTube URLs are stable
                 cacheable=True
             )
-        else:
-            return VideoURLResult(
-                video_url=None,
-                cache_ttl_seconds=30 * 60,  # 30 minutes for failures
-                cacheable=True
-            )
+
+        # A missing binary, a timeout or a blocked proxy is our problem, not
+        # this video's. Caching it would keep the song unplayable for another
+        # 30 minutes after the cause is fixed, so let the next attempt retry.
+        return VideoURLResult(
+            video_url=None,
+            cache_ttl_seconds=30 * 60,  # 30 minutes for failures
+            cacheable=not outcome.environmental_failure
+        )
 
     @staticmethod
-    def _should_retry(error: Exception) -> bool:
-        if isinstance(error, YtdlpMissing):
-            return False
-        if isinstance(error, YtdlpTimeout):
+    def _is_environmental(error: Exception) -> bool:
+        """
+        Whether a failure is about the extractor or the network rather than
+        the video itself. A private or deleted video is a stable answer worth
+        caching; a dead proxy is not.
+        """
+        if isinstance(error, (YtdlpMissing, YtdlpTimeout)):
             return True
 
-        details = error.details if isinstance(error, YtdlpError) else str(error)
+        if isinstance(error, YtdlpError):
+            # No exit code means yt-dlp never ran or never produced usable output.
+            if error.returncode is None:
+                return True
+            details = error.details
+        else:
+            details = str(error)
+
         return any(marker in details.lower() for marker in RETRYABLE_ERROR_MARKERS)
 
-    async def _get_raw_video_url(self, youtube_url: str, max_retries: int = 3, base_delay: float = 1.0) -> Optional[str]:
+    @classmethod
+    def _should_retry(cls, error: Exception) -> bool:
+        # A missing binary will not appear part way through the loop, so
+        # retrying only delays the failure.
+        if isinstance(error, YtdlpMissing):
+            return False
+        return cls._is_environmental(error)
+
+    async def _get_raw_video_url(self, youtube_url: str, max_retries: int = 3, base_delay: float = 1.0) -> ExtractionOutcome:
         """
         Extract raw video URL by running the yt-dlp CLI.
         Returns the best quality video stream URL.
@@ -349,13 +426,16 @@ class YTKaraokeSourceProvider(KaraokeSourceProvider):
                     "--extractor-args", f"youtube:player_client={PLAYER_CLIENT}",
                     youtube_url,
                 ])
-                return select_stream_url(info)
+                self.health.record_ok()
+                return ExtractionOutcome(select_stream_url(info), False)
 
             except YtdlpMissing as e:
+                self.health.record_failure(str(e), fatal=True)
                 print(f"[YTDLP] {e}")
-                return None
+                return ExtractionOutcome(None, True)
 
             except Exception as e:
+                environmental = self._is_environmental(e)
                 detail = e.details if isinstance(e, YtdlpError) else str(e)
 
                 if attempt < max_retries and self._should_retry(e):
@@ -365,11 +445,18 @@ class YTKaraokeSourceProvider(KaraokeSourceProvider):
                     await asyncio.sleep(delay)
                     continue
 
+                if environmental:
+                    self.health.record_failure(detail, fatal=isinstance(e, YtdlpMissing))
+                else:
+                    # yt-dlp ran and gave a verdict on the video, so the
+                    # extractor itself is working.
+                    self.health.record_ok()
+
                 print(f"[YTDLP] Failed to extract video URL for {youtube_url} after {attempt + 1} attempts")
                 print(f"[YTDLP] Final error: {detail}")
-                return None
+                return ExtractionOutcome(None, environmental)
 
-        return None
+        return ExtractionOutcome(None, True)
 
     async def close(self):
         # No cleanup needed for yt-dlp

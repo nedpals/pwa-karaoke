@@ -2,19 +2,46 @@ from pydantic import BaseModel
 from typing_extensions import Annotated
 from fastapi import Depends
 
-from core.search import KaraokeSearchResult, KaraokeEntry, VideoURLResult
+from core.search import KaraokeSearchResult, KaraokeEntry, VideoURLResult, KaraokeSourceProvider
 from source_providers.youtube import YTKaraokeSourceProvider
 from cache_store import get_cache_store, CacheStore
+
+# Providers are shared rather than rebuilt per request. KaraokeService is
+# constructed through Depends on every call, so anything a provider accumulates
+# (health, sessions, rate limit state) would otherwise reset each time.
+# Register additional providers here.
+SOURCE_PROVIDERS: list[KaraokeSourceProvider] = [
+    YTKaraokeSourceProvider()
+]
 
 class VideoURLResponse(BaseModel):
     video_url: str | None
 
 class KaraokeService:
     def __init__(self, cache: Annotated[CacheStore, Depends(get_cache_store)] = None):
-        self.source_providers = [
-            YTKaraokeSourceProvider()
-        ]
+        self.source_providers = SOURCE_PROVIDERS
         self.cache = cache
+
+    async def get_health(self) -> dict:
+        """
+        Per-provider health, plus whether any provider can still resolve a
+        video. Playback is only impossible once every provider is down.
+        """
+        providers = {}
+        for provider in self.source_providers:
+            try:
+                providers[provider.provider_id] = await provider.check_health()
+            except Exception as e:
+                print(f"[SERVICE] Health check failed for {provider.provider_id}: {e}")
+                providers[provider.provider_id] = {
+                    "available": False,
+                    "last_error": str(e)[:500]
+                }
+
+        return {
+            "available": any(p.get("available") for p in providers.values()),
+            "providers": providers
+        }
 
     async def search(self, query: str):
         # Direct search without caching for now

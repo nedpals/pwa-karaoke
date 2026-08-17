@@ -31,11 +31,11 @@ class ClientCommands:
         
     async def _receive_current_state(self):
         if not self.client.room_id:
-            await self.client.send_command("client_count", 0)
+            await self.client.send_command("client_count", {"total": 0, "controllers": 0, "displays": 0})
             return
         
         # Send the current player_state and queue to the client
-        await self.client.send_command("client_count", self.session_manager.get_room_client_count(self.client.room_id))
+        await self.client.send_command("client_count", self.session_manager.get_room_client_counts(self.client.room_id))
         await self.client.send_command("queue_update", self.room.get_queue_update_payload())
         await self.client.send_command("room_settings", self.room.get_settings_payload())
         if self.room.player_state:

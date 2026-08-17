@@ -531,8 +531,7 @@ function ReactionLayer() {
 
 function StatusStrip() {
   const { isOffline } = useServerStatus();
-  const { clientCount: rawClientCount, roomId, nickname, autoplay } = useRoomContext();
-  const clientCount = Math.max(rawClientCount - 1, 0);
+  const { controllerCount, roomId, nickname, autoplay } = useRoomContext();
 
   return (
     <Panel tone="overlay" className="flex items-stretch divide-x-2 divide-ka-line">
@@ -567,7 +566,7 @@ function StatusStrip() {
           Controllers
         </Text>
         <Text font="mono" size="sm" tone="accent">
-          {clientCount.toString().padStart(2, "0")}
+          {controllerCount.toString().padStart(2, "0")}
         </Text>
       </div>
       {!autoplay && (
@@ -880,7 +879,7 @@ function PlayerStateProviderInternal({ children }: { children: React.ReactNode }
   const {
     connected,
     playerState: rawPlayerState,
-    clientCount,
+    controllerCount,
     updatePlayerState,
     lastQueueCommand,
     isLeader,
@@ -910,9 +909,10 @@ function PlayerStateProviderInternal({ children }: { children: React.ReactNode }
     if (!connected) return "connecting";
     if (scoring) return "scoring";
     if (playerState?.entry) return "playing";
-    // If no entry is set, we are ready to play
-    return clientCount > 1 ? "ready" : "connected";
-  }, [hasInteracted, connected, scoring, playerState?.entry, clientCount]);
+    // Nothing can be reserved until a phone is on, so until then the screen
+    // shows how to connect one rather than inviting a song
+    return controllerCount > 0 ? "ready" : "connected";
+  }, [hasInteracted, connected, scoring, playerState?.entry, controllerCount]);
 
   const scoringRef = useRef<ScoringSession | null>(null);
   const judged = useRef<string | null>(null);

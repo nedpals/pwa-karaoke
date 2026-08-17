@@ -32,6 +32,8 @@ export interface RoomState {
 
   // Room data
   clientCount: number;
+  /** Phones in the room. A screen cannot reserve anything, so it is not one. */
+  controllerCount: number;
   queue: KaraokeQueue | null;
   upNextQueue: KaraokeQueue | null;
   playerState: DisplayPlayerState | null;
@@ -351,7 +353,8 @@ export function useRoom(clientType: ClientType, nickname?: string | null): UseRo
     // WebSocket state (forwarded)
     connected: ws.connected,
     hasJoinedRoom: ws.hasJoinedRoom,
-    clientCount: ws.clientCount,
+    clientCount: ws.clientCounts.total,
+    controllerCount: ws.clientCounts.controllers,
 
     // Room-specific state (managed here)
     queue,

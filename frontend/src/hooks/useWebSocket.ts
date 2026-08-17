@@ -5,10 +5,18 @@ import { getDeviceId } from "../lib/deviceId";
 type ClientType = "controller" | "display";
 type WebSocketMessage = [string, unknown];
 
+export interface ClientCounts {
+  total: number;
+  controllers: number;
+  displays: number;
+}
+
+const NO_CLIENTS: ClientCounts = { total: 0, controllers: 0, displays: 0 };
+
 export interface WebSocketState {
   connected: boolean;
   hasJoinedRoom: boolean;
-  clientCount: number;
+  clientCounts: ClientCounts;
   lastMessage: [string, unknown] | null;
 }
 
@@ -35,7 +43,7 @@ type PendingRequest = {
 
 export function useWebSocket(clientType: ClientType, initalAutoConnect = true): WebSocketReturn {
   const [autoConnect, setAutoConnect] = useState(initalAutoConnect);
-  const [clientCount, setClientCount] = useState(0);
+  const [clientCounts, setClientCounts] = useState<ClientCounts>(NO_CLIENTS);
   const [hasJoinedRoom, setHasJoinedRoom] = useState(false);
   const [lastMessage, setLastMessage] = useState<[string, unknown] | null>(null);
   const [pendingCommands, setPendingCommands] = useState<PendingCommand[]>([]);
@@ -159,7 +167,7 @@ export function useWebSocket(clientType: ClientType, initalAutoConnect = true): 
 
       switch (command) {
         case "client_count":
-          setClientCount(data as number);
+          setClientCounts({ ...NO_CLIENTS, ...(data as Partial<ClientCounts>) });
           break;
         case "ping":
           // Respond to server ping with pong
@@ -263,7 +271,7 @@ export function useWebSocket(clientType: ClientType, initalAutoConnect = true): 
     // State
     connected,
     hasJoinedRoom,
-    clientCount,
+    clientCounts,
     lastMessage,
 
     // Core actions

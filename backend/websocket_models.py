@@ -95,6 +95,19 @@ class JoinRoomPayload(BaseModel):
         return nickname or None
 
 # Mapping of commands to their expected payload types
+class PlaybackFailurePayload(BaseModel):
+    """Diagnostics from a display whose video never played."""
+    entry_id: str
+    error_code: Optional[int] = None       # MediaError.code
+    network_state: Optional[int] = None    # HTMLMediaElement.networkState
+    ready_state: Optional[int] = None      # HTMLMediaElement.readyState
+    duration: Optional[float] = None       # NaN arrives as null
+    buffered_end: Optional[float] = None
+    current_time: Optional[float] = None
+    seconds_since_src: Optional[float] = None
+    reason: Optional[str] = None           # "error" or "stalled"
+
+
 COMMAND_PAYLOAD_MAP = {
     "handshake": HandshakePayload,
     "join_room": JoinRoomPayload,
@@ -115,6 +128,7 @@ COMMAND_PAYLOAD_MAP = {
     "submit_score": SubmitScorePayload,
     "publish_score": PublishScorePayload,
     "scoring_state": ScoringStatePayload,
+    "playback_failed": PlaybackFailurePayload,
     "ack": AckPayload,
     # Commands without payload validation
     "play_song": dict,

@@ -90,10 +90,52 @@ function VideoPlayerComponent({
   onSongEnded: (playedSeconds: number) => void;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
-  const { updatePlayerState } = useRoomContext();
+  const { updatePlayerState, sendCommand } = useRoomContext();
   const { osd, playerState } = usePlayerState();
   const isBufferingRef = useRef(false);
   const hasNearingEndFiredRef = useRef(false);
+  const srcSetAtRef = useRef<number | null>(null);
+  const failureSentRef = useRef(false);
+
+  // A cross origin media request hides its HTTP status from us, so report the
+  // element's own state instead. Never reaching metadata means the request was
+  // rejected; stalling with metadata loaded means it was throttled.
+  const reportPlaybackFailure = useCallback(
+    (reason: "error" | "stalled") => {
+      const video = videoRef.current;
+      const entryId = playerState?.entry?.id;
+      if (!video || !entryId || failureSentRef.current) return;
+      failureSentRef.current = true;
+
+      const finite = (value: number) => (Number.isFinite(value) ? value : null);
+      sendCommand("playback_failed", {
+        entry_id: entryId,
+        reason,
+        error_code: video.error?.code ?? null,
+        network_state: video.networkState,
+        ready_state: video.readyState,
+        duration: finite(video.duration),
+        buffered_end: video.buffered.length ? finite(video.buffered.end(video.buffered.length - 1)) : null,
+        current_time: finite(video.currentTime),
+        seconds_since_src: srcSetAtRef.current ? (Date.now() - srcSetAtRef.current) / 1000 : null,
+      });
+    },
+    [playerState?.entry?.id, sendCommand],
+  );
+
+  // A song that never reaches metadata is the 00:00 case worth reporting.
+  useEffect(() => {
+    if (!videoUrl) return;
+    srcSetAtRef.current = Date.now();
+    failureSentRef.current = false;
+
+    const timer = setTimeout(() => {
+      const video = videoRef.current;
+      if (video && video.readyState < 1) reportPlaybackFailure("stalled");
+    }, 15000);
+
+    return () => clearTimeout(timer);
+  }, [videoUrl, reportPlaybackFailure]);
 
   const updateVersionedPlayerState = useCallback((partialState: Partial<DisplayPlayerState>) => {
     const versionedState = {
@@ -292,6 +334,7 @@ function VideoPlayerComponent({
         ref={videoRef}
         className="w-full h-full object-contain"
         autoPlay
+        onError={() => reportPlaybackFailure("error")}
         onPlay={(ev) => {
           if (playerState?.entry) {
             const video = ev.currentTarget;

@@ -8,6 +8,7 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import NamedTuple, Optional, Union
 from urllib.parse import urlparse, urlunparse
 
+import httpx
 import yt_dlp
 
 from core.search import KaraokeSourceProvider, KaraokeSearchResult, KaraokeEntry, VideoURLResult, ProviderHealth
@@ -228,6 +229,38 @@ def select_stream_url(info: dict) -> Optional[str]:
     return info.get("url")
 
 
+async def resolve_cdn_redirect(url: str) -> str:
+    """
+    Follow the googlevideo redirect chain and return the URL it lands on.
+
+    The first URL yt-dlp hands back is a front door that 302s to an actual CDN
+    node, and the redirected URL sometimes carries ipbypass=yes. Handing the
+    client the resolved URL costs one small request and may be the difference
+    between playing and stalling. Any failure returns the original untouched,
+    so this can only help.
+    """
+    if not config.FOLLOW_STREAM_REDIRECTS or not url:
+        return url
+
+    try:
+        async with httpx.AsyncClient(
+            follow_redirects=True,
+            timeout=config.STREAM_REDIRECT_TIMEOUT,
+            proxy=proxy_url(),
+        ) as client:
+            # One byte is enough to be carried through the redirect chain.
+            response = await client.get(url, headers={"Range": "bytes=0-0"})
+            final = str(response.url)
+    except Exception as e:
+        print(f"[YTDLP] Redirect resolution failed, using the original URL: {e}")
+        return url
+
+    if final != url:
+        print(f"[YTDLP] Redirect resolved: status={response.status_code} ipbypass={'ipbypass=yes' in final}")
+
+    return final
+
+
 class YTKaraokeSourceProvider(KaraokeSourceProvider):
     def __init__(self, allowed_channels: list[str] = None, karaoke_keywords: list[str] = None):
         super().__init__()
@@ -427,7 +460,10 @@ class YTKaraokeSourceProvider(KaraokeSourceProvider):
                     youtube_url,
                 ])
                 self.health.record_ok()
-                return ExtractionOutcome(select_stream_url(info), False)
+                url = select_stream_url(info)
+                if url:
+                    url = await resolve_cdn_redirect(url)
+                return ExtractionOutcome(url, False)
 
             except YtdlpMissing as e:
                 self.health.record_failure(str(e), fatal=True)

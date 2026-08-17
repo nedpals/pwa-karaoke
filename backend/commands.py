@@ -325,6 +325,26 @@ class DisplayCommands(ClientCommands):
     async def queue_update(self, queue_data):
         await self.session_manager.broadcast_to_room_controllers(self.client.room_id, "queue_update", queue_data)
 
+    async def playback_failed(self, payload):
+        """
+        Record why a display could not play a stream.
+
+        The browser cannot read the HTTP status of a cross origin media request,
+        so the media element's own state is the evidence: never reaching
+        metadata points at a rejected request, while stalling after metadata
+        loaded points at a throttled one.
+        """
+        data = payload if isinstance(payload, dict) else payload.model_dump()
+        ready = data.get("ready_state")
+        verdict = "never loaded (request likely rejected)" if not ready else "stalled after metadata (likely throttled)"
+
+        print(
+            f"[PLAYBACK] {verdict} entry={data.get('entry_id')} reason={data.get('reason')} "
+            f"error_code={data.get('error_code')} network_state={data.get('network_state')} "
+            f"ready_state={ready} duration={data.get('duration')} "
+            f"buffered_end={data.get('buffered_end')} after={data.get('seconds_since_src')}s"
+        )
+
     async def scoring_state(self, payload):
         if not self.session_manager.is_display_leader(self.client):
             return

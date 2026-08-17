@@ -323,6 +323,38 @@ class DisplayCommands(ClientCommands):
     async def queue_update(self, queue_data):
         await self.session_manager.broadcast_to_room_controllers(self.client.room_id, "queue_update", queue_data)
 
+    async def refresh_video_url(self, payload):
+        """Re-resolve the URL for the song on air, because it stopped playing.
+
+        Provider URLs expire, and the room hands the same dead one to every
+        screen and to the next reload, so it has to be replaced at the source
+        rather than retried.
+        """
+        if not self.session_manager.is_display_leader(self.client):
+            return {"refreshed": False}
+
+        state = self.room.player_state
+        entry = state.entry if state else None
+        if not entry or entry.id != payload["entry_id"]:
+            return {"refreshed": False}
+
+        response = await self.service.get_video_url(entry, refresh=True)
+        if not response.video_url:
+            print(f"[DEBUG] Could not re-resolve a URL for {entry.id}")
+            return {"refreshed": False}
+
+        entry.video_url = response.video_url
+        await self._update_player_state(DisplayPlayerState(
+            entry=entry,
+            play_state="buffering",
+            current_time=state.current_time,
+            duration=state.duration,
+            volume=state.volume,
+            version=int(time.time() * 1000),
+            timestamp=time.time()
+        ))
+        return {"refreshed": True}
+
     async def scoring_state(self, payload):
         if not self.session_manager.is_display_leader(self.client):
             return

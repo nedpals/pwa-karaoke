@@ -58,6 +58,7 @@ export interface RoomActions {
   playNext: (options?: { fromEntryId?: string | null }) => Promise<unknown>;
   skipSong: () => Promise<{ screens: number }>;
   queueNextSong: (entryId: string) => void;
+  refreshVideoUrl: (entryId: string) => Promise<{ refreshed: boolean }>;
   clearQueue: () => Promise<unknown>;
   setVolume: (volume: number) => Promise<unknown>;
   sendReaction: (reaction: ReactionType) => void;
@@ -389,6 +390,14 @@ export function useRoom(clientType: ClientType, nickname?: string | null): UseRo
       return { screens: ack?.result?.screens ?? 0 };
     },
     queueNextSong: (entryId: string) => ws.sendCommand("queue_next_song", { entry_id: entryId }),
+    // The room hands the same URL to every screen and to the next reload, so a
+    // link that stopped playing has to be replaced at the source
+    refreshVideoUrl: async (entryId: string) => {
+      const ack = (await ws.sendCommandWithAck("refresh_video_url", {
+        entry_id: entryId,
+      })) as { result?: { refreshed?: boolean } };
+      return { refreshed: Boolean(ack?.result?.refreshed) };
+    },
     clearQueue: () => ws.sendCommandWithAck("clear_queue"),
     setVolume: (volume: number) => ws.sendCommandWithAck("set_volume", { volume }),
     sendReaction: (reaction: ReactionType) => ws.sendCommand("send_reaction", { reaction }),

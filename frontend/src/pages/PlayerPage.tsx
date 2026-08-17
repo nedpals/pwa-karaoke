@@ -36,6 +36,12 @@ const JURY_GRACE_MS = 1000;
 
 const MIN_SCORED_SECONDS = 5;
 
+// Provider URLs expire mid-song. Two re-resolves, then the room is told the
+// disc is unreadable rather than left buffering at a dead link forever.
+const RECOVERY_ATTEMPTS = 2;
+// Generous, so a slow connection is never mistaken for a dead one
+const STALL_TIMEOUT_MS = 25000;
+
 interface Announcement {
   title: string;
   singer?: string | null;
@@ -97,10 +103,13 @@ function VideoPlayerComponent({
   onSongEnded: (playedSeconds: number) => void;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
-  const { updatePlayerState } = useRoomContext();
+  const { updatePlayerState, refreshVideoUrl, isLeader } = useRoomContext();
   const { osd, playerState } = usePlayerState();
   const isBufferingRef = useRef(false);
   const hasNearingEndFiredRef = useRef(false);
+  const attemptsRef = useRef<{ entryId: string | null; count: number }>({ entryId: null, count: 0 });
+  const recoveringRef = useRef(false);
+  const loadedUrlRef = useRef<string | null>(null);
 
   // Media events and interval ticks fire long after the render that made them,
   // so they read the room through a ref rather than a stale closure
@@ -140,7 +149,7 @@ function VideoPlayerComponent({
 
     // Held on its last frame. Starting it again replayed the skipped song
     // instead of handing over to the next one.
-    if (current.play_state === "finished") {
+    if (current.play_state === "finished" || current.play_state === "error") {
       if (!video.paused) video.pause();
       return;
     }
@@ -169,6 +178,16 @@ function VideoPlayerComponent({
     }
   }, []);
 
+  // A replacement URL for the same song reaches the same element, and swapping
+  // a source does nothing on its own
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video || !videoUrl || loadedUrlRef.current === videoUrl) return;
+
+    loadedUrlRef.current = videoUrl;
+    video.load();
+  }, [videoUrl]);
+
   // Handle play/pause state changes from controller commands. videoUrl is in
   // here because the element only mounts once a URL resolves, which can be long
   // after the song changed.
@@ -182,6 +201,60 @@ function VideoPlayerComponent({
     playerState?.current_time,
     applyPlaybackState,
   ]);
+
+  // A link that stopped playing is replaced at the source, and only then given
+  // up on. Retrying the same URL would fail the same way every time.
+  const recoverPlayback = useCallback((fresh = false) => {
+    const current = playerStateRef.current;
+    const entry = current?.entry;
+    if (!entry || recoveringRef.current || !isLeader) return;
+
+    const attempts = attemptsRef.current;
+    if (fresh || attempts.entryId !== entry.id) {
+      attempts.entryId = entry.id;
+      attempts.count = 0;
+    }
+
+    const giveUp = () => {
+      updateVersionedPlayerState({
+        entry,
+        play_state: "error",
+        current_time: current.current_time,
+        duration: current.duration,
+        volume: current.volume,
+      });
+    };
+
+    if (attempts.count >= RECOVERY_ATTEMPTS) {
+      giveUp();
+      return;
+    }
+
+    attempts.count += 1;
+    recoveringRef.current = true;
+    console.log(`[Player] Re-resolving a dead stream for ${entry.title} (${attempts.count}/${RECOVERY_ATTEMPTS})`);
+
+    refreshVideoUrl(entry.id)
+      .then(({ refreshed }) => {
+        if (!refreshed) giveUp();
+      })
+      .catch((error: unknown) => {
+        console.error("[Player] Could not re-resolve the stream:", error);
+        giveUp();
+      })
+      .finally(() => {
+        recoveringRef.current = false;
+      });
+  }, [isLeader, refreshVideoUrl, updateVersionedPlayerState]);
+
+  // Buffering has no natural end when the far side has stopped answering, so
+  // sitting in it past any plausible wait counts as the stream being gone
+  useEffect(() => {
+    if (playerState?.play_state !== "buffering") return;
+
+    const timer = window.setTimeout(() => recoverPlayback(), STALL_TIMEOUT_MS);
+    return () => window.clearTimeout(timer);
+  }, [playerState?.play_state, playerState?.entry?.id, recoverPlayback]);
 
   // Handle volume changes from controller
   useEffect(() => {
@@ -269,7 +342,11 @@ function VideoPlayerComponent({
     };
   }, [playerState?.entry]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  if (isLoadingVideoUrl) {
+  // The stream died after it started, which is a different failure from never
+  // having resolved one, and the room has to be told rather than left waiting
+  const streamFailed = playerState?.play_state === "error";
+
+  if (isLoadingVideoUrl && !streamFailed) {
     return (
       <div className="h-full w-full flex items-center justify-center">
         <Panel className="px-10 py-8 flex flex-col items-center gap-4 max-w-3xl">
@@ -285,7 +362,7 @@ function VideoPlayerComponent({
     );
   }
 
-  if (!videoUrl) {
+  if (!videoUrl || streamFailed) {
     if (!playerState?.entry) return null;
 
     return (
@@ -298,19 +375,27 @@ function VideoPlayerComponent({
             {playerState.entry.artist} - {playerState.entry.title}
           </Text>
           <Text tone="dim">
-            No stream available from {playerState.entry.source}
+            {streamFailed
+              ? `The stream from ${playerState.entry.source} stopped responding`
+              : `No stream available from ${playerState.entry.source}`}
           </Text>
-          {error && (
+          {error && !streamFailed && (
             <Text size="sm" tone="danger" font="mono">
               {error.message}
             </Text>
           )}
-          {retryCount > 0 && (
+          {retryCount > 0 && !streamFailed && (
             <Text size="sm" font="mono" tone="dim">
               Retry {retryCount}/3
             </Text>
           )}
-          {canRetry ? (
+          {streamFailed ? (
+            isLeader && (
+              <Button onClick={() => recoverPlayback(true)} variant="accent" size="lg">
+                Retry
+              </Button>
+            )
+          ) : canRetry ? (
             <Button onClick={onRetry} variant="accent" size="lg">
               Retry
             </Button>
@@ -321,6 +406,9 @@ function VideoPlayerComponent({
               </Text>
             )
           )}
+          <Text size="sm" tone="dim">
+            Press Next on a controller to move on.
+          </Text>
         </Panel>
       </div>
     );
@@ -405,6 +493,10 @@ function VideoPlayerComponent({
           applyPlaybackState(video);
         }}
         onCanPlayThrough={(ev) => applyPlaybackState(ev.currentTarget)}
+        onError={() => {
+          isBufferingRef.current = false;
+          recoverPlayback();
+        }}
         onEnded={(ev) => {
           const current = playerStateRef.current;
           if (!current?.entry || current.play_state === "finished") return;
@@ -1062,6 +1154,8 @@ function PlayerStateProviderInternal({ children }: { children: React.ReactNode }
     } else if (playerState.play_state === "buffering") {
       // No duration - shows until buffering ends
       setOSD({ label: "Buffering", visible: true });
+    } else if (playerState.play_state === "error") {
+      setOSD({ label: "", visible: false }, { clearTemporary: true });
     } else {
       // Nothing is running, so a sticky Pause or Buffering has nothing to say
       setOSD({ label: "", visible: false }, { clearTemporary: true });

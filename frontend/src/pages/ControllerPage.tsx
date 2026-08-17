@@ -345,11 +345,23 @@ function PlayerTab({ notice }: { notice: string | null }) {
   const hasEntry = Boolean(playerState?.entry);
   // Nothing is mounted to play or pause once the song is over
   const isFinished = hasEntry && playerState?.play_state === "finished";
+  // The stream stopped answering, so only Next gets the room moving again
+  const isStreamError = hasEntry && playerState?.play_state === "error";
   const isScoring = isFinished && scoringActive;
   // Stands in as the entry on air, so the panel needs no case of its own
   const nowPlaying = isScoring
     ? { title: "Scoring...", artist: "Unknown Artist", uploader: null }
     : playerState?.entry ?? null;
+
+  const playbackStatus = isPlaying || isScoring
+    ? "Playing"
+    : isStreamError
+      ? "Disc Error"
+      : isFinished
+        ? "Finished"
+        : hasEntry
+          ? "Paused"
+          : "Stopped";
 
   // Clear optimistic volume once the server state catches up
   useEffect(() => {
@@ -448,8 +460,14 @@ function PlayerTab({ notice }: { notice: string | null }) {
 
       <Panel className="p-3">
         <div className="flex items-center gap-3 mb-3 border-b-2 border-ka-line pb-2">
-          <Text font="display" size="lg" weight="bold" tone={isPlaying || isScoring ? "accent" : "dim"} className="flex-1">
-            {isPlaying || isScoring ? "Playing" : isFinished ? "Finished" : hasEntry ? "Paused" : "Stopped"}
+          <Text
+            font="display"
+            size="lg"
+            weight="bold"
+            tone={isStreamError ? "danger" : isPlaying || isScoring ? "accent" : "dim"}
+            className="flex-1"
+          >
+            {playbackStatus}
           </Text>
           {nowPlaying?.uploader && (
             <Text size="xs" tone="dim" truncate className="max-w-40">
@@ -488,7 +506,7 @@ function PlayerTab({ notice }: { notice: string | null }) {
           label={isPlaying ? "Pause" : "Play"}
           showLabel
           onClick={handlePlayerPlayback}
-          disabled={!hasEntry || isFinished || isPlaybackLoading}
+          disabled={!hasEntry || isFinished || isStreamError || isPlaybackLoading}
           variant="accent"
           className="py-4"
         />

@@ -7,7 +7,7 @@ class DisplayPlayerState(BaseModel):
     """Player state model for karaoke display and control"""
     entry: KaraokeEntry | None
     singer: str | None = None
-    play_state: Literal["playing", "paused", "finished", "buffering"]
+    play_state: Literal["playing", "paused", "finished", "buffering", "error"]
     current_time: float = Field(0.0, ge=0.0)
     duration: float = Field(0.0, ge=0.0) 
     volume: float = Field(1.0, ge=0.0, le=1.0)

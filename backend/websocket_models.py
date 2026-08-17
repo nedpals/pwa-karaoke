@@ -106,6 +106,7 @@ COMMAND_PAYLOAD_MAP = {
     "queue_song": QueueSongPayload,
     "remove_song": EntryIDPayload,
     "queue_next_song": EntryIDPayload,
+    "refresh_video_url": EntryIDPayload,
     "set_volume": SetVolumePayload,
     "set_autoplay": SetAutoplayPayload,
     "play_next": PlayNextPayload,

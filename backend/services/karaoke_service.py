@@ -95,8 +95,19 @@ class KaraokeService:
 
         return all_entries
 
-    async def get_video_url(self, entry: KaraokeEntry) -> VideoURLResponse:
-        """Get video URL for an entry using the appropriate provider based on source field"""
+    async def get_video_url(self, entry: KaraokeEntry, refresh: bool = False) -> VideoURLResponse:
+        """
+        Get video URL for an entry using the appropriate provider based on source field.
+
+        `refresh` re-resolves from the provider even when a URL is already in
+        hand, for the case where the one we have has stopped playing. Provider
+        URLs expire, so a cached copy of a dead link is worse than none.
+        """
+        if refresh:
+            if self.cache:
+                self.cache.invalidate_video_url(entry.id, entry.source)
+            entry = entry.model_copy(update={"video_url": None})
+
         # Return existing URL if already present
         if entry.video_url:
             return VideoURLResponse(video_url=entry.video_url)

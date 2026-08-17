@@ -4,7 +4,7 @@ from os import environ
 import time
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request, WebSocket, Depends, HTTPException, status
+from fastapi import FastAPI, Request, Response, WebSocket, Depends, HTTPException, status
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.websockets import WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
@@ -49,6 +49,13 @@ async def lifespan(app: FastAPI):
     cache = CacheStore()
     set_cache_store(cache)
     print(f"[STARTUP] Cache initialized: {cache.get_stats()}")
+
+    sources = await KaraokeService().get_health()
+    for provider_id, state in sources["providers"].items():
+        if state["available"]:
+            print(f"[STARTUP] Source ready: {provider_id} {state.get('version') or ''}".rstrip())
+        else:
+            print(f"[STARTUP] Source unavailable: {provider_id}: {state.get('last_error')}")
 
     yield
 
@@ -172,14 +179,26 @@ async def get_video_url(
     return await service.get_video_url(entry)
 
 @app.get("/health")
-async def get_health(cache: Annotated[CacheStore, Depends(get_cache)]):
+async def get_health(
+    cache: Annotated[CacheStore, Depends(get_cache)],
+    service: Annotated[KaraokeService, Depends()],
+    response: Response
+):
     """Get WebSocket connection health metrics"""
     health_metrics = session_manager.get_health_metrics()
     cache_stats = cache.get_stats()
 
+    # Reports unhealthy once no source can resolve a video, so the container
+    # healthcheck catches it rather than leaving songs to queue and stall.
+    # Providers re-probe here, which is what lets one recover without a restart.
+    sources = await service.get_health()
+    if not sources["available"]:
+        response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+
     return {
         **health_metrics,
-        "cache": cache_stats
+        "cache": cache_stats,
+        "sources": sources
     }
 
 @app.get("/heartbeat")

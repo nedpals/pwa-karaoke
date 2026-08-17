@@ -79,6 +79,7 @@ npm run build:prod
 # Start the server
 cd ../backend
 pip install -r requirements.txt
+pip install --upgrade yt-dlp yt-dlp-ejs
 python main.py
 ```
 

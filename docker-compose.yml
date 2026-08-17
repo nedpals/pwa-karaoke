@@ -7,6 +7,11 @@ services:
       - PROXY_USERNAME=${PROXY_USERNAME}
       - PROXY_PASSWORD=${PROXY_PASSWORD}
       - DOMAIN=${DOMAIN:-localhost}
+      # Refresh yt-dlp on every start so a restart is enough to pick up a new
+      # release. Set to 0 to stay on whatever the image was built with.
+      - YTDLP_AUTO_UPDATE=${YTDLP_AUTO_UPDATE:-1}
+      - YTDLP_TIMEOUT_SECONDS=${YTDLP_TIMEOUT_SECONDS:-45}
+      - YTDLP_EXTRA_ARGS=${YTDLP_EXTRA_ARGS:-}
     # Port 8000 is internal only - accessed via Caddy reverse proxy
     # Uncomment the ports section below for development/debugging
     # ports:

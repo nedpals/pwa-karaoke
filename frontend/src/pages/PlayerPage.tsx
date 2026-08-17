@@ -804,7 +804,10 @@ function ScoringStateScreen() {
 }
 
 function ReadyStateScreen() {
-  const { roomId, upNextQueue } = useRoomContext();
+  const { roomId, upNextQueue, autoplay } = useRoomContext();
+  const reservedCount = upNextQueue?.items.length ?? 0;
+  // Songs are waiting and autoplay will not start them, so say what will
+  const waitingOnPlay = !autoplay && reservedCount > 0;
 
   return (
     <div className="relative h-screen w-screen">
@@ -812,8 +815,14 @@ function ReadyStateScreen() {
 
       <div className="relative z-10 h-full w-full flex flex-col items-center justify-center gap-8 title-safe">
         <Text font="display" weight="bold" stencil className="text-7xl md:text-9xl text-center">
-          Select a Song
+          {waitingOnPlay ? "Ready to Start" : "Select a Song"}
         </Text>
+
+        {waitingOnPlay && (
+          <Text size="xl" tone="dim">
+            Press Play on the controller.
+          </Text>
+        )}
 
         <Panel tone="overlay" className="flex items-stretch divide-x-2 divide-ka-line">
           <div className="flex items-center gap-3 px-5 py-2">
@@ -829,7 +838,7 @@ function ReadyStateScreen() {
               Reserved
             </Text>
             <Text font="mono" size="xl" weight="bold" tone="accent">
-              {(upNextQueue?.items.length ?? 0).toString().padStart(2, "0")}
+              {reservedCount.toString().padStart(2, "0")}
             </Text>
           </div>
         </Panel>
@@ -967,8 +976,12 @@ function PlayerStateProviderInternal({ children }: { children: React.ReactNode }
 
   // Nothing on air and something reserved, so the leader calls for it. This is
   // also what starts a room whose screen joined after the songs did.
+  //
+  // Autoplay governs it, same as any other advance: a cold start is just the
+  // first one, and a room told not to start songs by itself should not make an
+  // exception for a queue that happens to be empty. Play is how it starts then.
   useEffect(() => {
-    if (!isLeader || currentItemId || reservedCount === 0 || starting.current) return;
+    if (!isLeader || !autoplay || currentItemId || reservedCount === 0 || starting.current) return;
 
     starting.current = true;
     Promise.resolve(playNextRef.current({}))
@@ -978,7 +991,7 @@ function PlayerStateProviderInternal({ children }: { children: React.ReactNode }
       .finally(() => {
         starting.current = false;
       });
-  }, [isLeader, currentItemId, reservedCount]);
+  }, [isLeader, autoplay, currentItemId, reservedCount]);
 
   // The ask that ends a finished song is a timer in one screen, so reloading
   // that screen drops the rollover and parks the room on a dead song. A
@@ -1186,13 +1199,19 @@ function PlayerStateProviderInternal({ children }: { children: React.ReactNode }
     handledPlayback.current = playbackRequest.at;
 
     const current = playerStateRef.current;
-    if (!current?.entry || current.play_state === playbackRequest.state) return;
+    const wantsSound = playbackRequest.state === "playing" && reservedCountRef.current > 0;
+
+    // A cold room with autoplay off waits for exactly this
+    if (!current?.entry) {
+      if (wantsSound) playNextRef.current({});
+      return;
+    }
+
+    if (current.play_state === playbackRequest.state) return;
 
     // Nothing to resume, so Play means start what the Up Next card is showing
     if (current.play_state === "finished") {
-      if (playbackRequest.state === "playing" && reservedCountRef.current > 0) {
-        playNextRef.current({ fromItemId: performanceIdOf(current) });
-      }
+      if (wantsSound) playNextRef.current({ fromItemId: performanceIdOf(current) });
       return;
     }
 

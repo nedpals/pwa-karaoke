@@ -349,9 +349,12 @@ function PlayerTab({ notice }: { notice: string | null }) {
   // The stream stopped answering, so only Next gets the room moving again
   const isStreamError = hasEntry && playerState?.play_state === "error";
   const isScoring = isFinished && scoringActive;
+  const reservedCount = upNextQueue?.items.length ?? 0;
   // The room is sitting on a finished song with the next one on the card, so
   // Play starts that rather than resuming anything
-  const isHolding = isFinished && !isScoring && (upNextQueue?.items.length ?? 0) > 0;
+  const isHolding = isFinished && !isScoring && reservedCount > 0;
+  // Nothing on air at all, and autoplay is not going to start it either
+  const isCold = !hasEntry && reservedCount > 0;
   // Stands in as the entry on air, so the panel needs no case of its own
   const nowPlaying = isScoring
     ? { title: "Scoring...", artist: "Unknown Artist", uploader: null }
@@ -365,7 +368,9 @@ function PlayerTab({ notice }: { notice: string | null }) {
         ? "Finished"
         : hasEntry
           ? "Paused"
-          : "Stopped";
+          : isCold
+            ? "Ready"
+            : "Stopped";
 
   // Clear optimistic volume once the server state catches up
   useEffect(() => {
@@ -510,7 +515,12 @@ function PlayerTab({ notice }: { notice: string | null }) {
           label={isPlaying ? "Pause" : isHolding ? "Play Next" : "Play"}
           showLabel
           onClick={handlePlayerPlayback}
-          disabled={!hasEntry || (isFinished && !isHolding) || isStreamError || isPlaybackLoading}
+          disabled={
+            (!hasEntry && !isCold) ||
+            (isFinished && !isHolding) ||
+            isStreamError ||
+            isPlaybackLoading
+          }
           variant="accent"
           className="py-4"
         />

@@ -29,12 +29,9 @@ export interface RoomState {
   isLeader: boolean;
   lastReaction: ReactionEvent | null;
   score: SongScore | null;
-  /** A song to score that no display watched end. */
   scoringCue: { entryId: string; quick: boolean; at: number } | null;
   scoringTurn: boolean;
-  /** A controller's loudness reading, for the leader display to judge. */
   scoreReading: { entryId: string; performance: number; at: number } | null;
-  /** Whether the display is on the scoring screen. */
   scoringActive: boolean;
   lastQueueCommand: {
     command: string;

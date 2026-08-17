@@ -15,7 +15,6 @@ function between(low: number, high: number): number {
   return low + Math.floor(Math.random() * (high - low + 1));
 }
 
-/** Maps a controller's 0..1 loudness reading onto the videoke band. */
 export function scoreFromPerformance(performance: number): number {
   const bounded = Math.min(Math.max(performance, 0), 1);
   const scored = MIC_BAND_BOTTOM + bounded * (SCORE_CEILING - MIC_BAND_BOTTOM);
@@ -23,7 +22,6 @@ export function scoreFromPerformance(performance: number): number {
   return clamp(scored + (Math.random() * 2 - 1) * MIC_JITTER);
 }
 
-/** The no-microphone path, weighted the way the machines feel. */
 export function rollScore(): number {
   const draw = Math.random();
   if (draw < 0.7) return between(88, SCORE_CEILING);

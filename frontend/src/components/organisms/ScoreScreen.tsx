@@ -29,10 +29,6 @@ function randomBetween(low: number, high: number) {
   return low + Math.floor(Math.random() * (high - low + 1));
 }
 
-/**
- * processing while the room waits for a score, revealing while the digits
- * close in on it, revealed once they stop.
- */
 export type RevealPhase = "processing" | "revealing" | "revealed";
 
 function useScoreReveal(target: number | null, landingMs: number) {
@@ -88,13 +84,9 @@ function useScoreReveal(target: number | null, landingMs: number) {
 }
 
 export interface ScoreScreenProps {
-  /** Null until the score lands. */
   score: number | null;
-  /** Lands sooner, for a skipped song. */
   quick?: boolean;
-  /** Off by default so only the display makes noise. */
   sound?: boolean;
-  /** Fires when the digits stop and the rating appears. */
   onRevealed?: () => void;
   className?: string;
 }

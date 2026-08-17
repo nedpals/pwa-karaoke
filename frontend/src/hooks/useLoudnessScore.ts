@@ -26,7 +26,6 @@ interface Reading {
 }
 
 export interface UseLoudnessScoreOptions {
-  /** False on songs another remote reserved. */
   active: boolean;
   entryId: string | null;
   playState: DisplayPlayerState["play_state"] | null;
@@ -40,8 +39,7 @@ export interface UseLoudnessScoreReturn {
   decline: () => void;
 }
 
-// A low percentile, not an average, so singing over the intro cannot drag the
-// floor up to your own voice and lock you out of the rest of the song.
+// A low percentile, so singing over the intro cannot raise the floor to your voice
 function percentile(values: number[], q: number): number {
   if (values.length === 0) return 0;
 

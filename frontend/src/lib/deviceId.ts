@@ -1,5 +1,4 @@
-// Stable per browser, so a reservation can be traced to a remote without
-// trusting a nickname anyone could type.
+// Stable per browser, so a reservation traces to a remote, not to a nickname
 
 const DEVICE_ID_KEY = "karaoke-device-id";
 

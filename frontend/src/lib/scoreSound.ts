@@ -10,7 +10,7 @@ const GREAT = [523.25, 659.25, 783.99, 1046.5];
 const GOOD = [523.25, 659.25, 783.99];
 const POOR = [392.0, 311.13];
 
-// Struck together the notes stack, so that tier is trimmed to match the others
+// Struck together the notes stack, so that tier is trimmed to match
 function notesFor(score: number) {
   if (score >= 90) return { pitches: GREAT, spacing: 0.075, type: "triangle" as const, gain: 1 };
   if (score >= 75) return { pitches: GOOD, spacing: 0.0, type: "triangle" as const, gain: 0.5 };
@@ -29,7 +29,6 @@ function noiseBuffer(context: BaseAudioContext, seconds: number): AudioBuffer {
   return buffer;
 }
 
-/** Returns its nodes so a live context can stop them early. */
 export function scheduleRoll(
   context: BaseAudioContext,
   destination: AudioNode,

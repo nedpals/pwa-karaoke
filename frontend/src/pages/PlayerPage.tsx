@@ -26,15 +26,12 @@ import { rollScore, scoreFromPerformance } from "../lib/scoring";
 
 type AppState = "awaiting-interaction" | "connecting" | "connected" | "ready" | "scoring" | "playing";
 
-// Measured from the reveal, not from the end of the song, so the number is
-// readable for the same beat however long it took to arrive
+// Measured from the reveal, so the number is readable for the same beat
 const REVEAL_HOLD_MS = 4000;
 const SKIP_REVEAL_HOLD_MS = 2000;
 
-// The digits scramble until a score lands. Past this nothing is coming.
 const SCORE_WAIT_MAX_MS = 6000;
 
-// How long the leader waits for a reading before deciding the score itself
 const JURY_GRACE_MS = 1000;
 
 const MIN_SCORED_SECONDS = 5;
@@ -778,8 +775,7 @@ function PlayerStateProviderInternal({ children }: { children: React.ReactNode }
   const readingRef = useRef<{ entryId: string; performance: number } | null>(null);
   const judged = useRef<string | null>(null);
 
-  // Read when the timer fires, not when it was set, so a display promoted
-  // mid-grace still judges
+  // Read when the timer fires, so a display promoted mid-grace still judges
   const isLeaderRef = useRef(isLeader);
   const publishScoreRef = useRef(publishScore);
   const announceScoringRef = useRef(announceScoring);
@@ -851,8 +847,7 @@ function PlayerStateProviderInternal({ children }: { children: React.ReactNode }
     setScoring({ entryId, quick });
     clearJuryTimer();
 
-    // A reading already in hand is judged at once, otherwise the roll waits
-    // out the grace in case one is on its way
+    // Judged at once when a reading is already in hand
     if (readingRef.current?.entryId === entryId) {
       judge(entryId);
     } else {

@@ -191,8 +191,7 @@ class ClientCommands:
         if state.current_time < MIN_SCORED_SECONDS:
             return False
 
-        # Finishing rather than scoring here leaves the grace window open, so a
-        # remote that measured most of the song is still heard
+        # Finishing rather than scoring leaves the grace window open for a report
         await self._hold_at_end_of_song()
         await self.session_manager.broadcast_to_room_displays(
             self.client.room_id, "scoring", {"entry_id": entry.id, "quick": True}
@@ -285,8 +284,7 @@ class ControllerCommands(ClientCommands):
         if not self.client.allow_action("submit_score", SCORE_RATE_LIMIT, SCORE_RATE_WINDOW):
             return
 
-        # Matched on the device that reserved the song, not the nickname, which
-        # is neither unique nor its own to claim
+        # Matched on the reserving device, since a nickname is not unique or owned
         target = self.room.current_singer_device_id
         if not target or self.client.device_id != target:
             return

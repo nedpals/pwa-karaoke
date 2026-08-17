@@ -283,7 +283,6 @@ function VolumeMeter({ value }: { value: number }) {
   );
 }
 
-// A footnote, not a control. States nobody can act on say nothing.
 const MIC_NOTICE: Partial<Record<MicStatus, string>> = {
   off: "Mic scoring is off. The machine will score you anyway.",
   denied: "Microphone blocked. The machine will score you anyway.",
@@ -315,12 +314,10 @@ function PlayerTab({ notice }: { notice: string | null }) {
   const volumePerc = Math.round(volume * 100);
   const isPlaying = playerState?.play_state === "playing";
   const hasEntry = Boolean(playerState?.entry);
-  // Nothing is mounted to play or pause while the display is on the score or
-  // holding what is up next
+  // Nothing is mounted to play or pause once the song is over
   const isFinished = hasEntry && playerState?.play_state === "finished";
   const isScoring = isFinished && scoringActive;
-  // The scoring screen stands in as the entry on air, so the panel needs no
-  // case of its own for it
+  // Stands in as the entry on air, so the panel needs no case of its own
   const nowPlaying = isScoring
     ? { title: "Scoring...", artist: "Unknown Artist", uploader: null }
     : playerState?.entry ?? null;

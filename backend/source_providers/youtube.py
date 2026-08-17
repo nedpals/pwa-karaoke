@@ -10,6 +10,7 @@ from urllib.parse import urlparse, urlunparse
 import yt_dlp
 
 from core.ranking import KARAOKE_QUERY_KEYWORDS, enhance_query_with_keywords
+from source_providers.cobalt import client_from_config
 from core.search import (
     KaraokeSourceProvider,
     KaraokeEntry,
@@ -243,9 +244,10 @@ def is_live(info: dict) -> bool:
 
 
 class YTKaraokeSourceProvider(KaraokeSourceProvider):
-    def __init__(self, allowed_channels: list[str] = None, karaoke_keywords: list[str] = None):
+    def __init__(self, allowed_channels: list[str] = None, karaoke_keywords: list[str] = None, cobalt=None):
         super().__init__()
         self.health = YtdlpHealth()
+        self.cobalt = cobalt if cobalt is not None else client_from_config()
         # Examples: ["KaraFun", "Sing King", "Lucky Voice", "Karaoke Mugen"]
         self.allowed_channels = allowed_channels or []
         # The first is what gets appended to a query that carries none of them;
@@ -257,7 +259,7 @@ class YTKaraokeSourceProvider(KaraokeSourceProvider):
         return "youtube"
 
     async def check_health(self) -> dict:
-        return await self.health.probe()
+        return {**await self.health.probe(), "fallback": self.cobalt.snapshot()}
 
     @staticmethod
     def _thumbnail_url(video_id: str) -> Optional[str]:
@@ -383,7 +385,27 @@ class YTKaraokeSourceProvider(KaraokeSourceProvider):
             # YouTube's signed URLs outlive a sitting.
             return VideoURLResult.resolved(outcome.url, cache_ttl_seconds=4 * 3600)
 
-        return VideoURLResult.failed() if outcome.environmental_failure else VideoURLResult.unavailable()
+        # A private or deleted video is a verdict, and a second extractor will
+        # reach the same one. Only fall back when yt-dlp itself was the problem.
+        if not outcome.environmental_failure:
+            return VideoURLResult.unavailable()
+
+        if not self.cobalt.enabled:
+            return VideoURLResult.failed()
+
+        print(f"[YTDLP] Falling back to cobalt for {youtube_url}")
+        result = await self.cobalt.resolve(youtube_url)
+        if result.video_url or not result.environmental_failure:
+            return VideoURLResult(
+                video_url=result.video_url,
+                cache_ttl_seconds=result.cache_ttl_seconds,
+                cacheable=result.cacheable,
+            )
+
+        return VideoURLResult.failed()
+
+    async def close(self):
+        await self.cobalt.close()
 
     @staticmethod
     def _is_environmental(error: Exception) -> bool:

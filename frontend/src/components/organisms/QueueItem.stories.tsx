@@ -35,6 +35,15 @@ const meta: Meta<typeof QueueItem> = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
+export const WithSinger: Story = {
+  args: {
+    entry: SAMPLE_ENTRY,
+    index: 1,
+    singer: 'Tita Beth',
+    actions: queueActions,
+  },
+};
+
 export const NowPlaying: Story = {
   args: {
     entry: SAMPLE_ENTRY,

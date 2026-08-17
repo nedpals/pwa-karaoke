@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useSearchParams, Navigate } from "react-router";
 import type { KaraokeEntry, KaraokeQueueItem } from "../types";
 import { useRoom } from "../hooks/useRoom";
@@ -26,6 +26,10 @@ import { useEntryStatus, type EntryStatus } from "../hooks/useEntryStatus";
 import { ControllerLayout } from "../components/templates/ControllerLayout";
 import { SystemMessage } from "../components/templates/SystemMessage";
 import { PasswordInput } from "../components/organisms/PasswordInput";
+import { NicknameInput } from "../components/organisms/NicknameInput";
+import { ReactionPad } from "../components/organisms/ReactionPad";
+import { useLoudnessScore, type MicStatus } from "../hooks/useLoudnessScore";
+import { getNickname } from "../lib/nicknameStorage";
 import { TimeDisplay } from "../components/molecules/TimeDisplay";
 
 const CONTROLLER_TABS = [
@@ -279,17 +283,44 @@ function VolumeMeter({ value }: { value: number }) {
   );
 }
 
-function PlayerTab() {
-  const { playerState, playSong, pauseSong, playNext, setVolume } = useRoomContext();
+const MIC_NOTICE: Partial<Record<MicStatus, string>> = {
+  off: "Mic scoring is off. The machine will score you anyway.",
+  denied: "Microphone blocked. The machine will score you anyway.",
+  unsupported: "Mic scoring needs a secure connection, so it is off.",
+};
+
+function micNotice(status: MicStatus, yourTurn: boolean): string | null {
+  if (status === "listening") {
+    return yourTurn
+      ? "Mic scoring is on. Keep the phone near the singer."
+      : "Mic scoring is on. It listens only on songs you reserved.";
+  }
+
+  return MIC_NOTICE[status] ?? null;
+}
+
+function PlayerTab({ notice }: { notice: string | null }) {
+  const {
+    playerState, playSong, pauseSong, playNext, setVolume,
+    sendReaction, connected, autoplay, setAutoplay, scoringActive,
+  } = useRoomContext();
   const [isPlaybackLoading, setIsPlaybackLoading] = useState(false);
   const [isVolumeLoading, setIsVolumeLoading] = useState(false);
   const [isPlayNextLoading, setIsPlayNextLoading] = useState(false);
+  const [isAutoplayLoading, setIsAutoplayLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [optimisticVolume, setOptimisticVolume] = useState<number | null>(null);
   const volume = optimisticVolume ?? playerState?.volume ?? 0.5;
   const volumePerc = Math.round(volume * 100);
   const isPlaying = playerState?.play_state === "playing";
   const hasEntry = Boolean(playerState?.entry);
+  // Nothing is mounted to play or pause once the song is over
+  const isFinished = hasEntry && playerState?.play_state === "finished";
+  const isScoring = isFinished && scoringActive;
+  // Stands in as the entry on air, so the panel needs no case of its own
+  const nowPlaying = isScoring
+    ? { title: "Scoring...", artist: "Unknown Artist", uploader: null }
+    : playerState?.entry ?? null;
 
   // Clear optimistic volume once the server state catches up
   useEffect(() => {
@@ -342,6 +373,23 @@ function PlayerTab() {
     }
   }
 
+  const handleAutoplayChange = async (enabled: boolean) => {
+    if (isAutoplayLoading || enabled === autoplay) return;
+
+    setIsAutoplayLoading(true);
+    setErrorMessage(null);
+
+    try {
+      await setAutoplay(enabled);
+    } catch (error) {
+      console.error("Failed to change autoplay:", error);
+      setErrorMessage("Could not change autoplay.");
+      setTimeout(() => setErrorMessage(null), 3000);
+    } finally {
+      setIsAutoplayLoading(false);
+    }
+  };
+
   const handlePlayNext = async () => {
     if (isPlayNextLoading) return;
 
@@ -365,21 +413,21 @@ function PlayerTab() {
 
       <Panel className="p-3">
         <div className="flex items-center gap-3 mb-3 border-b-2 border-ka-line pb-2">
-          <Text font="display" size="lg" weight="bold" tone={isPlaying ? "accent" : "dim"} className="flex-1">
-            {isPlaying ? "Playing" : hasEntry ? "Paused" : "Stopped"}
+          <Text font="display" size="lg" weight="bold" tone={isPlaying || isScoring ? "accent" : "dim"} className="flex-1">
+            {isPlaying || isScoring ? "Playing" : isFinished ? "Finished" : hasEntry ? "Paused" : "Stopped"}
           </Text>
-          {playerState?.entry?.uploader && (
+          {nowPlaying?.uploader && (
             <Text size="xs" tone="dim" truncate className="max-w-40">
-              {playerState.entry.uploader}
+              {nowPlaying.uploader}
             </Text>
           )}
         </div>
 
         <MarqueeText size="2xl" weight="bold" pauseOnHover>
-          {playerState?.entry ? playerState.entry.title : "No Song"}
+          {nowPlaying ? nowPlaying.title : "No Song"}
         </MarqueeText>
         <MarqueeText size="lg" tone="dim" pauseOnHover>
-          {playerState?.entry ? playerState.entry.artist : "--"}
+          {nowPlaying ? nowPlaying.artist : "--"}
         </MarqueeText>
 
         <div className="flex items-center gap-2 mt-3">
@@ -405,7 +453,7 @@ function PlayerTab() {
           label={isPlaying ? "Pause" : "Play"}
           showLabel
           onClick={handlePlayerPlayback}
-          disabled={!hasEntry || isPlaybackLoading}
+          disabled={!hasEntry || isFinished || isPlaybackLoading}
           variant="accent"
           className="py-4"
         />
@@ -419,6 +467,16 @@ function PlayerTab() {
           className="py-4"
         />
       </div>
+
+      <Button
+        onClick={() => handleAutoplayChange(!autoplay)}
+        active={autoplay}
+        aria-pressed={autoplay}
+        disabled={isAutoplayLoading}
+        className="w-full"
+      >
+        Autoplay: {autoplay ? "On" : "Off"}
+      </Button>
 
       <Panel className="p-3">
         <div className="flex items-center gap-3 mb-2">
@@ -447,12 +505,20 @@ function PlayerTab() {
           />
         </div>
       </Panel>
+
+      <ReactionPad onReact={sendReaction} disabled={!connected} />
+
+      {notice && (
+        <Text size="xs" tone="dim" className="px-1">
+          {notice}
+        </Text>
+      )}
     </div>
   );
 }
 
 function QueueTab() {
-  const { queue, upNextQueue, playerState, playNext, clearQueue, queueNextSong } = useRoomContext();
+  const { upNextQueue, playerState, autoplay, playNext, clearQueue, queueNextSong } = useRoomContext();
   const entryStatus = useEntryStatus();
   const dialog = useSongDialog();
   const [isClearingQueue, setIsClearingQueue] = useState(false);
@@ -485,6 +551,7 @@ function QueueTab() {
           <SectionLabel>Now Playing</SectionLabel>
           <QueueItem
             entry={playerState.entry}
+            singer={playerState.singer}
             selected
             actions={[
               {
@@ -507,12 +574,16 @@ function QueueTab() {
         <Text font="display" size="lg" weight="bold" tone="accent" className="flex-1">
           Up Next
         </Text>
-        {queue && queue.items.length > (playerState?.entry ? 1 : 0) && (
+        {upNextItems.length > 0 && (
           <Button onClick={handleClearQueue} variant="danger" size="sm" disabled={isClearingQueue}>
             Clear All
           </Button>
         )}
       </div>
+
+      {!autoplay && upNextItems.length > 0 && (
+        <Notice tone="dim">Autoplay is off. Press Next to start the song at the top.</Notice>
+      )}
 
       {upNextItems.length === 0 ? (
         <div className="py-10 text-center">
@@ -526,6 +597,7 @@ function QueueTab() {
             <QueueItem
               key={`queue_item_${item.id}`}
               entry={item.entry}
+              singer={item.singer}
               index={index + 1}
               status={entryStatus(item.entry)}
               onSelect={() => dialog.open(item.entry)}
@@ -552,9 +624,9 @@ function QueueTab() {
   );
 }
 
-function RemoteHeader() {
+function ControllerHeader() {
   const { isOffline } = useServerStatus();
-  const { roomId, upNextQueue, connected } = useRoomContext();
+  const { roomId, nickname, upNextQueue, connected } = useRoomContext();
 
   return (
     <div className="flex items-stretch border-b-2 border-ka-line bg-ka-panel shrink-0">
@@ -564,10 +636,17 @@ function RemoteHeader() {
           {isOffline ? "Offline" : connected ? "Linked" : "Connecting"}
         </Text>
       </div>
-      <div className="flex-1 flex items-center px-3 border-l-2 border-ka-line-dim min-w-0">
+      <div className="flex-1 flex items-center gap-2 px-3 border-l-2 border-ka-line-dim min-w-0">
         <Text font="mono" size="sm" truncate>
           {roomId}
         </Text>
+        {nickname && (
+          <span className="px-1.5 shrink-0 max-w-28 bg-ka-cyan">
+            <Text font="display" size="xs" weight="bold" tone="inverse" truncate className="block">
+              {nickname}
+            </Text>
+          </span>
+        )}
       </div>
       <div className="flex items-center gap-2 px-3 border-l-2 border-ka-line-dim">
         <Text font="display" size="sm" tone="dim">
@@ -581,20 +660,64 @@ function RemoteHeader() {
   );
 }
 
+function MicCheckScreen({ onAllow, onSkip }: { onAllow: () => void; onSkip: () => void }) {
+  return (
+    <SystemMessage
+      title="Mic Check"
+      subtitle="To score your performance, we use your device's microphone. Only the score is sent."
+      actions={() => (
+        <div className="flex flex-col items-center gap-3 w-full">
+          <Button onClick={onAllow} variant="accent" size="xl" className="w-full">
+            Allow Mic
+          </Button>
+          <Button onClick={onSkip} variant="ghost" size="lg" className="w-full">
+            Not Now
+          </Button>
+        </div>
+      )}
+      variant="controller"
+    />
+  );
+}
+
 function ControllerPageContent() {
   const [tab, setTab] = useState<(typeof CONTROLLER_TABS)[number]["id"]>("song-select");
+  const [micAsked, setMicAsked] = useState(false);
+  const { playerState, submitScore, scoringTurn } = useRoomContext();
+
+  const mic = useLoudnessScore({
+    active: scoringTurn,
+    entryId: playerState?.entry?.id ?? null,
+    playState: playerState?.play_state ?? null,
+    onSubmit: submitScore,
+  });
 
   const tabs: Tab[] = CONTROLLER_TABS.map((t) => ({
     id: t.id,
     label: t.label,
     content: t.id === "song-select" ? <SongSelectTab /> :
-             t.id === "player" ? <PlayerTab /> :
+             t.id === "player" ? <PlayerTab notice={micNotice(mic.status, scoringTurn)} /> :
              <QueueTab />
   }));
 
+  if (!micAsked) {
+    return (
+      <MicCheckScreen
+        onAllow={() => {
+          mic.start();
+          setMicAsked(true);
+        }}
+        onSkip={() => {
+          mic.decline();
+          setMicAsked(true);
+        }}
+      />
+    );
+  }
+
   return (
     <ControllerLayout>
-      <RemoteHeader />
+      <ControllerHeader />
       <TabNavigation
         className="flex-1 min-h-0"
         tabs={tabs}
@@ -608,18 +731,34 @@ function ControllerPageContent() {
 export default function ControllerPage() {
   const [searchParams] = useSearchParams();
   const roomId = searchParams.get("room");
-  const room = useRoom("controller");
+  const [nickname, setNickname] = useState<string | null>(null);
+  const room = useRoom("controller", nickname);
+  const hasRequestedJoin = useRef(false);
 
+  // Held until the nickname is known, so the room learns it on the same join.
   useEffect(() => {
-    if (roomId) {
-      room.verifyAndJoinRoom(roomId);
-    }
+    if (!roomId || !nickname || hasRequestedJoin.current) return;
+
+    hasRequestedJoin.current = true;
+    room.verifyAndJoinRoom(roomId);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [roomId, nickname]);
 
   // Redirect to home if no room specified
   if (!roomId) {
     return <Navigate to="/" replace />;
+  }
+
+  if (!nickname) {
+    return (
+      <SystemMessage
+        title="Who Is Singing?"
+        subtitle="Your nickname shows on the display next to the songs you reserve."
+        variant="controller"
+      >
+        <NicknameInput defaultValue={getNickname()} onSubmit={setNickname} />
+      </SystemMessage>
+    );
   }
 
   if (room.isVerifying) {

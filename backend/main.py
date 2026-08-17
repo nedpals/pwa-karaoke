@@ -4,7 +4,7 @@ from os import environ
 import time
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request, WebSocket, Depends, HTTPException, status
+from fastapi import FastAPI, Request, Response, WebSocket, Depends, HTTPException, status
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.websockets import WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
@@ -16,19 +16,17 @@ from core.search import KaraokeEntry
 from services.karaoke_service import KaraokeService, KaraokeSearchResult, VideoURLResponse
 from commands import ControllerCommands, DisplayCommands
 from websocket_errors import WebSocketErrorType, create_error_response
-from websocket_models import validate_websocket_message
+from websocket_models import validate_websocket_message, QUIET_COMMANDS
 from session_manager import SessionManager
 from cache_store import get_cache_store, set_cache_store, clear_cache_store, CacheStore
 
 # Request/Response models
 class CreateRoomRequest(BaseModel):
     room_id: str
-    is_public: bool = True
     password: str = None
 
 class PublicRoomResponse(BaseModel):
     id: str
-    is_public: bool
     requires_password: bool
     created_at: float
 
@@ -36,7 +34,6 @@ class PublicRoomResponse(BaseModel):
     def from_room(room: Room) -> "PublicRoomResponse":
         return PublicRoomResponse(
             id=room.id,
-            is_public=room.is_public,
             requires_password=room.requires_password(),
             created_at=room.created_at
         )
@@ -52,6 +49,13 @@ async def lifespan(app: FastAPI):
     cache = CacheStore()
     set_cache_store(cache)
     print(f"[STARTUP] Cache initialized: {cache.get_stats()}")
+
+    sources = await KaraokeService().get_health()
+    for provider_id, state in sources["providers"].items():
+        if state["available"]:
+            print(f"[STARTUP] Source ready: {provider_id} {state.get('version') or ''}".rstrip())
+        else:
+            print(f"[STARTUP] Source unavailable: {provider_id}: {state.get('last_error')}")
 
     yield
 
@@ -175,14 +179,26 @@ async def get_video_url(
     return await service.get_video_url(entry)
 
 @app.get("/health")
-async def get_health(cache: Annotated[CacheStore, Depends(get_cache)]):
+async def get_health(
+    cache: Annotated[CacheStore, Depends(get_cache)],
+    service: Annotated[KaraokeService, Depends()],
+    response: Response
+):
     """Get WebSocket connection health metrics"""
     health_metrics = session_manager.get_health_metrics()
     cache_stats = cache.get_stats()
 
+    # Reports unhealthy once no source can resolve a video, so the container
+    # healthcheck catches it rather than leaving songs to queue and stall.
+    # Providers re-probe here, which is what lets one recover without a restart.
+    sources = await service.get_health()
+    if not sources["available"]:
+        response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+
     return {
         **health_metrics,
-        "cache": cache_stats
+        "cache": cache_stats,
+        "sources": sources
     }
 
 @app.get("/heartbeat")
@@ -193,19 +209,11 @@ async def heartbeat():
         "timestamp": int(time.time() * 1000)  # milliseconds timestamp
     }
 
-@app.get("/rooms")
-async def get_active_rooms():
-    return {
-        "rooms": session_manager.get_active_rooms(),
-        "timestamp": time.time()
-    }
-
 @app.post("/rooms/create")
 async def create_room(request: CreateRoomRequest):
     try:
         room = session_manager.room_manager.create_room(
             room_id=request.room_id,
-            is_public=request.is_public,
             password=request.password
         )
         return RoomFoundResponse(
@@ -248,7 +256,9 @@ async def websocket_endpoint(websocket: WebSocket, service: Annotated[KaraokeSer
 
         while True:
             command, payload = await client.receive()
-            print(f"[DEBUG] Received command from {client.client_type}: {command}")
+            verbose = command not in QUIET_COMMANDS
+            if verbose:
+                print(f"[DEBUG] Received command from {client.client_type}: {command}")
 
             # Extract request_id if present for acknowledgment
             request_id = None
@@ -289,7 +299,8 @@ async def websocket_endpoint(websocket: WebSocket, service: Annotated[KaraokeSer
                 continue
 
             # See commands.py for command implementations
-            print(f"[DEBUG] Executing command: {client.client_type}.{command}")
+            if verbose:
+                print(f"[DEBUG] Executing command: {client.client_type}.{command}")
             try:
                 result = await getattr(commands, command)(validated_payload)
 

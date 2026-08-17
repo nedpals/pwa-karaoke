@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback, useMemo } from "react";
 import useWebSocketHook from "react-use-websocket";
+import { getDeviceId } from "../lib/deviceId";
 
 type ClientType = "controller" | "display";
 type WebSocketMessage = [string, unknown];
@@ -14,7 +15,7 @@ export interface WebSocketState {
 export interface WebSocketActions {
   sendCommand: (command: string, payload?: unknown) => void;
   sendCommandWithAck: (command: string, payload?: unknown, timeout?: number) => Promise<unknown>;
-  joinRoom: (roomId: string) => Promise<unknown>;
+  joinRoom: (roomId: string, nickname?: string | null) => Promise<unknown>;
 }
 
 export type WebSocketReturn = WebSocketState & WebSocketActions;
@@ -89,7 +90,7 @@ export function useWebSocket(clientType: ClientType, initalAutoConnect = true): 
   const connected = readyState === 1;
 
   // Internal room joining function
-  const joinRoomInternal = useCallback(async (roomId: string): Promise<void> => {
+  const joinRoomInternal = useCallback(async (roomId: string, nickname?: string | null): Promise<void> => {
     if (!autoConnect) {
       setAutoConnect(true);
       // Wait for 1 second to allow connection to establish
@@ -116,7 +117,15 @@ export function useWebSocket(clientType: ClientType, initalAutoConnect = true): 
       };
 
       pendingRequests.set(requestId, joinRoomRequest);
-      sendJsonMessage(["join_room", { room_id: roomId, request_id: requestId }]);
+      sendJsonMessage([
+        "join_room",
+        {
+          room_id: roomId,
+          nickname: nickname || null,
+          device_id: getDeviceId(),
+          request_id: requestId,
+        },
+      ]);
     });
   }, [autoConnect, generateRequestId, clientType, pendingRequests, sendJsonMessage]);
 

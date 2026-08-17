@@ -21,6 +21,7 @@ export interface VideoURLResponse {
 
 export interface DisplayPlayerState {
   entry: KaraokeEntry | null;
+  singer?: string | null;
   play_state: "playing" | "paused" | "finished" | "buffering";
   current_time: number;
   duration: number;
@@ -29,9 +30,28 @@ export interface DisplayPlayerState {
   timestamp: number;
 }
 
+export type ReactionType = "clap" | "fire" | "heart" | "laugh" | "star" | "boo";
+
+export interface ReactionEvent {
+  id: string;
+  reaction: ReactionType;
+  timestamp: number;
+}
+
+export type ScoreSource = "mic" | "auto";
+
+export interface SongScore {
+  entry_id: string;
+  score: number;
+  source: ScoreSource;
+  version: number;
+  timestamp: number;
+}
+
 export interface KaraokeQueueItem {
   id: string;
   entry: KaraokeEntry;
+  singer?: string | null;
 }
 
 export interface KaraokeQueue {
@@ -40,29 +60,20 @@ export interface KaraokeQueue {
   timestamp: number;
 }
 
-export interface Room {
-  id: string;
-  name: string;
-  client_count: number;
-  controllers_count: number;
-  displays_count: number;
-  has_leader: boolean;
-  queue_length: number;
-  is_active: boolean;
-  is_public: boolean;
-  requires_password: boolean;
-  created_at: number;
-  current_song: string | null;
+export interface RoomSettings {
+  autoplay: boolean;
+  version: number;
+  timestamp: number;
 }
 
-export interface RoomsResponse {
-  rooms: Room[];
-  timestamp: number;
+export interface RoomDetails {
+  id: string;
+  requires_password: boolean;
+  created_at: number;
 }
 
 export interface CreateRoomRequest {
   room_id: string;
-  is_public: boolean;
   password?: string;
 }
 
@@ -70,7 +81,6 @@ export interface CreateRoomResponse {
   success: boolean;
   room: {
     id: string;
-    is_public: boolean;
     requires_password: boolean;
     created_at: number;
   };
@@ -85,7 +95,6 @@ export interface VerifyRoomResponse {
   success: boolean;
   room: {
     id: string;
-    is_public: boolean;
     requires_password: boolean;
   };
 }

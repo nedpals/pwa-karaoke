@@ -5,6 +5,7 @@ import { Panel } from "../components/atoms/Panel";
 import { useRoom } from "../hooks/useRoom";
 import { OSD } from "../components/molecules/OSD";
 import { NowPlayingBanner, type BannerTone } from "../components/organisms/NowPlayingBanner";
+import { UpNextCard } from "../components/organisms/UpNextCard";
 import { QRCode } from "../components/atoms/QRCode";
 import { Button } from "../components/atoms/Button";
 import { LoadingIndicator } from "../components/atoms/LoadingIndicator";
@@ -12,15 +13,34 @@ import { Backdrop } from "../components/templates/Backdrop";
 import { MessageTemplate } from "../components/templates/MessageTemplate";
 import { SystemMessage } from "../components/templates/SystemMessage";
 import { PasswordInput } from "../components/organisms/PasswordInput";
+import { ReactionOverlay } from "../components/organisms/ReactionOverlay";
+import { ScoreScreen } from "../components/organisms/ScoreScreen";
+import { DualTrackVideo, type DualTrackHandle } from "../components/organisms/DualTrackVideo";
 import { RoomProvider, useRoomContext } from "../providers/RoomProvider";
 import { useTempState, type TempStateSetterOptions } from "../hooks/useTempState";
 import { useVideoUrlMutation, useServerStatus } from "../hooks/useApi";
 import { useVideoUrlWithRetry } from "../hooks/useVideoUrlWithRetry";
-import { useDualTrackSync } from "../hooks/useDualTrackSync";
+import { getDisplayNickname } from "../lib/nicknameStorage";
 import type { DisplayPlayerState } from "../types";
 import useSmartSync from "../hooks/useSmartSync";
+import { rollScore, scoreFromPerformance } from "../lib/scoring";
 
-type AppState = "awaiting-interaction" | "connecting" | "connected" | "ready" | "playing";
+type AppState = "awaiting-interaction" | "connecting" | "connected" | "ready" | "scoring" | "playing";
+
+// Measured from the reveal, so the number is readable for the same beat
+const REVEAL_HOLD_MS = 4000;
+const SKIP_REVEAL_HOLD_MS = 2000;
+
+const SCORE_WAIT_MAX_MS = 6000;
+
+const JURY_GRACE_MS = 1000;
+
+const MIN_SCORED_SECONDS = 5;
+
+interface Announcement {
+  title: string;
+  singer?: string | null;
+}
 
 interface OSDState {
   label: string;
@@ -34,6 +54,9 @@ interface PlayerContextType {
   hasInteracted: boolean;
   setHasInteracted: (value: boolean) => void;
   playerState: DisplayPlayerState | null;
+  scoring: { entryId: string; quick: boolean } | null;
+  scoreRevealed: () => void;
+  finishSong: (entryId: string, playedSeconds: number) => void;
   osd: OSDState;
   setOSD: (osd: OSDState, options?: TempStateSetterOptions<OSDState>) => void;
 }
@@ -57,6 +80,7 @@ function VideoPlayerComponent({
   onRetry,
   retryCount,
   onNearingEnd,
+  onSongEnded,
 }: {
   videoUrl: string | null;
   audioUrl: string | null;
@@ -66,20 +90,14 @@ function VideoPlayerComponent({
   onRetry: () => void;
   retryCount: number;
   onNearingEnd: (params: { timeRemaining: number }) => void;
+  onSongEnded: (playedSeconds: number) => void;
 }) {
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const audioRef = useRef<HTMLAudioElement>(null);
+  const videoRef = useRef<DualTrackHandle>(null);
   const { updatePlayerState, isLeader } = useRoomContext();
   const { osd, setOSD, playerState } = usePlayerState();
-  const { playNext } = useRoomContext();
   const isBufferingRef = useRef(false);
   const hasNearingEndFiredRef = useRef(false);
   const [mediaError, setMediaError] = useState<Error | null>(null);
-
-  // A populated audio_url means video_url carries no audio of its own.
-  const separateAudio = Boolean(audioUrl);
-  const entryId = playerState?.entry?.id;
-  const mediaKey = `${entryId ?? "none"}:${separateAudio ? "paired" : "muxed"}`;
 
   const updateVersionedPlayerState = useCallback((partialState: Partial<DisplayPlayerState>) => {
     const versionedState = {
@@ -96,128 +114,118 @@ function VideoPlayerComponent({
     updatePlayerState(versionedState);
   }, [playerState?.entry, playerState?.volume, updatePlayerState]);
 
-  // The room's play_state has to describe the pair, not just the clock element.
-  // A stall on either track parks both, and only this reports it: the video's
-  // own `waiting` is not wired up, and the audio's resulting `pause` is
-  // deliberately suppressed so a buffer stall never looks like a user pause.
+  // With a separate audio track a stall parks both, and the element events for
+  // that are the pair's business, not the room's. This reports it instead.
   const handleHoldChange = useCallback((holding: boolean) => {
     if (!playerState?.entry) return;
 
-    const master = separateAudio ? audioRef.current : videoRef.current;
+    const video = videoRef.current;
     isBufferingRef.current = holding;
 
     updateVersionedPlayerState({
       entry: playerState.entry,
       play_state: holding ? "buffering" : "playing",
-      current_time: master?.currentTime ?? 0,
-      duration: master?.duration ?? 0,
-      volume: master?.volume ?? playerState.volume ?? 0.5,
+      current_time: video?.currentTime ?? 0,
+      duration: video?.duration ?? 0,
+      volume: video?.volume ?? playerState.volume ?? 0.5,
     });
-  }, [playerState?.entry, playerState?.volume, separateAudio, updateVersionedPlayerState]);
+  }, [playerState?.entry, playerState?.volume, updateVersionedPlayerState]);
 
   const handleAudioFailure = useCallback((error: unknown) => {
     console.error("Audio track failed to start:", error);
-
     setOSD({ label: "Audio Failed", visible: true });
 
     if (!playerState?.entry) return;
     updateVersionedPlayerState({
       entry: playerState.entry,
       play_state: "paused",
-      current_time: audioRef.current?.currentTime ?? 0,
-      duration: audioRef.current?.duration ?? 0,
+      current_time: videoRef.current?.currentTime ?? 0,
+      duration: videoRef.current?.duration ?? 0,
       volume: playerState.volume ?? 0.5,
     });
   }, [playerState?.entry, playerState?.volume, setOSD, updateVersionedPlayerState]);
 
-  const { play, pause, seek, getMaster, isHolding, videoProps } = useDualTrackSync({
-    videoRef,
-    audioRef,
-    separateAudio,
-    mediaKey,
-    onAudioFailure: handleAudioFailure,
-    onHoldChange: handleHoldChange,
-  });
-
   // Handle play/pause state changes from controller commands
   useEffect(() => {
-    const master = getMaster();
-    if (!master || !playerState) return;
+    if (!videoRef.current || !playerState) return;
 
+    const video = videoRef.current;
     // A follower parks while the leader buffers. Left running it would advance
     // past the leader's frozen time, and the catch-up seek below only moves
-    // forward, so it would never be pulled back for the rest of the song.
-    //
-    // The leader ignores its own buffering, because the sync hold owns
-    // resuming both tracks. The exception is inheriting a buffering state it
-    // is not holding for, which happens when a follower is promoted mid-stall:
-    // it is the authority now, so it resumes rather than staying parked.
+    // forward, so it would never be pulled back for the rest of the song. The
+    // leader ignores its own buffering, since the pair owns resuming itself,
+    // unless it inherited the state without holding for it, which is what a
+    // follower promoted mid-stall sees.
     const isBuffering = playerState.play_state === "buffering";
     const shouldPlay =
-      playerState.play_state === "playing" || (isLeader && isBuffering && !isHolding());
+      playerState.play_state === "playing" ||
+      (isLeader && isBuffering && !isBufferingRef.current);
     const shouldPause = playerState.play_state === "paused" || (!isLeader && isBuffering);
 
-    // Set media time to match playerState (for reload/sync)
+    // Set video time to match playerState (for reload/sync)
     // Only sync forward to prevent regression loops on reconnection
     if (
       playerState.current_time &&
-      playerState.current_time > master.currentTime &&
-      Math.abs(master.currentTime - playerState.current_time) > 2
+      playerState.current_time > video.currentTime &&
+      Math.abs(video.currentTime - playerState.current_time) > 2
     ) {
-      seek(playerState.current_time);
+      video.currentTime = playerState.current_time;
     }
 
-    if (shouldPlay && master.paused) {
-      play();
-    } else if (shouldPause && !master.paused) {
-      pause();
+    if (shouldPlay && video.paused) {
+      video.play().catch((error) => {
+        if (error.name !== "AbortError") {
+          console.error("Video play failed:", error);
+        }
+      });
+    } else if (shouldPause && !video.paused) {
+      video.pause();
     }
-    // isLeader is a dependency: a display promoted mid-stall must re-evaluate.
   }, [playerState?.play_state, playerState?.current_time, isLeader]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Handle volume changes from controller. In paired mode the video is muted,
-  // so volume belongs to the audio element.
+  // Handle volume changes from controller
   useEffect(() => {
-    const master = getMaster();
-    if (!master || !playerState) return;
+    if (!videoRef.current || !playerState) return;
 
-    master.volume = playerState.volume ?? 0.5;
-  }, [playerState?.volume, getMaster]); // eslint-disable-line react-hooks/exhaustive-deps
+    const video = videoRef.current;
+    video.volume = playerState.volume ?? 0.5;
+  }, [playerState?.volume]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Send periodic updates while playing
   useEffect(() => {
-    const master = getMaster();
     if (
-      !master ||
+      !videoRef.current ||
       !playerState?.entry ||
       playerState.play_state !== "playing"
     ) {
       return;
     }
 
+    const video = videoRef.current;
+
     const interval = setInterval(() => {
-      if (master.paused || master.ended || !playerState?.entry) {
+      if (!video || video.paused || video.ended || !playerState?.entry) {
         return;
       }
 
       updateVersionedPlayerState({
         entry: playerState.entry,
         play_state: "playing",
-        current_time: master.currentTime,
-        duration: master.duration || 0,
-        volume: master.volume,
+        current_time: video.currentTime,
+        duration: video.duration || 0,
+        volume: video.volume,
       });
     }, 1000);
     return () => clearInterval(interval);
   }, [playerState]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    const master = getMaster();
-    if (!master || !playerState?.entry) return;
+    const video = videoRef.current;
+    if (!video || !playerState?.entry) return;
 
     const handleTimeUpdate = () => {
-      if (!hasNearingEndFiredRef.current && master.duration > 0) {
-        const timeRemaining = master.duration - master.currentTime;
+      if (!hasNearingEndFiredRef.current && video.duration > 0) {
+        const timeRemaining = video.duration - video.currentTime;
         const shouldFireNearingEnd = (timeRemaining <= 15 && timeRemaining > 0); // Fire when 15 seconds or less remain
 
         if (shouldFireNearingEnd) {
@@ -227,27 +235,27 @@ function VideoPlayerComponent({
       }
     };
 
-    master.addEventListener('timeupdate', handleTimeUpdate);
-    return () => master.removeEventListener('timeupdate', handleTimeUpdate);
-  }, [playerState?.entry, onNearingEnd, getMaster, mediaKey]);
+    video.addEventListener('timeupdate', handleTimeUpdate);
+    return () => video.removeEventListener('timeupdate', handleTimeUpdate);
+  }, [playerState?.entry, onNearingEnd]);
 
-  // Reset per-song flags when the song changes
+  // Reset nearing end flag when song changes
   useEffect(() => {
     hasNearingEndFiredRef.current = false;
     setMediaError(null);
-  }, [entryId]);
+  }, [playerState?.entry?.id]);
 
-  // Handle page unload/reload - save current playback state
+  // Handle page unload/reload - save current video state
   useEffect(() => {
     const handleBeforeUnload = () => {
-      const master = getMaster();
-      if (master && playerState?.entry) {
+      if (videoRef.current && playerState?.entry) {
+        const video = videoRef.current;
         updateVersionedPlayerState({
           entry: playerState.entry,
-          play_state: master.paused ? "paused" : "playing",
-          current_time: master.currentTime,
-          duration: master.duration || 0,
-          volume: master.volume,
+          play_state: video.paused ? "paused" : "playing",
+          current_time: video.currentTime,
+          duration: video.duration || 0,
+          volume: video.volume,
         });
       }
     };
@@ -278,8 +286,6 @@ function VideoPlayerComponent({
   if ((!videoUrl && !audioUrl) || mediaError) {
     if (!playerState?.entry) return null;
 
-    const shownError = mediaError ?? error;
-
     return (
       <div className="h-full w-full flex items-center justify-center">
         <Panel className="px-10 py-8 flex flex-col items-center gap-4 max-w-3xl text-center">
@@ -292,9 +298,9 @@ function VideoPlayerComponent({
           <Text tone="dim">
             No stream available from {playerState.entry.source}
           </Text>
-          {shownError && (
+          {(mediaError ?? error) && (
             <Text size="sm" tone="danger" font="mono">
-              {shownError.message}
+              {(mediaError ?? error)?.message}
             </Text>
           )}
           {retryCount > 0 && (
@@ -318,97 +324,6 @@ function VideoPlayerComponent({
     );
   }
 
-  // Bound to whichever element owns the clock, so `ev.currentTarget` is the
-  // audio element when paired and the video element when muxed.
-  const masterEvents = {
-    onPlay: (ev: React.SyntheticEvent<HTMLMediaElement>) => {
-      if (!playerState?.entry) return;
-      const master = ev.currentTarget;
-      updateVersionedPlayerState({
-        entry: playerState.entry,
-        play_state: "playing",
-        current_time: master.currentTime,
-        duration: master.duration || 0,
-        volume: master.volume,
-      });
-    },
-    onPause: (ev: React.SyntheticEvent<HTMLMediaElement>) => {
-      // A buffering hold pauses both tracks; that is not a user pause.
-      if (isHolding() || !playerState?.entry) return;
-      const master = ev.currentTarget;
-      updateVersionedPlayerState({
-        entry: playerState.entry,
-        play_state: "paused",
-        current_time: master.currentTime,
-        duration: master.duration || 0,
-        volume: master.volume,
-      });
-    },
-    onWaiting: (ev: React.SyntheticEvent<HTMLMediaElement>) => {
-      if (isBufferingRef.current) return;
-
-      const master = ev.currentTarget;
-      updateVersionedPlayerState({
-        entry: playerState?.entry ?? null,
-        play_state: "buffering",
-        current_time: master.currentTime || 0,
-        duration: master.duration || 0,
-        volume: master.volume,
-      });
-
-      isBufferingRef.current = true;
-    },
-    onCanPlay: (ev: React.SyntheticEvent<HTMLMediaElement>) => {
-      // One track being ready says nothing while the pair is still parked.
-      if (isHolding()) return;
-      isBufferingRef.current = false;
-
-      if (playerState?.entry && playerState.play_state !== "playing") {
-        const master = ev.currentTarget;
-        updateVersionedPlayerState({
-          entry: playerState.entry,
-          play_state: "playing",
-          current_time: master.currentTime || 0,
-          duration: master.duration || 0,
-          volume: master.volume,
-        });
-      }
-    },
-    onCanPlayThrough: (ev: React.SyntheticEvent<HTMLMediaElement>) => {
-      // Resuming here would fight the hold, which owns restarting both tracks.
-      if (!playerState || isHolding()) return;
-      const master = ev.currentTarget;
-
-      // Set media time to match playerState (for reload/sync)
-      // Only sync forward to prevent regression loops on reconnection
-      if (
-        playerState.current_time &&
-        playerState.current_time > master.currentTime &&
-        Math.abs(master.currentTime - playerState.current_time) > 2
-      ) {
-        seek(playerState.current_time - 1);
-      }
-
-      if (playerState.play_state === "playing" && master.paused) {
-        play();
-      } else if (playerState.play_state === "paused" && !master.paused) {
-        pause();
-      }
-    },
-    onEnded: (ev: React.SyntheticEvent<HTMLMediaElement>) => {
-      if (!playerState?.entry) return;
-      const master = ev.currentTarget;
-      updateVersionedPlayerState({
-        entry: playerState.entry,
-        play_state: "finished" as const,
-        current_time: master.currentTime || 0,
-        duration: master.duration || 0,
-        volume: master.volume,
-      });
-      playNext();
-    },
-  };
-
   return (
     <div className="relative w-full h-full">
       {osd.visible && (
@@ -417,37 +332,121 @@ function VideoPlayerComponent({
         </OSD>
       )}
 
-      {videoUrl && (
-        <video
-          key={`${mediaKey}:video`}
-          ref={videoRef}
-          className="w-full h-full object-contain"
-          {...videoProps}
-          src={videoUrl}
-          onError={() => setMediaError(new Error("Video track failed to load"))}
-          {...(separateAudio ? {} : masterEvents)}
-        >
-          <track kind="captions" />
-          <p className="text-center">Your browser does not support the video tag.</p>
-        </video>
-      )}
+      <DualTrackVideo
+        key={playerState?.entry?.id}
+        ref={videoRef}
+        className="w-full h-full object-contain"
+        videoUrl={videoUrl}
+        audioUrl={audioUrl}
+        onAudioFailure={handleAudioFailure}
+        onHoldChange={handleHoldChange}
+        onTrackError={setMediaError}
+        onPlay={(ev) => {
+          if (playerState?.entry) {
+            const video = ev.currentTarget;
+            updateVersionedPlayerState({
+              entry: playerState.entry,
+              play_state: "playing",
+              current_time: video.currentTime,
+              duration: video.duration || 0,
+              volume: video.volume,
+            });
+          }
+        }}
+        onPause={(ev) => {
+          if (playerState?.entry) {
+            const video = ev.currentTarget;
+            updateVersionedPlayerState({
+              entry: playerState.entry,
+              play_state: "paused",
+              current_time: video.currentTime,
+              duration: video.duration || 0,
+              volume: video.volume,
+            });
+          }
+        }}
+        onWaiting={(ev) => {
+          if (isBufferingRef.current) return;
 
-      {separateAudio && (
-        <audio
-          key={`${mediaKey}:audio`}
-          ref={audioRef}
-          src={audioUrl ?? undefined}
-          onError={() => setMediaError(new Error("Audio track failed to load"))}
-          {...masterEvents}
-        />
-      )}
+          const video = ev.currentTarget;
+          updateVersionedPlayerState({
+            entry: playerState?.entry ?? null,
+            play_state: "buffering",
+            current_time: video.currentTime || 0,
+            duration: video.duration || 0,
+            volume: video.volume,
+          });
+
+          isBufferingRef.current = true;
+        }}
+        onCanPlay={(ev) => {
+          isBufferingRef.current = false;
+
+          if (playerState?.entry && playerState.play_state !== "playing") {
+            const video = ev.currentTarget;
+            updateVersionedPlayerState({
+              entry: playerState.entry,
+              play_state: "playing",
+              current_time: video.currentTime || 0,
+              duration: video.duration || 0,
+              volume: video.volume,
+            });
+          }
+        }}
+        onCanPlayThrough={(ev) => {
+          if (!playerState) return;
+          const video = ev.currentTarget;
+          const shouldPlay = playerState.play_state === "playing";
+          const shouldPause = playerState.play_state === "paused";
+
+          // Set video time to match playerState (for reload/sync)
+          // Only sync forward to prevent regression loops on reconnection
+          if (
+            playerState.current_time &&
+            playerState.current_time > video.currentTime &&
+            Math.abs(video.currentTime - playerState.current_time) > 2
+          ) {
+            video.currentTime = playerState.current_time - 1;
+          }
+
+          if (shouldPlay && video.paused) {
+            video.play().catch((error) => {
+              if (error.name !== "AbortError") {
+                console.error("Video play failed:", error);
+              }
+            });
+          } else if (shouldPause && !video.paused) {
+            video.pause();
+          }
+        }}
+        onEnded={(ev) => {
+          if (!playerState?.entry) return;
+          const video = ev.currentTarget;
+          updateVersionedPlayerState({
+            entry: playerState.entry,
+            play_state: "finished" as const,
+            current_time: video.currentTime || 0,
+            duration: video.duration || 0,
+            volume: video.volume,
+          });
+          onSongEnded(video.currentTime || 0);
+        }}
+      />
     </div>
+  );
+}
+
+function ReactionLayer() {
+  const { lastReaction } = useRoomContext();
+
+  return (
+    <ReactionOverlay event={lastReaction} className="fixed inset-0 z-10" />
   );
 }
 
 function StatusStrip() {
   const { isOffline } = useServerStatus();
-  const { clientCount: rawClientCount, roomId } = useRoomContext();
+  const { clientCount: rawClientCount, roomId, nickname, autoplay } = useRoomContext();
   const clientCount = Math.max(rawClientCount - 1, 0);
 
   return (
@@ -468,14 +467,34 @@ function StatusStrip() {
           {roomId}
         </Text>
       </div>
+      {nickname && (
+        <div className="flex items-center gap-2 px-3 py-1">
+          <Text font="display" size="sm" tone="dim">
+            Screen
+          </Text>
+          <Text font="display" size="sm" tone="info">
+            {nickname}
+          </Text>
+        </div>
+      )}
       <div className="flex items-center gap-2 px-3 py-1">
         <Text font="display" size="sm" tone="dim">
-          Remotes
+          Controllers
         </Text>
         <Text font="mono" size="sm" tone="accent">
           {clientCount.toString().padStart(2, "0")}
         </Text>
       </div>
+      {!autoplay && (
+        <div className="flex items-center gap-2 px-3 py-1">
+          <Text font="display" size="sm" tone="dim">
+            Autoplay
+          </Text>
+          <Text font="display" size="sm" tone="danger">
+            Off
+          </Text>
+        </div>
+      )}
     </Panel>
   );
 }
@@ -484,10 +503,11 @@ function PlayingStateContent() {
   // Make it null so it wont trigger the "queued" message on first load
   const lastUpNextQueueVersion = useRef<number | null>(null);
   const lastUpNextQueueLength = useRef<number>(0);
-  const [upNextTitle, setUpNextTitle] = useTempState<string | null>(null);
-  const [queuedTitle, setQueuedTitle] = useTempState<string | null>(null);
+  const [upNext, setUpNext] = useTempState<Announcement | null>(null);
+  const [queued, setQueued] = useTempState<Announcement | null>(null);
 
-  const { playerState, upNextQueue } = useRoomContext();
+  const { playerState, upNextQueue, autoplay } = useRoomContext();
+  const { finishSong } = usePlayerState();
   const { trigger: triggerVideoUrl } = useVideoUrlMutation();
   const {
     videoUrl: videoUrlData,
@@ -503,29 +523,45 @@ function PlayingStateContent() {
       : null,
   );
 
-  const banner = useMemo<{ status: string; tone: BannerTone; title: string }>(() => {
-    if (upNextTitle) {
-      return { status: "Up Next", tone: "next", title: upNextTitle };
+  const banner = useMemo<{ status: string; tone: BannerTone; title: string; singer?: string | null }>(() => {
+    if (upNext) {
+      return { status: "Up Next", tone: "next", title: upNext.title, singer: upNext.singer };
     }
-    if (queuedTitle) {
-      return { status: "Reserved", tone: "queued", title: queuedTitle };
+    if (queued) {
+      return { status: "Reserved", tone: "queued", title: queued.title, singer: queued.singer };
     }
     if (!playerState?.entry) {
       return { status: "Stopped", tone: "paused", title: "No Song" };
     }
+
+    const title = `${playerState.entry.artist} - ${playerState.entry.title}`;
+    const singer = playerState.singer;
+    if (playerState.play_state === "finished") {
+      return { status: "Finished", tone: "paused", title, singer };
+    }
+
     return {
       status: playerState.play_state === "playing" ? "Playing" : "Paused",
       tone: playerState.play_state === "playing" ? "playing" : "paused",
-      title: `${playerState.entry.artist} - ${playerState.entry.title}`,
+      title,
+      singer,
     };
-  }, [upNextTitle, queuedTitle, playerState]);
+  }, [upNext, queued, playerState]);
 
-  // Both tracks must come from the same resolution, otherwise a muxed video_url
-  // could be paired with a separately fetched audio_url and play doubled audio.
+  // With autoplay off the song ends and the queue just sits there, so the
+  // display has to say what is waiting and how to start it.
+  const heldSong = useMemo(() => {
+    if (autoplay || playerState?.play_state !== "finished") return null;
+    return upNextQueue?.items[0] ?? null;
+  }, [autoplay, playerState?.play_state, upNextQueue]);
+
   const { videoUrl, audioUrl } = useMemo(() => {
     const entry = playerState?.entry;
     if (!entry) return { videoUrl: null, audioUrl: null };
 
+    // Both tracks must come from the same resolution, otherwise a muxed
+    // video_url could be paired with a separately fetched audio_url and the
+    // audio would play twice.
     if (entry.video_url || entry.audio_url) {
       return { videoUrl: entry.video_url ?? null, audioUrl: entry.audio_url ?? null };
     }
@@ -537,10 +573,18 @@ function PlayingStateContent() {
     if (!upNextQueue || upNextQueue.items.length === 0) return;
 
     const nextSong = upNextQueue.items[0];
-    setUpNextTitle(
-      `${nextSong.entry.artist} - ${nextSong.entry.title}`,
-      { duration: timeRemaining * 1000 },
-    );
+
+    // Announce the rollover only when one is coming. The URL is still worth
+    // prefetching either way so a manual Next is not left waiting.
+    if (autoplay) {
+      setUpNext(
+        {
+          title: `${nextSong.entry.artist} - ${nextSong.entry.title}`,
+          singer: nextSong.singer,
+        },
+        { duration: timeRemaining * 1000 },
+      );
+    }
 
     if (nextSong.entry.video_url || nextSong.entry.audio_url) {
       // Skip prefetching if we already have the URLs
@@ -555,15 +599,18 @@ function PlayingStateContent() {
         console.error('[Prefetch] Failed to prefetch URL for:', nextSong.entry.title, error);
       });
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [upNextQueue, setUpNextTitle]);
+  }, [autoplay, upNextQueue, setUpNext]);
 
   useEffect(() => {
     if (lastUpNextQueueVersion.current
       && upNextQueue && upNextQueue.version > lastUpNextQueueVersion.current
       && upNextQueue.items.length > lastUpNextQueueLength.current) {
       const newSong = upNextQueue.items[upNextQueue.items.length - 1];
-      setQueuedTitle(
-        `${newSong.entry.artist} - ${newSong.entry.title}`,
+      setQueued(
+        {
+          title: `${newSong.entry.artist} - ${newSong.entry.title}`,
+          singer: newSong.singer,
+        },
         { duration: 3000 },
       );
     }
@@ -584,6 +631,7 @@ function PlayingStateContent() {
           status={banner.status}
           tone={banner.tone}
           title={banner.title}
+          singer={banner.singer}
           reservedCount={upNextQueue?.items.length ?? 0}
         />
       </div>
@@ -598,8 +646,15 @@ function PlayingStateContent() {
           onRetry={retry}
           retryCount={retryCount}
           onNearingEnd={handleNearingEnd}
+          onSongEnded={(playedSeconds) => finishSong(playerState.entry!.id, playedSeconds)}
         />
       </div>
+
+      {heldSong && (
+        <div className="absolute inset-0 z-20 flex items-center justify-center title-safe pointer-events-none">
+          <UpNextCard entry={heldSong.entry} singer={heldSong.singer} />
+        </div>
+      )}
     </div>
   );
 }
@@ -615,7 +670,7 @@ function ConnectedStateScreen() {
   const controllerUrl = `${window.location.origin}/controller?room=${encodeURIComponent(roomId)}`;
 
   return (
-    <MessageTemplate title="Connect a Remote" backdrop="idle">
+    <MessageTemplate title="Connect a Controller" backdrop="idle">
       <div className="flex flex-col md:flex-row items-center gap-8 w-full">
         <div className="flex-1 space-y-4">
           <Text size="lg" tone="dim">
@@ -640,6 +695,29 @@ function ConnectedStateScreen() {
         </div>
       </div>
     </MessageTemplate>
+  );
+}
+
+function ScoringStateScreen() {
+  const { score } = useRoomContext();
+  const { scoring, scoreRevealed } = usePlayerState();
+
+  // A leftover score is ignored rather than shown against the wrong song
+  const shownScore = score && scoring && score.entry_id === scoring.entryId ? score.score : null;
+
+  return (
+    <div className="relative h-screen w-screen">
+      <Backdrop name="idle" />
+
+      <div className="relative z-10 h-full w-full flex items-center justify-center title-safe">
+        <ScoreScreen
+          score={shownScore}
+          quick={scoring?.quick ?? false}
+          sound={!scoring?.quick}
+          onRevealed={scoreRevealed}
+        />
+      </div>
+    </div>
   );
 }
 
@@ -707,6 +785,8 @@ function AwaitingInteractionStateScreen() {
 
 function PlayerStateProviderInternal({ children }: { children: React.ReactNode }) {
   const [hasInteracted, setHasInteracted] = useState(false);
+  const [scoring, setScoring] = useState<{ entryId: string; quick: boolean } | null>(null);
+  const scoreTimer = useRef<number | null>(null);
 
   const {
     connected,
@@ -715,6 +795,11 @@ function PlayerStateProviderInternal({ children }: { children: React.ReactNode }
     updatePlayerState,
     lastQueueCommand,
     isLeader,
+    playNext,
+    scoringCue,
+    scoreReading,
+    publishScore,
+    announceScoring,
   } = useRoomContext();
 
   // Use smart sync for non-leader displays
@@ -728,10 +813,143 @@ function PlayerStateProviderInternal({ children }: { children: React.ReactNode }
   const appState: AppState = useMemo(() => {
     if (!hasInteracted) return "awaiting-interaction";
     if (!connected) return "connecting";
+    if (scoring) return "scoring";
     if (playerState?.entry) return "playing";
     // If no entry is set, we are ready to play
     return clientCount > 1 ? "ready" : "connected";
-  }, [hasInteracted, connected, playerState?.entry, clientCount]);
+  }, [hasInteracted, connected, scoring, playerState?.entry, clientCount]);
+
+  const scoringRef = useRef<{ entryId: string; quick: boolean } | null>(null);
+  const juryTimer = useRef<number | null>(null);
+  const readingRef = useRef<{ entryId: string; performance: number } | null>(null);
+  const judged = useRef<string | null>(null);
+
+  // Read when the timer fires, so a display promoted mid-grace still judges
+  const isLeaderRef = useRef(isLeader);
+  const publishScoreRef = useRef(publishScore);
+  const announceScoringRef = useRef(announceScoring);
+  const announced = useRef<boolean | null>(null);
+
+  useEffect(() => {
+    isLeaderRef.current = isLeader;
+    publishScoreRef.current = publishScore;
+    announceScoringRef.current = announceScoring;
+    scoringRef.current = scoring;
+  }, [isLeader, publishScore, announceScoring, scoring]);
+
+  // The remotes cannot see the scoring screen, so the leader says when it is up
+  useEffect(() => {
+    const active = Boolean(scoring);
+    if (!isLeaderRef.current || announced.current === active) return;
+
+    announced.current = active;
+    announceScoringRef.current(active);
+  }, [scoring]);
+
+  useEffect(() => {
+    if (!scoreReading) return;
+    readingRef.current = { entryId: scoreReading.entryId, performance: scoreReading.performance };
+  }, [scoreReading]);
+
+  const clearJuryTimer = useCallback(() => {
+    if (juryTimer.current === null) return;
+
+    window.clearTimeout(juryTimer.current);
+    juryTimer.current = null;
+  }, []);
+
+  // Only the leader decides, so every screen in the room shows one number
+  const judge = useCallback((entryId: string) => {
+    clearJuryTimer();
+    if (!isLeaderRef.current || judged.current === entryId) return;
+
+    judged.current = entryId;
+    const reading = readingRef.current;
+    const heard = reading && reading.entryId === entryId;
+
+    publishScoreRef.current(
+      entryId,
+      heard ? scoreFromPerformance(reading.performance) : rollScore(),
+      heard ? "mic" : "auto",
+    );
+  }, [clearJuryTimer]);
+
+  const clearScoreTimer = useCallback(() => {
+    if (scoreTimer.current === null) return;
+
+    window.clearTimeout(scoreTimer.current);
+    scoreTimer.current = null;
+  }, []);
+
+  const finishScoring = useCallback((quick: boolean, delay: number) => {
+    clearScoreTimer();
+
+    scoreTimer.current = window.setTimeout(() => {
+      scoreTimer.current = null;
+      setScoring(null);
+      // A skip advances whatever autoplay says, since someone asked for it
+      playNext({ auto: !quick });
+    }, delay);
+  }, [clearScoreTimer, playNext]);
+
+  const beginScoring = useCallback((entryId: string, quick: boolean) => {
+    setScoring({ entryId, quick });
+    clearJuryTimer();
+
+    // Judged at once when a reading is already in hand
+    if (readingRef.current?.entryId === entryId) {
+      judge(entryId);
+    } else {
+      juryTimer.current = window.setTimeout(() => judge(entryId), JURY_GRACE_MS);
+    }
+
+    // Replaced by the reveal when one arrives
+    finishScoring(quick, SCORE_WAIT_MAX_MS);
+  }, [clearJuryTimer, finishScoring, judge]);
+
+  const scoreRevealed = useCallback(() => {
+    const quick = scoringRef.current?.quick ?? false;
+    finishScoring(quick, quick ? SKIP_REVEAL_HOLD_MS : REVEAL_HOLD_MS);
+  }, [finishScoring]);
+
+  const finishSong = useCallback((entryId: string, playedSeconds: number) => {
+    if (playedSeconds < MIN_SCORED_SECONDS) {
+      playNext({ auto: true });
+      return;
+    }
+
+    beginScoring(entryId, false);
+  }, [beginScoring, playNext]);
+
+  // Keyed on the cue, so a re-render cannot restart a hold already running
+  const handledCue = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (!scoring || !scoreReading || scoreReading.entryId !== scoring.entryId) return;
+    judge(scoring.entryId);
+  }, [scoring, scoreReading, judge]);
+
+  useEffect(() => {
+    if (!scoringCue || handledCue.current === scoringCue.at) return;
+
+    handledCue.current = scoringCue.at;
+    beginScoring(scoringCue.entryId, scoringCue.quick);
+  }, [scoringCue, beginScoring]);
+
+  useEffect(() => {
+    setScoring(null);
+    clearScoreTimer();
+    clearJuryTimer();
+    readingRef.current = null;
+    judged.current = null;
+  }, [playerState?.entry?.id, clearScoreTimer, clearJuryTimer]);
+
+  useEffect(() => {
+    return () => {
+      clearScoreTimer();
+      clearJuryTimer();
+    };
+  }, [clearScoreTimer, clearJuryTimer]);
 
   const lastPlayStateRef = useRef<string | null>(null);
 
@@ -782,6 +1000,9 @@ function PlayerStateProviderInternal({ children }: { children: React.ReactNode }
     hasInteracted,
     setHasInteracted,
     playerState,
+    scoring,
+    scoreRevealed,
+    finishSong,
     osd,
     setOSD,
   };
@@ -803,6 +1024,8 @@ function PlayerPageContent() {
       return <ConnectedStateScreen />;
     case "ready":
       return <ReadyStateScreen />;
+    case "scoring":
+      return <ScoringStateScreen />;
     case "playing":
       return <PlayingStateContent />;
     default:
@@ -813,7 +1036,8 @@ function PlayerPageContent() {
 export default function PlayerPage() {
   const [searchParams] = useSearchParams();
   const roomId = searchParams.get("room");
-  const room = useRoom("display");
+  const [nickname] = useState(getDisplayNickname);
+  const room = useRoom("display", nickname);
 
   useEffect(() => {
     if (roomId) {
@@ -868,6 +1092,7 @@ export default function PlayerPage() {
       <PlayerStateProviderInternal>
         <div className="relative">
           <PlayerPageContent />
+          <ReactionLayer />
           <div className="absolute bottom-[3vh] left-[3vw] z-30">
             <StatusStrip />
           </div>

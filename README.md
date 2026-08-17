@@ -79,6 +79,7 @@ npm run build:prod
 # Start the server
 cd ../backend
 pip install -r requirements.txt
+pip install --upgrade yt-dlp yt-dlp-ejs
 python main.py
 ```
 
@@ -90,12 +91,9 @@ Visit `http://localhost:8000` to access the application.
 Rooms let multiple groups run karaoke sessions independently. The home screen has a single room field, filled with a generated name you can replace with your own.
 
 Pressing **Join Room** opens a dialog whose contents depend on the name you entered:
-- **The room does not exist yet.** It gets created when you enter, and the dialog offers **Room Visibility** (shown in public listings, or private) and an optional **Room Password**.
+- **The room does not exist yet.** It gets created when you enter, and the dialog offers an optional **Room Password**.
 - **The room exists and is open.** You enter straight away.
 - **The room exists and is password protected.** The dialog asks for the password before letting you in.
-
-> [!TIP]
-> Public rooms can have passwords too, so a room can stay listed while still being restricted.
 
 ### Modes
 
@@ -104,6 +102,30 @@ The same dialog is where you pick what this device becomes:
 - **Enter as Controller:** For phones or tablets to search for songs and control playback.
 
 The quickest way to add a controller is to scan the QR code the display shows while it is waiting.
+
+### Nicknames
+
+A controller asks who is holding it before it joins, and that nickname rides along with every song reserved from it. Reserved songs carry the name in the controller's Reserved tab, and the display shows it beside the song in the banner and on the Up Next card, so a room full of people can tell whose turn is coming.
+
+The name is remembered on the device, so the prompt comes back filled in the next time that phone joins a room. Change it there whenever the phone changes hands. Names run up to 14 characters, which is what fits beside a song title on a phone.
+
+Displays are never asked for a name. Each one generates its own (`Stage 42` and the like) and shows it in the corner status strip, which is handy when several screens share a room.
+
+### Autoplay
+
+Reserved songs play one after another by default: when the current song ends, the display moves straight on to the next one in the queue.
+
+The **Autoplay** toggle in the controller's Player tab turns that off. With it off, a song that ends leaves the queue untouched and the display holds, showing what is up next until someone presses **Next**. If nothing is reserved there is nothing to hold back, so the display returns to its idle screen instead. The setting belongs to the room, so every controller and display in it stays in sync, and the display shows an `Autoplay Off` marker while it is disabled.
+
+Pressing **Next** always skips to the next reserved song, whatever the toggle is set to.
+
+### Scoring
+
+Every song is scored when it ends, and skipping one still scores it. The display spins through digits until the score lands, holds it, then moves on. Anything that played for less than five seconds is not scored.
+
+A controller opens with a **Mic Check**, the same way a display opens with a Sound Check. Allowing it scores singing through the phone's microphone, with the audio staying on the device and only the score sent. Only the remote that reserved the song listens.
+
+Declining, denying the browser, or reaching the app over plain `http`, where microphones are unavailable, leaves the machine to invent the score instead. Both land in the same range.
 
 ### Development
 

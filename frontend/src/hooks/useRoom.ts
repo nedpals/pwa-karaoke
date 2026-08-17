@@ -3,13 +3,14 @@ import { useWebSocket } from './useWebSocket';
 import { useServerStatus, useVerifyRoomMutation } from './useApi';
 import { getRoomPassword, storeRoomPassword } from '../lib/roomStorage';
 import { apiClient } from '../api/client';
-import type { DisplayPlayerState, KaraokeQueue, KaraokeEntry } from '../types';
+import type { DisplayPlayerState, KaraokeQueue, KaraokeEntry, ReactionEvent, ReactionType, RoomSettings, ScoreSource, SongScore } from '../types';
 
 type ClientType = "controller" | "display";
 
 export interface RoomState {
   // Room status
   roomId: string | null;
+  nickname: string | null;
   isVerified: boolean;
   isVerifying: boolean;
   verificationError: string | null;
@@ -24,7 +25,14 @@ export interface RoomState {
   queue: KaraokeQueue | null;
   upNextQueue: KaraokeQueue | null;
   playerState: DisplayPlayerState | null;
+  autoplay: boolean;
   isLeader: boolean;
+  lastReaction: ReactionEvent | null;
+  score: SongScore | null;
+  scoringCue: { entryId: string; quick: boolean; at: number } | null;
+  scoringTurn: boolean;
+  scoreReading: { entryId: string; performance: number; at: number } | null;
+  scoringActive: boolean;
   lastQueueCommand: {
     command: string;
     data: unknown;
@@ -39,17 +47,22 @@ export interface RoomActions {
   // WebSocket actions (core functions from useWebSocket)
   sendCommand: (command: string, payload?: unknown) => void;
   sendCommandWithAck: (command: string, payload?: unknown, timeout?: number) => Promise<unknown>;
-  joinRoom: (roomId: string) => Promise<unknown>;
+  joinRoom: (roomId: string, nickname?: string | null) => Promise<unknown>;
 
   // Controller commands (implemented here)
   queueSong: (entry: KaraokeEntry) => Promise<unknown>;
   removeSong: (id: string) => Promise<unknown>;
   playSong: () => Promise<unknown>;
   pauseSong: () => Promise<unknown>;
-  playNext: () => Promise<unknown>;
+  playNext: (options?: { auto?: boolean }) => Promise<unknown>;
   queueNextSong: (entryId: string) => void;
   clearQueue: () => Promise<unknown>;
   setVolume: (volume: number) => Promise<unknown>;
+  sendReaction: (reaction: ReactionType) => void;
+  submitScore: (entryId: string, performance: number) => void;
+  publishScore: (entryId: string, score: number, source: ScoreSource) => void;
+  announceScoring: (active: boolean) => void;
+  setAutoplay: (enabled: boolean) => Promise<unknown>;
 
   // Display commands (implemented here)
   updatePlayerState: (state: DisplayPlayerState) => void;
@@ -57,7 +70,7 @@ export interface RoomActions {
 
 export type UseRoomReturn = RoomState & RoomActions;
 
-export function useRoom(clientType: ClientType): UseRoomReturn {
+export function useRoom(clientType: ClientType, nickname?: string | null): UseRoomReturn {
   const { isOffline } = useServerStatus();
   const [roomId, setRoomId] = useState<string | null>(null);
   const [isVerified, setIsVerified] = useState(false);
@@ -67,7 +80,14 @@ export function useRoom(clientType: ClientType): UseRoomReturn {
 
   const [queue, setQueue] = useState<KaraokeQueue | null>(null);
   const [playerState, setPlayerState] = useState<DisplayPlayerState | null>(null);
+  const [settings, setSettings] = useState<RoomSettings | null>(null);
   const [isLeader, setIsLeader] = useState(false);
+  const [lastReaction, setLastReaction] = useState<ReactionEvent | null>(null);
+  const [score, setScore] = useState<SongScore | null>(null);
+  const [scoringCue, setScoringCue] = useState<RoomState["scoringCue"]>(null);
+  const [scoringTurn, setScoringTurn] = useState(false);
+  const [scoreReading, setScoreReading] = useState<RoomState["scoreReading"]>(null);
+  const [scoringActive, setScoringActive] = useState(false);
   const [lastQueueCommand, setLastQueueCommand] = useState<{
     command: string;
     data: unknown;
@@ -77,19 +97,11 @@ export function useRoom(clientType: ClientType): UseRoomReturn {
   const ws = useWebSocket(clientType, false);
   const { trigger: verifyRoom } = useVerifyRoomMutation();
 
-  const upNextQueue = useMemo(() => {
-    if (!queue || !queue.items.length) {
-      return { items: [], version: 1, timestamp: Date.now() };
-    }
-
-    return {
-      items: queue.items.filter(
-        (item) => !playerState?.entry || item.entry.id !== playerState.entry.id,
-      ),
-      version: queue.version,
-      timestamp: queue.timestamp,
-    };
-  }, [queue, playerState?.entry]);
+  // The server pops the playing song off the queue, so whatever is left is up
+  // next. Filtering by entry id here would hide a re-reserved copy of it.
+  const upNextQueue = useMemo<KaraokeQueue>(() => {
+    return queue ?? { items: [], version: 1, timestamp: Date.now() };
+  }, [queue]);
 
   // Memoized check for whether this client can send playback commands
   const canSendPlaybackCommands = useMemo(() => {
@@ -125,7 +137,7 @@ export function useRoom(clientType: ClientType): UseRoomReturn {
       setIsVerified(true);
       setRoomId(targetRoomId);
 
-      await ws.joinRoom(targetRoomId);
+      await ws.joinRoom(targetRoomId, nickname);
     } catch (error) {
       let errorMessage = error instanceof Error ? error.message : 'This room may be private or require a password. Please check with the room creator.';
       if (error instanceof TypeError && error.message === 'Failed to fetch') {
@@ -154,7 +166,7 @@ export function useRoom(clientType: ClientType): UseRoomReturn {
     } finally {
       setIsVerifying(false);
     }
-  }, [isOffline, verifyRoom]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [isOffline, verifyRoom, nickname]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!ws.lastMessage) return;
@@ -209,6 +221,26 @@ export function useRoom(clientType: ClientType): UseRoomReturn {
         });
         break;
       }
+      case "room_settings": {
+        const incomingSettings = data as RoomSettings;
+        setSettings((prevSettings) => {
+          if (!prevSettings) return incomingSettings;
+
+          if (incomingSettings.version > prevSettings.version) {
+            return incomingSettings;
+          }
+
+          if (
+            incomingSettings.version === prevSettings.version &&
+            incomingSettings.timestamp > prevSettings.timestamp
+          ) {
+            return incomingSettings;
+          }
+
+          return prevSettings;
+        });
+        break;
+      }
       case "play_song":
         setPlayerState((prev) =>
           prev ? { ...prev, play_state: "playing" } : null,
@@ -222,6 +254,36 @@ export function useRoom(clientType: ClientType): UseRoomReturn {
       case "leader_status":
         if (clientType === "display") {
           setIsLeader((data as { is_leader: boolean }).is_leader);
+        }
+        break;
+      case "reaction":
+        if (clientType === "display") {
+          setLastReaction(data as ReactionEvent);
+        }
+        break;
+      case "score":
+        setScore(data as SongScore);
+        break;
+      case "score_reading":
+        if (clientType === "display") {
+          const reading = data as { entry_id: string; performance: number };
+          setScoreReading({ entryId: reading.entry_id, performance: reading.performance, at: Date.now() });
+        }
+        break;
+      case "scoring_state":
+        if (clientType === "controller") {
+          setScoringActive(Boolean((data as { active: boolean }).active));
+        }
+        break;
+      case "scoring_turn":
+        if (clientType === "controller") {
+          setScoringTurn(Boolean((data as { active: boolean }).active));
+        }
+        break;
+      case "scoring":
+        if (clientType === "display") {
+          const cue = data as { entry_id: string; quick: boolean };
+          setScoringCue({ entryId: cue.entry_id, quick: cue.quick, at: Date.now() });
         }
         break;
       case "set_volume":
@@ -241,7 +303,14 @@ export function useRoom(clientType: ClientType): UseRoomReturn {
     if (!ws.connected) {
       setQueue(null);
       setPlayerState(null);
+      setSettings(null);
       setIsLeader(false);
+      setLastReaction(null);
+      setScore(null);
+      setScoringCue(null);
+      setScoringTurn(false);
+      setScoreReading(null);
+      setScoringActive(false);
       setLastQueueCommand(null);
       apiClient.clearRoomCredentials();
     } else if (ws.connected && clientType === "display") {
@@ -252,6 +321,7 @@ export function useRoom(clientType: ClientType): UseRoomReturn {
   return {
     // Room state
     roomId,
+    nickname: nickname || null,
     isVerified,
     isVerifying,
     verificationError,
@@ -266,7 +336,14 @@ export function useRoom(clientType: ClientType): UseRoomReturn {
     queue,
     upNextQueue,
     playerState,
+    autoplay: settings?.autoplay ?? true,
     isLeader,
+    lastReaction,
+    score,
+    scoringCue,
+    scoringTurn,
+    scoreReading,
+    scoringActive,
     lastQueueCommand,
 
     // Actions
@@ -282,17 +359,38 @@ export function useRoom(clientType: ClientType): UseRoomReturn {
     removeSong: (id: string) => ws.sendCommandWithAck("remove_song", { entry_id: id }),
     playSong: () => ws.sendCommandWithAck("play_song"),
     pauseSong: () => ws.sendCommandWithAck("pause_song"),
-    playNext: () => {
+    playNext: (options?: { auto?: boolean }) => {
       // Only leader displays should trigger next song
       if (clientType === "display" && !isLeader) {
         console.log(`[${clientType}] Non-leader display ignoring playNext request`);
         return Promise.resolve({});
       }
-      return ws.sendCommandWithAck("play_next");
+      return ws.sendCommandWithAck("play_next", { auto: options?.auto ?? false });
     },
     queueNextSong: (entryId: string) => ws.sendCommand("queue_next_song", { entry_id: entryId }),
     clearQueue: () => ws.sendCommandWithAck("clear_queue"),
     setVolume: (volume: number) => ws.sendCommandWithAck("set_volume", { volume }),
+    sendReaction: (reaction: ReactionType) => ws.sendCommand("send_reaction", { reaction }),
+    submitScore: (entryId: string, performance: number) =>
+      ws.sendCommand("submit_score", { entry_id: entryId, performance }),
+    publishScore: (entryId: string, score: number, source: ScoreSource) =>
+      ws.sendCommand("publish_score", { entry_id: entryId, score, source }),
+    announceScoring: (active: boolean) => ws.sendCommand("scoring_state", { active }),
+    setAutoplay: async (enabled: boolean) => {
+      const previousSettings = settings;
+      setSettings((prev) =>
+        prev
+          ? { ...prev, autoplay: enabled }
+          : { autoplay: enabled, version: 1, timestamp: Date.now() },
+      );
+
+      try {
+        return await ws.sendCommandWithAck("set_autoplay", { enabled });
+      } catch (error) {
+        setSettings(previousSettings);
+        throw error;
+      }
+    },
     updatePlayerState: (state: DisplayPlayerState) => {
       // Only leader displays should send player state updates
       if (!canSendPlaybackCommands) {

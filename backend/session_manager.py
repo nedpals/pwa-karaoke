@@ -74,8 +74,16 @@ class SessionManager:
         await self.client_manager.broadcast_command(command, data, clients=displays)
     
     # Client room management
-    async def join_room(self, client: ConnectionClient, room_id: str):
+    async def join_room(
+        self,
+        client: ConnectionClient,
+        room_id: str,
+        nickname: Optional[str] = None,
+        device_id: Optional[str] = None,
+    ):
         client.room_id = room_id
+        client.nickname = nickname
+        client.device_id = device_id
         room = self.get_room(room_id)
         
         # If display, ensure leadership is handled
@@ -119,49 +127,6 @@ class SessionManager:
                 # Display disconnected, will be cleaned up later
                 pass
     
-    def get_active_rooms(self):
-        active_rooms = []
-        
-        # Get all rooms that have clients
-        rooms_with_clients = {}
-        for client in self.client_manager.active_connections:
-            if client.room_id:
-                if client.room_id not in rooms_with_clients:
-                    rooms_with_clients[client.room_id] = {
-                        "controllers": 0,
-                        "displays": 0,
-                        "total": 0
-                    }
-                
-                rooms_with_clients[client.room_id]["total"] += 1
-                if client.client_type == "controller":
-                    rooms_with_clients[client.room_id]["controllers"] += 1
-                elif client.client_type == "display":
-                    rooms_with_clients[client.room_id]["displays"] += 1
-        
-        for room_id, counts in rooms_with_clients.items():
-            room = self.get_room(room_id)
-            
-            if room.is_public:
-                current_song = room.get_current_song()
-                active_rooms.append({
-                    "id": room_id,
-                    "name": room_id,  # Using room_id as name for now
-                    "client_count": counts["total"],
-                    "controllers_count": counts["controllers"],
-                    "displays_count": counts["displays"],
-                    "has_leader": self.room_leaders.get(room_id) is not None,
-                    "queue_length": len(room.queue.items) if room.queue else 0,
-                    "is_active": counts["total"] > 0,
-                    "is_public": room.is_public,
-                    "requires_password": room.requires_password(),
-                    "created_at": room.created_at,
-                    "current_song": current_song.title if current_song else None
-                })
-        
-        active_rooms.sort(key=lambda x: x["client_count"], reverse=True)
-        return active_rooms
-
     def get_health_metrics(self):
         base_metrics = self.client_manager.get_health_metrics()
         
@@ -177,6 +142,10 @@ class SessionManager:
         return {
             **base_metrics,
             "room_leadership": room_leadership,
-            "active_rooms_count": len(self.get_active_rooms())
+            "active_rooms_count": len({
+                client.room_id
+                for client in self.client_manager.active_connections
+                if client.room_id
+            })
         }
     

@@ -1,23 +1,307 @@
-import time
-import random
-from typing import Optional, Union
-import yt_dlp
-from core.search import KaraokeSourceProvider, KaraokeSearchResult, KaraokeEntry, VideoURLResult
-from config import config
-from urllib.parse import urlparse, urlunparse
-from concurrent.futures import ThreadPoolExecutor
 import asyncio
+import json
+import os
+import random
+import shlex
+import time
+from concurrent.futures import ThreadPoolExecutor
+from typing import NamedTuple, Optional, Union
+from urllib.parse import urlparse, urlunparse
+
+import yt_dlp
+
+from core.search import KaraokeSourceProvider, KaraokeSearchResult, KaraokeEntry, VideoURLResult, ProviderHealth
+from config import config
+
+PLAYER_CLIENT = "android_sdkless"
+FORMAT_SELECTOR = "best[ext=mp4]/best[ext=webm]/best"
+
+# A karaoke display gains nothing above 1080p, and the 1440p/2160p rungs are
+# AV1-only, which cheap TV browsers and SBCs cannot decode in real time.
+MAX_VIDEO_HEIGHT = 1080
+
+# avc1 is hardware-decoded essentially everywhere; av01 rarely is.
+VIDEO_CODEC_PREFERENCE = ("avc1", "vp09", "vp9", "av01")
+
+# Applied to every CLI invocation. --ignore-config keeps a stray user or system
+# config file from changing behaviour under us.
+YTDLP_BASE_ARGS = [
+    "--ignore-config",
+    "--quiet",
+    "--no-warnings",
+    "--no-progress",
+    "--no-playlist",
+]
+
+RETRYABLE_ERROR_MARKERS = (
+    "proxy", "407", "429", "rate limit",
+    "connection", "timeout", "timed out", "network",
+    "dns", "name resolution", "unreachable", "reset by peer", "temporary failure",
+    "400", "401", "403", "404", "408",
+)
+
+KILL_GRACE_SECONDS = 5.0
+
+# How long a failed probe is trusted before /health tries again.
+PROBE_INTERVAL_SECONDS = 60.0
+
+
+class YtdlpError(Exception):
+    def __init__(self, message: str, returncode: Optional[int] = None, stderr: str = ""):
+        super().__init__(message)
+        self.returncode = returncode
+        self.stderr = stderr
+
+    @property
+    def details(self) -> str:
+        return f"{self} {self.stderr}".strip()
+
+
+class YtdlpTimeout(YtdlpError):
+    pass
+
+
+class YtdlpMissing(YtdlpError):
+    pass
+
+
+class ExtractionOutcome(NamedTuple):
+    url: Optional[str]
+    # True when the attempt failed for a reason that says nothing about this
+    # particular video, so the result is not worth remembering.
+    environmental_failure: bool
+    # When set, `url` carries no audio of its own and the two play together.
+    audio_url: Optional[str] = None
+
+
+class YtdlpHealth(ProviderHealth):
+    """
+    Provider health backed by a version probe of the yt-dlp binary.
+
+    Starts unavailable because the binary has to be confirmed before anything
+    can be resolved.
+    """
+
+    def __init__(self):
+        super().__init__(available=False)
+        self.last_probe_at: float = 0.0
+        self._lock = asyncio.Lock()
+
+    async def probe(self, force: bool = False) -> dict:
+        """
+        Refresh the version probe.
+
+        Skipped while the binary is known good and rate limited otherwise, so
+        /health can call it on every request. Probing on the way back up is what
+        lets an install into a running container recover without a restart.
+        """
+        if not force and self.available and self.version:
+            return self.snapshot()
+
+        async with self._lock:
+            if not force and self.available and self.version:
+                return self.snapshot()
+
+            now = time.time()
+            if not force and now - self.last_probe_at < PROBE_INTERVAL_SECONDS:
+                return self.snapshot()
+            self.last_probe_at = now
+
+            try:
+                self.record_ok(version=await ytdlp_version())
+            except YtdlpError as e:
+                self.record_failure(e.details, fatal=True)
+
+        return self.snapshot()
+
+
+def proxy_url() -> Optional[str]:
+    """Build the configured proxy URL, with credentials when both are set."""
+    if not config.PROXY_SERVER:
+        return None
+
+    if not (config.PROXY_USERNAME and config.PROXY_PASSWORD):
+        return config.PROXY_SERVER
+
+    parsed = urlparse(config.PROXY_SERVER)
+    netloc = f"{config.PROXY_USERNAME}:{config.PROXY_PASSWORD}@{parsed.hostname}"
+    if parsed.port:
+        netloc = f"{netloc}:{parsed.port}"
+
+    return urlunparse((parsed.scheme, netloc, parsed.path, parsed.params, parsed.query, parsed.fragment))
+
+
+def _subprocess_env() -> dict:
+    """
+    Pass the proxy through the environment rather than argv so credentials stay
+    out of the host process list.
+    """
+    env = os.environ.copy()
+    proxy = proxy_url()
+    if proxy:
+        for key in ("http_proxy", "https_proxy", "HTTP_PROXY", "HTTPS_PROXY"):
+            env[key] = proxy
+    return env
+
+
+async def _terminate(proc: asyncio.subprocess.Process):
+    if proc.returncode is not None:
+        return
+
+    try:
+        proc.kill()
+    except ProcessLookupError:
+        return
+
+    try:
+        await asyncio.wait_for(proc.wait(), timeout=KILL_GRACE_SECONDS)
+    except asyncio.TimeoutError:
+        print(f"[YTDLP] Process {proc.pid} did not exit after kill")
+
+
+async def run_ytdlp(args: list[str], timeout: Optional[float] = None) -> str:
+    """
+    Run the yt-dlp CLI and return its stdout, raising YtdlpError on any failure.
+
+    Shelling out keeps this on yt-dlp's documented command line contract rather
+    than its Python internals, which matters because the package is upgraded
+    often. It also allows the hard timeout below, which the in-process API has
+    no equivalent for, and keeps extractor crashes out of the server.
+    """
+    argv = [config.YTDLP_BINARY, *YTDLP_BASE_ARGS]
+    if config.YTDLP_EXTRA_ARGS:
+        argv.extend(shlex.split(config.YTDLP_EXTRA_ARGS))
+    argv.extend(args)
+
+    limit = timeout if timeout is not None else config.YTDLP_TIMEOUT_SECONDS
+
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *argv,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            env=_subprocess_env(),
+        )
+    except FileNotFoundError as e:
+        raise YtdlpMissing(f"yt-dlp binary not found at {config.YTDLP_BINARY!r}") from e
+    except OSError as e:
+        raise YtdlpError(f"Failed to start yt-dlp: {e}") from e
+
+    try:
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=limit)
+    except asyncio.TimeoutError:
+        await _terminate(proc)
+        raise YtdlpTimeout(f"yt-dlp timed out after {limit:g}s")
+    except asyncio.CancelledError:
+        await _terminate(proc)
+        raise
+
+    if proc.returncode != 0:
+        raise YtdlpError(
+            f"yt-dlp exited with code {proc.returncode}",
+            returncode=proc.returncode,
+            stderr=stderr.decode("utf-8", errors="replace").strip(),
+        )
+
+    return stdout.decode("utf-8", errors="replace")
+
+
+async def ytdlp_json(args: list[str], timeout: Optional[float] = None) -> dict:
+    """Run yt-dlp in simulate mode and return the parsed info dictionary."""
+    stdout = await run_ytdlp(["--dump-single-json", "--skip-download", *args], timeout=timeout)
+
+    try:
+        return json.loads(stdout)
+    except json.JSONDecodeError as e:
+        raise YtdlpError(f"yt-dlp returned output that is not valid JSON: {e}") from e
+
+
+async def ytdlp_version(timeout: float = 15.0) -> str:
+    return (await run_ytdlp(["--version"], timeout=timeout)).strip()
+
+
+def _format_rank(fmt: dict) -> tuple:
+    return (fmt.get("height") or 0, fmt.get("tbr") or 0, fmt.get("abr") or 0)
+
+
+def _pick_format(formats: list[dict], preferred_exts: tuple[str, ...]) -> Optional[str]:
+    """Container preference wins over quality, mirroring FORMAT_SELECTOR's chain."""
+    for ext in preferred_exts + (None,):
+        candidates = [f for f in formats if ext is None or f.get("ext") == ext]
+        if candidates:
+            return max(candidates, key=_format_rank).get("url")
+    return None
+
+
+def _pick_video_only(formats: list[dict]) -> Optional[str]:
+    """Decodability beats resolution: a hardware-decoded 720p plays, a 4K AV1 stutters."""
+    for codec in VIDEO_CODEC_PREFERENCE:
+        matching = [f for f in formats if (f.get("vcodec") or "").startswith(codec)]
+        if matching:
+            return max(matching, key=_format_rank).get("url")
+    return max(formats, key=_format_rank).get("url") if formats else None
+
+
+def select_stream_urls(info: dict) -> tuple[Optional[str], Optional[str]]:
+    """
+    Pull the resolved stream URLs out of an info dictionary.
+
+    Returns (video_url, audio_url). A populated audio URL means the video URL
+    carries no audio of its own and the two are meant to play together. That
+    pairing is only used when the separate video track actually beats the muxed
+    one, so nothing pays the sync cost for no quality gain: YouTube's muxed
+    streams top out at 360p in practice while the adaptive ladder reaches 1080p.
+
+    requested_downloads reflects the selected format, so it and the top level
+    url remain the fallback for output shapes that carry no format list.
+    """
+    if not isinstance(info, dict):
+        return None, None
+
+    formats = [f for f in (info.get("formats") or []) if f.get("url")]
+
+    muxed = [
+        f for f in formats
+        if f.get("vcodec", "none") != "none" and f.get("acodec", "none") != "none"
+    ]
+    audio_only = [
+        f for f in formats
+        if f.get("vcodec", "none") == "none" and f.get("acodec", "none") != "none"
+    ]
+    video_only = [
+        f for f in formats
+        if f.get("vcodec", "none") != "none" and f.get("acodec", "none") == "none"
+    ]
+
+    muxed_url = _pick_format(muxed, ("mp4", "webm"))
+    # m4a before webm: Safari has no Opus-in-WebM support.
+    audio_url = _pick_format(audio_only, ("m4a", "mp4", "webm"))
+
+    best_muxed_height = max((f.get("height") or 0 for f in muxed), default=0)
+    worthwhile = [
+        f for f in video_only
+        if best_muxed_height < (f.get("height") or 0) <= MAX_VIDEO_HEIGHT
+    ]
+    paired_video_url = _pick_video_only(worthwhile) if audio_url else None
+
+    if paired_video_url:
+        return paired_video_url, audio_url
+    if muxed_url:
+        return muxed_url, None
+    if audio_url:
+        return None, audio_url
+
+    for download in info.get("requested_downloads") or []:
+        if isinstance(download, dict) and download.get("url"):
+            return download["url"], None
+
+    return info.get("url"), None
+
 
 class YTKaraokeSourceProvider(KaraokeSourceProvider):
-    # A karaoke display gains nothing above 1080p, and the 1440p/2160p rungs are
-    # AV1-only, which cheap TV browsers and SBCs cannot decode in real time.
-    MAX_VIDEO_HEIGHT = 1080
-
-    # avc1 is hardware-decoded essentially everywhere; av01 rarely is.
-    VIDEO_CODEC_PREFERENCE = ('avc1', 'vp09', 'vp9', 'av01')
-
     def __init__(self, allowed_channels: list[str] = None, karaoke_keywords: list[str] = None):
         super().__init__()
+        self.health = YtdlpHealth()
         # Examples: ["KaraFun", "Sing King", "Lucky Voice", "Karaoke Mugen"]
         self.allowed_channels = allowed_channels or []
         self.karaoke_keywords = karaoke_keywords or ["karaoke", "instrumental", "backing track", "sing along"]
@@ -25,6 +309,9 @@ class YTKaraokeSourceProvider(KaraokeSourceProvider):
     @property
     def provider_id(self) -> str:
         return "youtube"
+
+    async def check_health(self) -> dict:
+        return await self.health.probe()
 
 
     @staticmethod
@@ -38,7 +325,12 @@ class YTKaraokeSourceProvider(KaraokeSourceProvider):
         return f"https://i.ytimg.com/vi/{video_id}/hqdefault.jpg"
 
     def _get_ydl_opts(self) -> dict:
-        """Get yt-dlp options including proxy configuration."""
+        """
+        Options for the in-process search path. Search stays on the library
+        because it runs on the interactive path, where a process spawn per
+        keystroke would be felt, and because a flat search returns a far more
+        stable shape than a full extraction.
+        """
         opts = {
             'quiet': True,
             'no_warnings': True,
@@ -46,24 +338,14 @@ class YTKaraokeSourceProvider(KaraokeSourceProvider):
             'noplaylist': True,
             'extractor_args': {
                 'youtube': {
-                    'player_client': ['android_sdkless']
+                    'player_client': [PLAYER_CLIENT]
                 }
             },
-            # 'js-runtimes': config.YTDLP_RUNTIME or 'bun'
         }
 
-        # Configure proxy if available
-        if config.PROXY_SERVER:
-            parsed = urlparse(config.PROXY_SERVER)
-
-            if config.PROXY_USERNAME and config.PROXY_PASSWORD:
-                # Reconstruct URL with authentication
-                netloc = f"{config.PROXY_USERNAME}:{config.PROXY_PASSWORD}@{parsed.hostname}:{parsed.port}"
-                proxy_url = urlunparse((parsed.scheme, netloc, parsed.path, parsed.params, parsed.query, parsed.fragment))
-            else:
-                proxy_url = config.PROXY_SERVER
-
-            opts['proxy'] = proxy_url
+        proxy = proxy_url()
+        if proxy:
+            opts['proxy'] = proxy
 
         return opts
 
@@ -137,7 +419,7 @@ class YTKaraokeSourceProvider(KaraokeSourceProvider):
 
     async def get_video_url(self, entry: KaraokeEntry) -> Union[str, VideoURLResult, None]:
         """
-        Fetch the actual media URLs for a YouTube entry on demand.
+        Fetch the actual video URL for a YouTube entry on demand.
 
         Args:
             entry: KaraokeEntry with YouTube video ID as the id
@@ -150,144 +432,104 @@ class YTKaraokeSourceProvider(KaraokeSourceProvider):
 
         # Construct YouTube URL from video ID
         youtube_url = f"https://www.youtube.com/watch?v={entry.id}"
-        video_url, audio_url = await self._extract_media_urls(youtube_url)
+        outcome = await self._get_raw_video_url(youtube_url)
 
-        if video_url or audio_url:
+        if outcome.url or outcome.audio_url:
             return VideoURLResult(
-                video_url=video_url,
-                audio_url=audio_url,
+                video_url=outcome.url,
+                audio_url=outcome.audio_url,
                 cache_ttl_seconds=4 * 3600,  # 4 hours - YouTube URLs are stable
                 cacheable=True
             )
-        else:
-            return VideoURLResult(
-                video_url=None,
-                audio_url=None,
-                cache_ttl_seconds=30 * 60,  # 30 minutes for failures
-                cacheable=True
-            )
+
+        # A missing binary, a timeout or a blocked proxy is our problem, not
+        # this video's. Caching it would keep the song unplayable for another
+        # 30 minutes after the cause is fixed, so let the next attempt retry.
+        return VideoURLResult(
+            video_url=None,
+            audio_url=None,
+            cache_ttl_seconds=30 * 60,  # 30 minutes for failures
+            cacheable=not outcome.environmental_failure
+        )
 
     @staticmethod
-    def _format_rank(fmt: dict) -> tuple:
-        return (fmt.get('height') or 0, fmt.get('tbr') or 0, fmt.get('abr') or 0)
+    def _is_environmental(error: Exception) -> bool:
+        """
+        Whether a failure is about the extractor or the network rather than
+        the video itself. A private or deleted video is a stable answer worth
+        caching; a dead proxy is not.
+        """
+        if isinstance(error, (YtdlpMissing, YtdlpTimeout)):
+            return True
+
+        if isinstance(error, YtdlpError):
+            # No exit code means yt-dlp never ran or never produced usable output.
+            if error.returncode is None:
+                return True
+            details = error.details
+        else:
+            details = str(error)
+
+        return any(marker in details.lower() for marker in RETRYABLE_ERROR_MARKERS)
 
     @classmethod
-    def _pick_format(cls, formats: list[dict], preferred_exts: tuple[str, ...]) -> Optional[str]:
-        """Container preference wins over quality, mirroring the
-        `best[ext=mp4]/best[ext=webm]/best` fallback chain."""
-        for ext in preferred_exts + (None,):
-            candidates = [f for f in formats if ext is None or f.get('ext') == ext]
-            if candidates:
-                return max(candidates, key=cls._format_rank).get('url')
-        return None
+    def _should_retry(cls, error: Exception) -> bool:
+        # A missing binary will not appear part way through the loop, so
+        # retrying only delays the failure.
+        if isinstance(error, YtdlpMissing):
+            return False
+        return cls._is_environmental(error)
 
-    @classmethod
-    def _pick_video_only(cls, formats: list[dict]) -> Optional[str]:
-        """Decodability beats resolution: a hardware-decoded 720p plays, a 4K AV1 stutters."""
-        for codec in cls.VIDEO_CODEC_PREFERENCE:
-            matching = [f for f in formats if (f.get('vcodec') or '').startswith(codec)]
-            if matching:
-                return max(matching, key=cls._format_rank).get('url')
-        return max(formats, key=cls._format_rank).get('url') if formats else None
-
-    @classmethod
-    def _select_media_urls(cls, info: dict) -> tuple[Optional[str], Optional[str]]:
+    async def _get_raw_video_url(self, youtube_url: str, max_retries: int = 3, base_delay: float = 1.0) -> ExtractionOutcome:
         """
-        Split an extractor result into (video_url, audio_url).
+        Extract raw video URL by running the yt-dlp CLI.
+        Returns the best quality video stream URL.
 
-        A populated audio_url means video_url carries no audio of its own and the
-        two are meant to be played together. That pairing is only used when the
-        separate video track actually beats the muxed one, so the player never
-        pays the sync cost for no quality gain; otherwise the muxed stream is
-        returned alone.
+        Every attempt is bounded by the wrapper's timeout, so a hung extraction
+        releases the request instead of pinning it until yt-dlp gives up on its
+        own. yt-dlp's internal retries are kept low for the same reason.
         """
-        formats = [f for f in (info.get('formats') or []) if f.get('url')]
-
-        muxed = [
-            f for f in formats
-            if f.get('vcodec', 'none') != 'none' and f.get('acodec', 'none') != 'none'
-        ]
-        audio_only = [
-            f for f in formats
-            if f.get('vcodec', 'none') == 'none' and f.get('acodec', 'none') != 'none'
-        ]
-        video_only = [
-            f for f in formats
-            if f.get('vcodec', 'none') != 'none' and f.get('acodec', 'none') == 'none'
-        ]
-
-        muxed_url = cls._pick_format(muxed, ('mp4', 'webm'))
-        # m4a before webm: Safari has no Opus-in-WebM support.
-        audio_url = cls._pick_format(audio_only, ('m4a', 'mp4', 'webm'))
-
-        best_muxed_height = max((f.get('height') or 0 for f in muxed), default=0)
-        worthwhile = [
-            f for f in video_only
-            if best_muxed_height < (f.get('height') or 0) <= cls.MAX_VIDEO_HEIGHT
-        ]
-        paired_video_url = cls._pick_video_only(worthwhile) if audio_url else None
-
-        if paired_video_url:
-            return paired_video_url, audio_url
-        if muxed_url:
-            return muxed_url, None
-        if audio_url:
-            return None, audio_url
-
-        return info.get('url'), None
-
-    async def _extract_media_urls(self, youtube_url: str, max_retries: int = 3, base_delay: float = 1.0) -> tuple[Optional[str], Optional[str]]:
-        """
-        Extract raw media URLs using yt-dlp.
-        Returns a (video_url, audio_url) pair; either may be None.
-        """
-        last_exception = None
-
         for attempt in range(max_retries + 1):
             try:
-                ydl_opts = self._get_ydl_opts()
-                ydl_opts.update({
-                    # The search path sets extract_flat, which leaves `formats` empty.
-                    'extract_flat': False,
-                    'noplaylist': True,
-                })
+                info = await ytdlp_json([
+                    "--format", FORMAT_SELECTOR,
+                    "--socket-timeout", "15",
+                    "--retries", "1",
+                    "--extractor-args", f"youtube:player_client={PLAYER_CLIENT}",
+                    youtube_url,
+                ])
+                self.health.record_ok()
+                video_url, audio_url = select_stream_urls(info)
+                return ExtractionOutcome(video_url, False, audio_url)
 
-                loop = asyncio.get_event_loop()
-                with ThreadPoolExecutor() as executor:
-                    def extract_url():
-                        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                            info = ydl.extract_info(youtube_url, download=False)
-                            return self._select_media_urls(info) if info else (None, None)
-
-                    return await loop.run_in_executor(executor, extract_url)
+            except YtdlpMissing as e:
+                self.health.record_failure(str(e), fatal=True)
+                print(f"[YTDLP] {e}")
+                return ExtractionOutcome(None, True)
 
             except Exception as e:
-                last_exception = e
-                error_message = str(e).lower()
+                environmental = self._is_environmental(e)
+                detail = e.details if isinstance(e, YtdlpError) else str(e)
 
-                # Check if this is a retryable error
-                is_proxy_error = "proxy" in error_message or "407" in error_message
-                is_connection_error = any(keyword in error_message for keyword in [
-                    "connection", "timeout", "network", "dns"
-                ])
-                is_rate_limit = "429" in error_message or "rate limit" in error_message
-                is_4xx_error = any(code in error_message for code in ["400", "401", "403", "404", "408"])
-
-                should_retry = is_proxy_error or is_connection_error or is_rate_limit or is_4xx_error
-
-                if attempt < max_retries and should_retry:
+                if attempt < max_retries and self._should_retry(e):
                     delay = base_delay * (2 ** attempt) + random.uniform(0, 1)
-                    print(f"Attempt {attempt + 1} failed for {youtube_url}: {e}")
-                    print(f"Retrying in {delay:.1f} seconds...")
+                    print(f"[YTDLP] Attempt {attempt + 1} failed for {youtube_url}: {detail}")
+                    print(f"[YTDLP] Retrying in {delay:.1f} seconds...")
                     await asyncio.sleep(delay)
                     continue
-                else:
-                    print(f"Failed to extract media URLs for {youtube_url} after {attempt + 1} attempts")
-                    print(f"Final error: {e}")
-                    return None, None
 
-        print(f"Unexpected retry loop exit for {youtube_url}. Last error: {last_exception}")
-        return None, None
+                if environmental:
+                    self.health.record_failure(detail, fatal=isinstance(e, YtdlpMissing))
+                else:
+                    # yt-dlp ran and gave a verdict on the video, so the
+                    # extractor itself is working.
+                    self.health.record_ok()
+
+                print(f"[YTDLP] Failed to extract video URL for {youtube_url} after {attempt + 1} attempts")
+                print(f"[YTDLP] Final error: {detail}")
+                return ExtractionOutcome(None, environmental)
+
+        return ExtractionOutcome(None, True)
 
     async def close(self):
         # No cleanup needed for yt-dlp

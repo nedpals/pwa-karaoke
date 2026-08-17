@@ -7,26 +7,34 @@ import type { KaraokeEntry } from "../../types";
 export interface SongRowProps extends Omit<React.HTMLAttributes<HTMLDivElement>, "onClick"> {
   entry: KaraokeEntry;
   index?: number;
+  singer?: string | null;
   showSource?: boolean;
   selected?: boolean;
   status?: EntryStatus | null;
   onClick?: () => void;
 }
 
-function StatusBadge({ status, muted }: { status: EntryStatus; muted: boolean }) {
-  const label =
-    status.kind === "playing"
-      ? "Now Playing"
-      : `Reserved ${status.position.toString().padStart(2, "0")}`;
+/** Names who reserved the song. Falls back to the bare status for a song
+ *  reserved before anyone gave a name. */
+function StatusBadge({
+  status,
+  singer,
+  muted,
+}: {
+  status?: EntryStatus | null;
+  singer?: string | null;
+  muted: boolean;
+}) {
+  const name = singer ?? status?.singer;
+  const state =
+    status?.kind === "playing" ? "Now Playing" : status && !name ? "Reserved" : null;
+  const label = [state, name].filter(Boolean).join(" • ");
+
+  const tone = !status ? "bg-ka-cyan" : status.kind === "playing" ? "bg-ka-amber" : "bg-ka-green";
 
   return (
-    <span
-      className={cn(
-        "px-1.5 shrink-0",
-        muted ? "bg-ka-void/25" : status.kind === "playing" ? "bg-ka-amber" : "bg-ka-green",
-      )}
-    >
-      <Text font="display" size="xs" weight="bold" tone="inverse">
+    <span className={cn("px-1.5 shrink-0 max-w-48", muted ? "bg-ka-void/25" : tone)}>
+      <Text font="display" size="xs" weight="bold" tone="inverse" truncate className="block">
         {label}
       </Text>
     </span>
@@ -36,6 +44,7 @@ function StatusBadge({ status, muted }: { status: EntryStatus; muted: boolean })
 export function SongRow({
   entry,
   index,
+  singer,
   showSource = false,
   selected = false,
   status,
@@ -63,7 +72,9 @@ export function SongRow({
           {entry.title}
         </Text>
         <div className="flex items-center gap-2 mt-0.5">
-          {status && <StatusBadge status={status} muted={selected} />}
+          {(status || singer) && (
+            <StatusBadge status={status} singer={singer} muted={selected} />
+          )}
           <Text size="sm" truncate tone={selected ? "inverse" : "dim"}>
             {entry.artist}
           </Text>

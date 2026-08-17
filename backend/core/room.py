@@ -2,11 +2,12 @@ import time
 import hashlib
 from typing import Optional, Dict, Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, PrivateAttr
 
 from core.search import KaraokeEntry
 from core.player import DisplayPlayerState
 from core.queue import KaraokeQueue, KaraokeQueueItem
+from rate_limit import SlidingWindowLimiter
 
 class Room(BaseModel):
     id: str
@@ -14,17 +15,24 @@ class Room(BaseModel):
     player_state: Optional[DisplayPlayerState] = None
     queue_version: int = 1
     player_version: int = 1
-    is_public: bool = True
+    autoplay: bool = True
+    # Held here because a display echoing player state back does not carry it.
+    current_singer: Optional[str] = None
+    current_singer_device_id: Optional[str] = None
+    settings_version: int = 1
     password_hash: Optional[str] = None
     created_at: float = time.time()
+
+    _limiter: SlidingWindowLimiter = PrivateAttr(default_factory=SlidingWindowLimiter)
+
+    def allow_action(self, key: str, limit: int, per_seconds: float) -> bool:
+        return self._limiter.allow(key, limit, per_seconds)
 
     def set_password(self, password: str) -> None:
         if password:
             self.password_hash = hashlib.sha256(password.encode()).hexdigest()
-            self.is_public = False
         else:
             self.password_hash = None
-            self.is_public = True
 
     def verify_password(self, password: str) -> bool:
         if not self.password_hash:
@@ -39,8 +47,13 @@ class Room(BaseModel):
     def requires_password(self) -> bool:
         return self.password_hash is not None
 
-    def add_song(self, entry: KaraokeEntry) -> KaraokeQueueItem:
-        self.queue.enqueue(entry)
+    def add_song(
+        self,
+        entry: KaraokeEntry,
+        singer: Optional[str] = None,
+        singer_device_id: Optional[str] = None,
+    ) -> KaraokeQueueItem:
+        self.queue.enqueue(entry, singer, singer_device_id)
         self.queue_version += 1
         return self.queue.items[-1]  # Return the newly added item
 
@@ -61,7 +74,12 @@ class Room(BaseModel):
         if self.queue.items:
             next_song = self.queue.items.pop(0)
             self.queue_version += 1
+            self.current_singer = next_song.singer
+            self.current_singer_device_id = next_song.singer_device_id
             return next_song
+
+        self.current_singer = None
+        self.current_singer_device_id = None
         return None
 
     def clear_queue(self) -> None:
@@ -74,9 +92,24 @@ class Room(BaseModel):
     def get_up_next_queue(self) -> list[KaraokeQueueItem]:
         return self.queue.items[1:] if len(self.queue.items) > 1 else []
 
+    def set_autoplay(self, enabled: bool) -> bool:
+        if self.autoplay == enabled:
+            return False
+
+        self.autoplay = enabled
+        self.settings_version += 1
+        return True
+
     def update_player_state(self, state: DisplayPlayerState) -> None:
-        state.version = int(time.time() * 1000)
+        # Keep versions monotonic. A client clock running ahead of the server would
+        # otherwise stamp a version that no later update can beat.
+        version = int(time.time() * 1000)
+        if self.player_state and version <= self.player_state.version:
+            version = self.player_state.version + 1
+
+        state.version = version
         state.timestamp = time.time()
+        state.singer = self.current_singer if state.entry else None
         self.player_state = state
         self.player_version += 1
 
@@ -84,6 +117,13 @@ class Room(BaseModel):
         return {
             "items": [item.model_dump() for item in self.queue.items],
             "version": self.queue_version,
+            "timestamp": time.time()
+        }
+
+    def get_settings_payload(self) -> Dict[str, Any]:
+        return {
+            "autoplay": self.autoplay,
+            "version": self.settings_version,
             "timestamp": time.time()
         }
 
@@ -100,21 +140,17 @@ class RoomManager:
             raise ValueError(f"Room {room_id} does not exist")
         return self.rooms[room_id]
 
-    def create_room(self, room_id: str, is_public: bool = True, password: str = None) -> Room:
-        """Create a new room with privacy settings"""
+    def create_room(self, room_id: str, password: str = None) -> Room:
+        """Create a new room, optionally password protected"""
         if room_id in self.rooms:
             raise ValueError(f"Room {room_id} already exists")
 
-        room = Room(id=room_id, is_public=is_public)
+        room = Room(id=room_id)
         if password:
             room.set_password(password)
 
         self.rooms[room_id] = room
         return room
-
-    def get_public_rooms(self) -> Dict[str, Room]:
-        """Get only public rooms"""
-        return {room_id: room for room_id, room in self.rooms.items() if room.is_public}
 
     def room_exists(self, room_id: str) -> bool:
         """Check if a room exists"""

@@ -33,6 +33,16 @@ export const Playing: Story = {
   },
 };
 
+export const WithSinger: Story = {
+  args: {
+    status: 'Playing',
+    tone: 'playing',
+    title: `${first.artist} - ${first.title}`,
+    singer: 'Tita Beth',
+    reservedCount: 3,
+  },
+};
+
 export const Paused: Story = {
   args: {
     status: 'Paused',

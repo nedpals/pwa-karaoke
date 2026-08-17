@@ -54,7 +54,7 @@ const TABS: Tab[] = [
   { id: 'queue', label: 'Reserved', content: <div className="p-4"><Text tone="dim">Reservation list</Text></div> },
 ];
 
-export const Remote: Story = {
+export const Controller: Story = {
   render: () => {
     const [active, setActive] = useState('search');
 
@@ -73,6 +73,6 @@ export const Remote: Story = {
 };
 
 export const Phone: Story = {
-  ...Remote,
+  ...Controller,
   parameters: { viewport: { defaultViewport: 'mobile1' } },
 };

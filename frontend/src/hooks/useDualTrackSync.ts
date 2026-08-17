@@ -36,7 +36,7 @@ interface UseDualTrackSyncOptions {
 }
 
 export interface DualTrackControls {
-  play: () => void;
+  play: () => Promise<void>;
   pause: () => void;
   seek: (time: number) => void;
   /** The element that owns the clock: audio when separate, video otherwise. */
@@ -109,12 +109,12 @@ export function useDualTrackSync({
    * playing. A muted video is always allowed to autoplay, so starting both at
    * once would leave a silent video running whenever the audio is blocked.
    */
-  const startPaired = useCallback(() => {
+  const startPaired = useCallback((): Promise<void> => {
     const video = videoRef.current;
     const audio = audioRef.current;
-    if (!audio) return;
+    if (!audio) return Promise.resolve();
 
-    audio
+    return audio
       .play()
       .then(() => {
         if (!video) return;
@@ -131,14 +131,15 @@ export function useDualTrackSync({
       });
   }, [videoRef, audioRef, alignVideo]);
 
-  const play = useCallback(() => {
+  const play = useCallback((): Promise<void> => {
     intendsPlaybackRef.current = true;
 
+    // The muxed path returns the element's own promise, so a caller's existing
+    // rejection handling behaves exactly as it does without pairing.
     if (!separateAudio) {
-      videoRef.current?.play().catch(reportPlayFailure);
-      return;
+      return videoRef.current?.play() ?? Promise.resolve();
     }
-    startPaired();
+    return startPaired();
   }, [separateAudio, videoRef, startPaired]);
 
   const pause = useCallback(() => {

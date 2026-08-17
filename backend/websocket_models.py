@@ -3,6 +3,8 @@ from pydantic import BaseModel, Field, validator
 from core.search import KaraokeEntry
 from core.player import DisplayPlayerState
 
+MAX_NICKNAME_LENGTH = 14
+
 class WebSocketMessage(BaseModel):
     """Base WebSocket message structure"""
     command: str
@@ -33,9 +35,38 @@ class SetVolumePayload(BaseModel):
     """Set volume command payload"""
     volume: float = Field(..., ge=0.0, le=1.0)
 
+class SetAutoplayPayload(BaseModel):
+    """Autoplay toggle command payload"""
+    enabled: bool
+
+class PlayNextPayload(BaseModel):
+    """Play next command payload. `auto` marks an end-of-song rollover."""
+    auto: bool = False
+
 class PlayerStatePayload(DisplayPlayerState):
     """Player state update payload - inherits from DisplayPlayerState"""
     pass
+
+ReactionType = Literal["clap", "fire", "heart", "laugh", "star", "boo"]
+
+class SendReactionPayload(BaseModel):
+    """Reaction sent by a controller"""
+    reaction: ReactionType
+
+class SubmitScorePayload(BaseModel):
+    """Loudness reading a controller measured for the song it just heard"""
+    entry_id: str = Field(..., min_length=1)
+    performance: float = Field(..., ge=0.0, le=1.0)
+
+class PublishScorePayload(BaseModel):
+    """Score decided by the leader display"""
+    entry_id: str = Field(..., min_length=1)
+    score: int = Field(..., ge=0, le=100)
+    source: Literal["mic", "auto"]
+
+class ScoringStatePayload(BaseModel):
+    """Leader display reporting whether it is on the scoring screen"""
+    active: bool
 
 class QueueUpdatePayload(BaseModel):
     """Queue update payload"""
@@ -53,6 +84,15 @@ class AckPayload(BaseModel):
 class JoinRoomPayload(BaseModel):
     """Join room command payload"""
     room_id: str
+    nickname: Optional[str] = None
+    device_id: Optional[str] = Field(None, max_length=64)
+
+    @validator('nickname')
+    def normalize_nickname(cls, v):
+        if v is None:
+            return None
+        nickname = ' '.join(v.split())[:MAX_NICKNAME_LENGTH]
+        return nickname or None
 
 # Mapping of commands to their expected payload types
 COMMAND_PAYLOAD_MAP = {
@@ -65,18 +105,26 @@ COMMAND_PAYLOAD_MAP = {
     "remove_song": EntryIDPayload,
     "queue_next_song": EntryIDPayload,
     "set_volume": SetVolumePayload,
+    "set_autoplay": SetAutoplayPayload,
+    "play_next": PlayNextPayload,
     "player_state": PlayerStatePayload,
     "update_player_state": PlayerStatePayload,
     "queue_update": QueueUpdatePayload,
     "video_loaded": PlayerStatePayload,
+    "send_reaction": SendReactionPayload,
+    "submit_score": SubmitScorePayload,
+    "publish_score": PublishScorePayload,
+    "scoring_state": ScoringStatePayload,
     "ack": AckPayload,
     # Commands without payload validation
     "play_song": dict,
     "pause_song": dict,
-    "play_next": dict,
     "clear_queue": dict,
     "request_queue_update": dict,
 }
+
+# High frequency commands that would otherwise flood the logs
+QUIET_COMMANDS = {"send_reaction", "reaction"}
 
 def validate_websocket_message(command: str, payload: Any) -> Dict[str, Any]:
     """Validate WebSocket message payload against expected schema"""

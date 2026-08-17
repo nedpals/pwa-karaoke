@@ -39,8 +39,27 @@ COPY backend/ ./
 # Copy built frontend from build stage
 COPY --from=frontend-build /app/frontend/dist ./static
 
+# yt-dlp is installed last, unpinned, in its own layer. It releases far more
+# often than the rest of the stack, so every rebuild picks up the current
+# version instead of whatever was pinned months ago. Pass an exact version to
+# reproduce an old build:
+#   docker build --build-arg YTDLP_VERSION=2025.12.8 .
+ARG YTDLP_VERSION=latest
+RUN if [ "$YTDLP_VERSION" = "latest" ]; then \
+        pip install --no-cache-dir --upgrade yt-dlp yt-dlp-ejs; \
+    else \
+        pip install --no-cache-dir "yt-dlp==$YTDLP_VERSION" yt-dlp-ejs; \
+    fi \
+    && yt-dlp --version
+
+# Set YTDLP_AUTO_UPDATE=1 to also refresh yt-dlp on every container start,
+# which keeps a long-lived deployment current without an image rebuild.
+COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+
 # Expose port
 EXPOSE 8000
+
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
 
 # Start the server
 CMD ["python", "main.py"]

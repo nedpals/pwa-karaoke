@@ -1,4 +1,25 @@
 import type { TextTone } from "../components/atoms/Text";
+import type { DisplayPlayerState } from "../types";
+
+/**
+ * What counts as one performance: the reservation, not the song.
+ *
+ * Queue the same track twice and it is two turns with two singers. entry.id is
+ * the same for both, so keying anything on it silently merges them.
+ */
+export function performanceIdOf(state: DisplayPlayerState | null | undefined): string | null {
+  if (!state?.entry) return null;
+  return state.item_id ?? state.entry.id;
+}
+
+// How long the digits take to settle. Shared, because the hold that follows
+// the reveal is timed from when the score arrived.
+const LANDING_MS = 1500;
+const QUICK_LANDING_MS = 600;
+
+export function landingMs(quick: boolean): number {
+  return quick ? QUICK_LANDING_MS : LANDING_MS;
+}
 
 const SCORE_FLOOR = 60;
 const SCORE_CEILING = 100;

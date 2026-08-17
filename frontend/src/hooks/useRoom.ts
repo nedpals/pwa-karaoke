@@ -7,6 +7,15 @@ import type { DisplayPlayerState, KaraokeQueue, KaraokeEntry, ReactionEvent, Rea
 
 type ClientType = "controller" | "display";
 
+const DEFAULT_MIN_SCORED_SECONDS = 5;
+
+// Commands a screen carries out report how many heard them, so a remote can
+// say nothing happened rather than look like it worked
+async function screensAck(pending: Promise<unknown>): Promise<{ screens: number }> {
+  const ack = (await pending) as { result?: { screens?: number } };
+  return { screens: ack?.result?.screens ?? 0 };
+}
+
 export interface RoomState {
   // Room status
   roomId: string | null;
@@ -22,16 +31,22 @@ export interface RoomState {
 
   // Room data
   clientCount: number;
+  /** Phones in the room. A screen cannot reserve anything, so it is not one. */
+  controllerCount: number;
   queue: KaraokeQueue | null;
   upNextQueue: KaraokeQueue | null;
   playerState: DisplayPlayerState | null;
   autoplay: boolean;
+  minScoredSeconds: number;
   isLeader: boolean;
   lastReaction: ReactionEvent | null;
   score: SongScore | null;
-  scoringCue: { entryId: string; quick: boolean; at: number } | null;
+  /** A remote asked to move on. The leader display decides what that means. */
+  skipRequest: { at: number } | null;
+  /** A remote asked to play or pause. The leader display carries it out. */
+  playbackRequest: { state: "playing" | "paused"; at: number } | null;
   scoringTurn: boolean;
-  scoreReading: { entryId: string; performance: number; at: number } | null;
+  scoreReading: { itemId: string; performance: number; at: number } | null;
   scoringActive: boolean;
   lastQueueCommand: {
     command: string;
@@ -52,15 +67,17 @@ export interface RoomActions {
   // Controller commands (implemented here)
   queueSong: (entry: KaraokeEntry) => Promise<unknown>;
   removeSong: (id: string) => Promise<unknown>;
-  playSong: () => Promise<unknown>;
-  pauseSong: () => Promise<unknown>;
-  playNext: (options?: { auto?: boolean }) => Promise<unknown>;
+  playSong: () => Promise<{ screens: number }>;
+  pauseSong: () => Promise<{ screens: number }>;
+  playNext: (options?: { fromItemId?: string | null }) => Promise<unknown>;
+  skipSong: () => Promise<{ screens: number }>;
   queueNextSong: (entryId: string) => void;
+  refreshVideoUrl: (entryId: string) => Promise<{ refreshed: boolean }>;
   clearQueue: () => Promise<unknown>;
   setVolume: (volume: number) => Promise<unknown>;
   sendReaction: (reaction: ReactionType) => void;
-  submitScore: (entryId: string, performance: number) => void;
-  publishScore: (entryId: string, score: number, source: ScoreSource) => void;
+  submitScore: (itemId: string, performance: number) => void;
+  publishScore: (itemId: string, score: number, source: ScoreSource) => void;
   announceScoring: (active: boolean) => void;
   setAutoplay: (enabled: boolean) => Promise<unknown>;
 
@@ -84,7 +101,8 @@ export function useRoom(clientType: ClientType, nickname?: string | null): UseRo
   const [isLeader, setIsLeader] = useState(false);
   const [lastReaction, setLastReaction] = useState<ReactionEvent | null>(null);
   const [score, setScore] = useState<SongScore | null>(null);
-  const [scoringCue, setScoringCue] = useState<RoomState["scoringCue"]>(null);
+  const [skipRequest, setSkipRequest] = useState<RoomState["skipRequest"]>(null);
+  const [playbackRequest, setPlaybackRequest] = useState<RoomState["playbackRequest"]>(null);
   const [scoringTurn, setScoringTurn] = useState(false);
   const [scoreReading, setScoreReading] = useState<RoomState["scoreReading"]>(null);
   const [scoringActive, setScoringActive] = useState(false);
@@ -241,15 +259,17 @@ export function useRoom(clientType: ClientType, nickname?: string | null): UseRo
         });
         break;
       }
+      // Requests, not state. The leader carries them out and reports back, so
+      // play state stays something a screen observed rather than a guess.
       case "play_song":
-        setPlayerState((prev) =>
-          prev ? { ...prev, play_state: "playing" } : null,
-        );
+        if (clientType === "display") {
+          setPlaybackRequest({ state: "playing", at: Date.now() });
+        }
         break;
       case "pause_song":
-        setPlayerState((prev) =>
-          prev ? { ...prev, play_state: "paused" } : null,
-        );
+        if (clientType === "display") {
+          setPlaybackRequest({ state: "paused", at: Date.now() });
+        }
         break;
       case "leader_status":
         if (clientType === "display") {
@@ -266,8 +286,8 @@ export function useRoom(clientType: ClientType, nickname?: string | null): UseRo
         break;
       case "score_reading":
         if (clientType === "display") {
-          const reading = data as { entry_id: string; performance: number };
-          setScoreReading({ entryId: reading.entry_id, performance: reading.performance, at: Date.now() });
+          const reading = data as { item_id: string; performance: number };
+          setScoreReading({ itemId: reading.item_id, performance: reading.performance, at: Date.now() });
         }
         break;
       case "scoring_state":
@@ -280,10 +300,9 @@ export function useRoom(clientType: ClientType, nickname?: string | null): UseRo
           setScoringTurn(Boolean((data as { active: boolean }).active));
         }
         break;
-      case "scoring":
+      case "skip_request":
         if (clientType === "display") {
-          const cue = data as { entry_id: string; quick: boolean };
-          setScoringCue({ entryId: cue.entry_id, quick: cue.quick, at: Date.now() });
+          setSkipRequest({ at: Date.now() });
         }
         break;
       case "set_volume":
@@ -307,7 +326,8 @@ export function useRoom(clientType: ClientType, nickname?: string | null): UseRo
       setIsLeader(false);
       setLastReaction(null);
       setScore(null);
-      setScoringCue(null);
+      setSkipRequest(null);
+      setPlaybackRequest(null);
       setScoringTurn(false);
       setScoreReading(null);
       setScoringActive(false);
@@ -330,17 +350,20 @@ export function useRoom(clientType: ClientType, nickname?: string | null): UseRo
     // WebSocket state (forwarded)
     connected: ws.connected,
     hasJoinedRoom: ws.hasJoinedRoom,
-    clientCount: ws.clientCount,
+    clientCount: ws.clientCounts.total,
+    controllerCount: ws.clientCounts.controllers,
 
     // Room-specific state (managed here)
     queue,
     upNextQueue,
     playerState,
     autoplay: settings?.autoplay ?? true,
+    minScoredSeconds: settings?.min_scored_seconds ?? DEFAULT_MIN_SCORED_SECONDS,
     isLeader,
     lastReaction,
     score,
-    scoringCue,
+    skipRequest,
+    playbackRequest,
     scoringTurn,
     scoreReading,
     scoringActive,
@@ -357,31 +380,51 @@ export function useRoom(clientType: ClientType, nickname?: string | null): UseRo
     // Action commands (implemented here)
     queueSong: (entry: KaraokeEntry) => ws.sendCommandWithAck("queue_song", entry),
     removeSong: (id: string) => ws.sendCommandWithAck("remove_song", { entry_id: id }),
-    playSong: () => ws.sendCommandWithAck("play_song"),
-    pauseSong: () => ws.sendCommandWithAck("pause_song"),
-    playNext: (options?: { auto?: boolean }) => {
+    playSong: () => screensAck(ws.sendCommandWithAck("play_song")),
+    pauseSong: () => screensAck(ws.sendCommandWithAck("pause_song")),
+    playNext: (options?: { fromItemId?: string | null }) => {
       // Only leader displays should trigger next song
       if (clientType === "display" && !isLeader) {
         console.log(`[${clientType}] Non-leader display ignoring playNext request`);
         return Promise.resolve({});
       }
-      return ws.sendCommandWithAck("play_next", { auto: options?.auto ?? false });
+      return ws.sendCommandWithAck("play_next", {
+        // Names the turn this advance was decided for. A timer that fires after
+        // a remote already skipped would otherwise eat the song after it too.
+        from_item_id: options?.fromItemId ?? null,
+      });
     },
+    // A remote asks; the leader display decides whether that means scoring the
+    // song first or moving straight on
+    skipSong: () => screensAck(ws.sendCommandWithAck("skip_song")),
     queueNextSong: (entryId: string) => ws.sendCommand("queue_next_song", { entry_id: entryId }),
+    // The room hands the same URL to every screen and to the next reload, so a
+    // link that stopped playing has to be replaced at the source
+    refreshVideoUrl: async (entryId: string) => {
+      const ack = (await ws.sendCommandWithAck("refresh_video_url", {
+        entry_id: entryId,
+      })) as { result?: { refreshed?: boolean } };
+      return { refreshed: Boolean(ack?.result?.refreshed) };
+    },
     clearQueue: () => ws.sendCommandWithAck("clear_queue"),
     setVolume: (volume: number) => ws.sendCommandWithAck("set_volume", { volume }),
     sendReaction: (reaction: ReactionType) => ws.sendCommand("send_reaction", { reaction }),
-    submitScore: (entryId: string, performance: number) =>
-      ws.sendCommand("submit_score", { entry_id: entryId, performance }),
-    publishScore: (entryId: string, score: number, source: ScoreSource) =>
-      ws.sendCommand("publish_score", { entry_id: entryId, score, source }),
+    submitScore: (itemId: string, performance: number) =>
+      ws.sendCommand("submit_score", { item_id: itemId, performance }),
+    publishScore: (itemId: string, score: number, source: ScoreSource) =>
+      ws.sendCommand("publish_score", { item_id: itemId, score, source }),
     announceScoring: (active: boolean) => ws.sendCommand("scoring_state", { active }),
     setAutoplay: async (enabled: boolean) => {
       const previousSettings = settings;
       setSettings((prev) =>
         prev
           ? { ...prev, autoplay: enabled }
-          : { autoplay: enabled, version: 1, timestamp: Date.now() },
+          : {
+              autoplay: enabled,
+              min_scored_seconds: DEFAULT_MIN_SCORED_SECONDS,
+              version: 1,
+              timestamp: Date.now(),
+            },
       );
 
       try {

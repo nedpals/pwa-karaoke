@@ -74,6 +74,18 @@ class CacheStore:
         except sqlite3.Error as e:
             print(f"[CACHE] Error storing video URL for {entry_id}: {e}")
 
+    def invalidate_video_url(self, entry_id: str, source: str):
+        """Drop a cached URL that turned out not to play."""
+        try:
+            self.connection.execute("""
+                DELETE FROM video_url_cache WHERE entry_id = ? AND source = ?
+            """, (entry_id, source))
+            self.connection.commit()
+            print(f"[CACHE] Dropped video URL for {entry_id}")
+
+        except sqlite3.Error as e:
+            print(f"[CACHE] Error dropping video URL for {entry_id}: {e}")
+
     def get_video_url(self, entry_id: str, source: str) -> Optional[str]:
         now = time.time()
 

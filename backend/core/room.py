@@ -9,9 +9,8 @@ from core.player import DisplayPlayerState
 from core.queue import KaraokeQueue, KaraokeQueueItem
 from rate_limit import SlidingWindowLimiter
 
-# How much of a song has to have played before it is worth a score. The room
-# owns it: the screen reads it to decide whether to put a score screen up, and
-# the server reads it to bound a mic reading a remote claims to have taken.
+# How much of a song has to have played before it is worth a score. Published
+# in room_settings, so the screen and the server enforce the same number.
 MIN_SCORED_SECONDS = 5.0
 
 class Room(BaseModel):

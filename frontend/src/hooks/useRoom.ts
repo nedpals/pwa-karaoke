@@ -7,7 +7,6 @@ import type { DisplayPlayerState, KaraokeQueue, KaraokeEntry, ReactionEvent, Rea
 
 type ClientType = "controller" | "display";
 
-// Stands in until room_settings lands, which is within a beat of joining
 const DEFAULT_MIN_SCORED_SECONDS = 5;
 
 // Commands a screen carries out report how many heard them, so a remote can
@@ -38,7 +37,6 @@ export interface RoomState {
   upNextQueue: KaraokeQueue | null;
   playerState: DisplayPlayerState | null;
   autoplay: boolean;
-  /** How much of a song has to have played before it is worth a score. */
   minScoredSeconds: number;
   isLeader: boolean;
   lastReaction: ReactionEvent | null;
@@ -262,8 +260,7 @@ export function useRoom(clientType: ClientType, nickname?: string | null): UseRo
         break;
       }
       // Requests, not state. The leader carries them out and reports back, so
-      // the room's play state stays something a screen observed rather than
-      // something every client guessed at separately.
+      // play state stays something a screen observed rather than a guess.
       case "play_song":
         if (clientType === "display") {
           setPlaybackRequest({ state: "playing", at: Date.now() });

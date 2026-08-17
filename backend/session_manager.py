@@ -52,8 +52,8 @@ class SessionManager:
         return len(self.get_room_clients(room_id))
 
     def get_room_client_counts(self, room_id: str) -> dict:
-        """Counts by kind. A room with two screens and no phone has nobody
-        able to reserve anything, which a single total cannot say."""
+        """Counts by kind. Two screens and no phone means nobody can reserve
+        anything, which a single total cannot say."""
         clients = self.get_room_clients(room_id)
         controllers = sum(1 for c in clients if c.client_type == "controller")
         return {

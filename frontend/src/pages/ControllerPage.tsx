@@ -346,14 +346,12 @@ function PlayerTab({ notice }: { notice: string | null }) {
   const hasEntry = Boolean(playerState?.entry);
   // Nothing is mounted to play or pause once the song is over
   const isFinished = hasEntry && playerState?.play_state === "finished";
-  // The stream stopped answering, so only Next gets the room moving again
   const isStreamError = hasEntry && playerState?.play_state === "error";
   const isScoring = isFinished && scoringActive;
   const reservedCount = upNextQueue?.items.length ?? 0;
   // The room is sitting on a finished song with the next one on the card, so
   // Play starts that rather than resuming anything
   const isHolding = isFinished && !isScoring && reservedCount > 0;
-  // Nothing on air but something reserved, so Play has a song to start
   const isCold = !hasEntry && reservedCount > 0;
   // Stands in as the entry on air, so the panel needs no case of its own
   const nowPlaying = isScoring
@@ -448,8 +446,6 @@ function PlayerTab({ notice }: { notice: string | null }) {
 
     try {
       const { screens } = await skipSong();
-      // The screen carries out the skip, so saying so beats a button that
-      // looks like it worked
       if (screens === 0) {
         setErrorMessage("No screen is connected to this room.");
         setTimeout(() => setErrorMessage(null), 3000);

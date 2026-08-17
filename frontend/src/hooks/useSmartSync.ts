@@ -1,12 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import type { DisplayPlayerState } from "../types";
 
-// Past this a follower is not drifting any more, it is a report behind, and the
-// video element corrects itself outright
+// Past this a follower is not drifting, it is a report behind
 const SYNC_THRESHOLD_SECONDS = 2.0;
 
-// Matches how often the leader reports, so a stalled leader cannot leave a
-// follower sitting on a clock that never moves
+// Matches how often the leader reports, so a stall cannot freeze a follower's
+// clock
 const TICK_MS = 1000;
 
 interface StampedState {

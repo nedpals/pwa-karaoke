@@ -163,10 +163,9 @@ class ClientCommands:
     async def play_next(self, payload=None):
         """Pop the queue. Asking is the whole decision.
 
-        When a song starts, whether one is held for its score, and what autoplay
-        means are all the leader display's business: it is the only party that
-        knows how far the song actually got. Nothing here reads the clock or the
-        setting, so the room cannot disagree with the screen about either.
+        When to start, whether to hold a song for its score, and what autoplay
+        means all belong to the leader screen, which is the only party that
+        knows how far the song actually got.
         """
         from_item_id = payload.get("from_item_id") if isinstance(payload, dict) else None
         current_item_id = self.room.player_state.item_id if self.room.player_state else None
@@ -200,9 +199,8 @@ class ControllerCommands(ClientCommands):
     async def skip_song(self, _: None):
         """Pass a remote's Next to the screens and let the leader work it out.
 
-        A skip either ends the song for its score or moves on immediately, and
-        which one depends on how far the song got. Deciding that here would mean
-        the room second guessing a screen that knows better.
+        Whether a skip ends the song for its score or moves straight on depends
+        on how far it got, which only a screen knows.
         """
         displays = self.session_manager.get_room_displays(self.client.room_id)
         await self.session_manager.broadcast_to_room_displays(
@@ -217,9 +215,9 @@ class ControllerCommands(ClientCommands):
         self.room.add_song(entry, self.client.nickname, self.client.device_id)
         await asyncio.sleep(0.1)  # Small delay to ensure state consistency
 
-        # Reserving does not start anything. A leader display seeing a
-        # reservation with nothing on air is what asks for it, which also covers
-        # a screen that joins a room where songs are already waiting.
+        # Reserving does not start anything. The leader asks when it sees a
+        # reservation with nothing on air, which also starts a room a screen
+        # joined late.
         await self._broadcast_room_state()
 
     async def queue_next_song(self, payload):
@@ -306,8 +304,7 @@ class DisplayCommands(ClientCommands):
     async def remove_song(self, payload):
         """The leader dropping the song it was holding, because Next was pressed.
 
-        Which reservation that is, is the screen's to know: it is the one on the
-        card it is showing.
+        Which reservation that is, is the screen's to know: the one on its card.
         """
         if not self.session_manager.is_display_leader(self.client):
             return {"removed": False}
@@ -323,9 +320,8 @@ class DisplayCommands(ClientCommands):
         state = _state if isinstance(_state, DisplayPlayerState) else DisplayPlayerState.parse_obj(_state)
         current = self.room.player_state
 
-        # What is on air is decided here, never by a display. A report about
-        # some other turn is a video element that has not caught up yet, and
-        # accepting it would drag the room back to the song before this one.
+        # A report about some other turn is a video element that has not caught
+        # up, and accepting it would drag the room back to the previous song.
         current_item_id = current.item_id if current else None
         incoming_item_id = state.item_id if state.entry else None
         if current and incoming_item_id != current_item_id:
@@ -346,9 +342,8 @@ class DisplayCommands(ClientCommands):
     async def refresh_video_url(self, payload):
         """Re-resolve the URL for the song on air, because it stopped playing.
 
-        Provider URLs expire, and the room hands the same dead one to every
-        screen and to the next reload, so it has to be replaced at the source
-        rather than retried.
+        The room hands the same dead URL to every screen and to the next reload,
+        so it has to be replaced at the source rather than retried.
         """
         if not self.session_manager.is_display_leader(self.client):
             return {"refreshed": False}

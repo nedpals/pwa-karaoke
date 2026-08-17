@@ -2,20 +2,18 @@ import type { TextTone } from "../components/atoms/Text";
 import type { DisplayPlayerState } from "../types";
 
 /**
- * What counts as one performance.
+ * What counts as one performance: the reservation, not the song.
  *
- * The reservation, not the song: queue the same track twice and it is two
- * turns, two singers and two scores. entry.id is the same for both, so keying
- * anything on it silently merges them. Falls back to the song only for a state
- * old enough to predate the field.
+ * Queue the same track twice and it is two turns with two singers. entry.id is
+ * the same for both, so keying anything on it silently merges them.
  */
 export function performanceIdOf(state: DisplayPlayerState | null | undefined): string | null {
   if (!state?.entry) return null;
   return state.item_id ?? state.entry.id;
 }
 
-// How long the digits take to settle once a score is in hand. Shared, because
-// the hold that follows the reveal is timed from when the score arrived.
+// How long the digits take to settle. Shared, because the hold that follows
+// the reveal is timed from when the score arrived.
 const LANDING_MS = 1500;
 const QUICK_LANDING_MS = 600;
 

@@ -30,8 +30,7 @@ type AppState = "awaiting-interaction" | "connecting" | "connected" | "ready" | 
 const REVEAL_HOLD_MS = 4000;
 const SKIP_REVEAL_HOLD_MS = 2000;
 
-// The wait for a score that never arrives. Once one does the reveal takes over,
-// so this never has to allow for the animation on top of itself.
+// The wait for a score that never arrives. Once one does the reveal takes over.
 const SCORE_WAIT_MAX_MS = 6000;
 
 const JURY_GRACE_MS = 1000;
@@ -40,8 +39,7 @@ const JURY_GRACE_MS = 1000;
 // rollover that was genuinely dropped
 const ROLLOVER_WATCHDOG_MS = 12000;
 
-// Provider URLs expire mid-song. Two re-resolves, then the room is told the
-// disc is unreadable rather than left buffering at a dead link forever.
+// Provider URLs expire mid-song. Two re-resolves, then the disc is unreadable.
 const RECOVERY_ATTEMPTS = 2;
 // Generous, so a slow connection is never mistaken for a dead one
 const STALL_TIMEOUT_MS = 25000;
@@ -140,7 +138,7 @@ function VideoPlayerComponent({
       ...partialState,
       entry,
       // The room's own stamp, echoed back. Without it the room cannot tell this
-      // report from one about a turn it has already left, and drops it.
+      // report from one about a turn it has left, and drops it.
       item_id: entry ? current?.item_id ?? null : null,
     });
   }, [updatePlayerState]);
@@ -151,8 +149,8 @@ function VideoPlayerComponent({
     const current = playerStateRef.current;
     if (!current) return;
 
-    // The room has stopped this element and means it. Starting it again is how
-    // a finished song replays itself instead of handing over to the next one.
+    // The room stopped this element and means it. Starting it again is how a
+    // finished song replays itself instead of handing over.
     if (
       current.play_state === "finished" ||
       current.play_state === "error" ||
@@ -196,8 +194,8 @@ function VideoPlayerComponent({
     video.load();
   }, [videoUrl]);
 
-  // Follow the room. videoUrl is in here because the element only mounts once a
-  // URL resolves, which can be long after the song changed.
+  // videoUrl is a dep because the element only mounts once a URL resolves,
+  // which can be long after the song changed.
   useEffect(() => {
     if (!videoRef.current) return;
     applyPlaybackState(videoRef.current);
@@ -209,8 +207,8 @@ function VideoPlayerComponent({
     applyPlaybackState,
   ]);
 
-  // A link that stopped playing is replaced at the source, and only then given
-  // up on. Retrying the same URL would fail the same way every time.
+  // Replaced at the source before being given up on: retrying the same URL
+  // would fail the same way every time.
   const recoverPlayback = useCallback((fresh = false) => {
     const current = playerStateRef.current;
     const entry = current?.entry;
@@ -349,8 +347,8 @@ function VideoPlayerComponent({
     };
   }, [playerState?.entry]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // A stream that died after it started is a different failure from one that
-  // never resolved, and reads differently to the room
+  // A stream that died after it started reads differently from one that never
+  // resolved
   const streamFailed = playerState?.play_state === "error";
 
   if (isLoadingVideoUrl && !streamFailed) {
@@ -915,8 +913,7 @@ function PlayerStateProviderInternal({ children }: { children: React.ReactNode }
     if (!connected) return "connecting";
     if (scoring) return "scoring";
     if (playerState?.entry) return "playing";
-    // Nothing can be reserved until a phone is on, so until then the screen
-    // shows how to connect one rather than inviting a song
+    // Nothing can be reserved until a phone is on, so show how to connect one
     return controllerCount > 0 ? "ready" : "connected";
   }, [hasInteracted, connected, scoring, playerState?.entry, controllerCount]);
 
@@ -976,8 +973,7 @@ function PlayerStateProviderInternal({ children }: { children: React.ReactNode }
   ]);
 
   // Autoplay is enforced here, not by the server: asking always advances, so
-  // holding is simply not asking, and the room stays on the song it already
-  // reported as finished. Null means it was held.
+  // holding is simply not asking. Null means it was held.
   const rollOver = useCallback((itemId: string): Promise<unknown> | null => {
     // Nothing reserved means nothing is being held back, so let it roll and
     // clear the room the same way an autoplaying one does
@@ -986,12 +982,10 @@ function PlayerStateProviderInternal({ children }: { children: React.ReactNode }
     return Promise.resolve(playNextRef.current({ fromItemId: itemId }));
   }, []);
 
-  // Nothing on air and something reserved, so the leader calls for it. This is
-  // also what starts a room whose screen joined after the songs did.
-  //
-  // Autoplay governs it, same as any other advance: a cold start is just the
-  // first one, and a room told not to start songs by itself should not make an
-  // exception for a queue that happens to be empty. Play is how it starts then.
+  // Nothing on air and something reserved, so the leader calls for it, which
+  // also starts a room whose screen joined after the songs did. Autoplay
+  // governs it like any other advance: a cold start is just the first one, and
+  // Play is how a held room starts instead.
   useEffect(() => {
     if (!isLeader || !autoplay || currentItemId || reservedCount === 0 || starting.current) return;
 
@@ -1006,9 +1000,8 @@ function PlayerStateProviderInternal({ children }: { children: React.ReactNode }
   }, [isLeader, autoplay, currentItemId, reservedCount]);
 
   // The ask that ends a finished song is a timer in one screen, so reloading
-  // that screen drops the rollover and parks the room on a dead song. A
-  // finished song still sitting there is the whole story, so the leader reads
-  // it back off the state rather than needing a cue replayed.
+  // that screen drops the rollover and parks the room on a dead song. The
+  // leader reads the situation back off the state instead.
   useEffect(() => {
     const held =
       isLeader &&
@@ -1048,9 +1041,8 @@ function PlayerStateProviderInternal({ children }: { children: React.ReactNode }
     announceScoringRef.current(active);
   }, [scoring, isLeader]);
 
-  // The leader is the jury. One screen decides, so the room shows one number,
-  // and being promoted mid grace re-arms it rather than costing the singer
-  // their score.
+  // The leader is the jury, so the room shows one number. Being promoted mid
+  // grace re-arms it rather than costing the singer their score.
   useEffect(() => {
     if (!isLeader || !scoring || judged.current === scoring.itemId) return;
 
@@ -1133,9 +1125,9 @@ function PlayerStateProviderInternal({ children }: { children: React.ReactNode }
     finishScoring(quick, SCORE_WAIT_MAX_MS);
   }, [finishScoring]);
 
-  // A score arriving supersedes the fallback there and then. Timing the hold
-  // from the arrival rather than from the reveal lands on the same moment, and
-  // does not depend on an animation callback that reduced motion skips.
+  // A score arriving supersedes the fallback there and then. Timing from the
+  // arrival lands on the same moment as timing from the reveal, without
+  // depending on an animation callback that reduced motion skips.
   useEffect(() => {
     if (!scoring || !score || score.item_id !== scoring.itemId) return;
 
@@ -1169,9 +1161,9 @@ function PlayerStateProviderInternal({ children }: { children: React.ReactNode }
   const handledSkip = useRef<number | null>(null);
   const handledPlayback = useRef<number | null>(null);
 
-  // A remote pressed Next. Only the leader decides what that means, because
-  // only its clock is the room's: a follower predicting between reports could
-  // land on the other side of the scoring threshold and disagree.
+  // Only the leader decides what Next means, because only its clock is the
+  // room's: a follower predicting between reports could land on the other side
+  // of the scoring threshold and disagree.
   useEffect(() => {
     if (!skipRequest || handledSkip.current === skipRequest.at) return;
 
@@ -1185,8 +1177,8 @@ function PlayerStateProviderInternal({ children }: { children: React.ReactNode }
     if (current.play_state === "finished") {
       const cued = cuedItemRef.current;
 
-      // Holding a cued song, so Next means what it means mid song: this one is
-      // not being sung. Dropping it leaves the one behind it cued, still held.
+      // Next means what it means mid song: this one is not being sung.
+      // Dropping it leaves the one behind it cued, still held.
       if (!scoringRef.current && !autoplayRef.current && cued) {
         removeSongRef.current(cued.id).catch((error: unknown) => {
           console.error("[Player] Could not drop the cued song:", error);
@@ -1211,9 +1203,8 @@ function PlayerStateProviderInternal({ children }: { children: React.ReactNode }
     endSong(itemId, current.current_time, true);
   }, [skipRequest, isLeader, endSong]);
 
-  // Followers put the score screen up off the room's own state rather than
-  // deciding for themselves. current_time on a finished turn is the number the
-  // leader ended it with, so every screen scores the same songs.
+  // Followers read the decision rather than remaking it: current_time on a
+  // finished turn is the number the leader ended it with.
   useEffect(() => {
     if (playState !== "finished" || !currentItemId) return;
     if (scoring || scoredItem.current === currentItemId) return;
@@ -1224,8 +1215,8 @@ function PlayerStateProviderInternal({ children }: { children: React.ReactNode }
     beginScoring(currentItemId, false);
   }, [playState, currentItemId, scoring, minScoredSeconds, beginScoring]);
 
-  // A remote asked to play or pause. The leader reports the change and every
-  // screen follows the room, rather than each guessing at it separately.
+  // The leader reports the change and every screen follows the room, rather
+  // than each guessing at it separately.
   useEffect(() => {
     if (!playbackRequest || handledPlayback.current === playbackRequest.at) return;
 

@@ -1,7 +1,3 @@
-// "audio" marks a track that needs lyrics drawn over it rather than burned into
-// the video, so the player can pick a surface instead of assuming a <video>.
-export type MediaKind = "video" | "audio";
-
 export interface KaraokeEntry {
   id: string;  // Unique only within its source
   title: string;
@@ -11,7 +7,6 @@ export interface KaraokeEntry {
   uploader: string;
   duration: number | null;
   thumbnail_url?: string | null;
-  media_kind?: MediaKind;
 }
 
 export interface KaraokeSearchResult {

@@ -1,14 +1,11 @@
 import time
 
 from pydantic import BaseModel, Field
-from typing import Literal, Optional
+from typing import Optional
 
 # Suits a general video platform. Anime openings run well under this floor.
 DEFAULT_MIN_DURATION_SECONDS = 90.0
 DEFAULT_MAX_DURATION_SECONDS = 15 * 60.0
-
-# "audio" is a bare instrumental: the lyrics are not burned in.
-MediaKind = Literal["video", "audio"]
 
 
 class KaraokeEntry(BaseModel):
@@ -20,7 +17,6 @@ class KaraokeEntry(BaseModel):
     uploader: str
     duration: Optional[float]
     thumbnail_url: Optional[str] = None
-    media_kind: MediaKind = "video"
 
 
 class RankingSignals(BaseModel):

@@ -198,8 +198,8 @@ class BasicVideoProvider(KaraokeSourceProvider):
 ```
 
 Set `video_url` on the entry instead when the URL is free to produce during
-search. Set `media_kind="audio"` for a source that supplies a bare instrumental,
-which tells the player the lyrics are not burned in.
+search. Track shape is read from URL presence rather than a mode flag: a source
+supplying a bare instrumental leaves `video_url` unset.
 
 ### Ranking Signals
 
@@ -432,8 +432,7 @@ The server processes incoming WebSocket messages by extracting the command name 
   thumbnail_url?: string,
   video_url?: string,
   source: string,        // Provider ID that produced this entry
-  uploader: string,
-  media_kind?: "video" | "audio"
+  uploader: string
 }
 ```
 

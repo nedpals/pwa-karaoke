@@ -15,7 +15,7 @@ const INTENSITY_WEIGHT = 0.35;
 export type MicStatus = "off" | "idle" | "starting" | "listening" | "denied" | "unsupported";
 
 interface Reading {
-  entryId: string;
+  itemId: string;
   startedAt: number;
   floorSamples: number[];
   floor: number | null;
@@ -27,9 +27,10 @@ interface Reading {
 
 export interface UseLoudnessScoreOptions {
   active: boolean;
-  entryId: string | null;
+  /** The reservation being sung, so a re-do is measured on its own. */
+  itemId: string | null;
   playState: DisplayPlayerState["play_state"] | null;
-  onSubmit: (entryId: string, performance: number) => void;
+  onSubmit: (itemId: string, performance: number) => void;
 }
 
 export interface UseLoudnessScoreReturn {
@@ -59,9 +60,9 @@ function readRms(analyser: AnalyserNode, buffer: Uint8Array): number {
   return Math.sqrt(sum / buffer.length);
 }
 
-function newReading(entryId: string): Reading {
+function newReading(itemId: string): Reading {
   return {
-    entryId,
+    itemId,
     startedAt: 0,
     floorSamples: [],
     floor: null,
@@ -84,39 +85,39 @@ function performanceOf(reading: Reading): number {
 
 export function useLoudnessScore({
   active,
-  entryId,
+  itemId,
   playState,
   onSubmit,
 }: UseLoudnessScoreOptions): UseLoudnessScoreReturn {
   const [status, setStatus] = useState<MicStatus>("idle");
 
   const activeRef = useRef(active);
-  const entryIdRef = useRef(entryId);
+  const itemIdRef = useRef(itemId);
   const playStateRef = useRef(playState);
   const onSubmitRef = useRef(onSubmit);
   const readingRef = useRef<Reading | null>(null);
 
   useEffect(() => {
     activeRef.current = active;
-    entryIdRef.current = entryId;
+    itemIdRef.current = itemId;
     playStateRef.current = playState;
     onSubmitRef.current = onSubmit;
-  }, [active, entryId, playState, onSubmit]);
+  }, [active, itemId, playState, onSubmit]);
 
   const sample = useCallback((analyser: AnalyserNode, buffer: Uint8Array) => {
     const rms = readRms(analyser, buffer);
 
-    const entry = entryIdRef.current;
+    const item = itemIdRef.current;
     const state = playStateRef.current;
 
-    if (!entry || !activeRef.current) {
+    if (!item || !activeRef.current) {
       readingRef.current = null;
       return;
     }
 
     let reading = readingRef.current;
-    if (!reading || reading.entryId !== entry) {
-      reading = newReading(entry);
+    if (reading?.itemId !== item) {
+      reading = newReading(item);
       readingRef.current = reading;
     }
 
@@ -150,7 +151,7 @@ export function useLoudnessScore({
 
     if (state === "finished" && !reading.submitted && reading.total >= MIN_SAMPLES) {
       reading.submitted = true;
-      onSubmitRef.current(entry, performanceOf(reading));
+      onSubmitRef.current(item, performanceOf(reading));
     }
   }, []);
 

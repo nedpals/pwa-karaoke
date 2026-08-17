@@ -50,6 +50,17 @@ class SessionManager:
     
     def get_room_client_count(self, room_id: str) -> int:
         return len(self.get_room_clients(room_id))
+
+    def get_room_client_counts(self, room_id: str) -> dict:
+        """Counts by kind. Two screens and no phone means nobody can reserve
+        anything, which a single total cannot say."""
+        clients = self.get_room_clients(room_id)
+        controllers = sum(1 for c in clients if c.client_type == "controller")
+        return {
+            "total": len(clients),
+            "controllers": controllers,
+            "displays": len(clients) - controllers,
+        }
     
     # Room-specific broadcasting
     async def broadcast_to_room(self, room_id: str, command: str, data):
@@ -96,8 +107,7 @@ class SessionManager:
         return room
     
     async def broadcast_room_client_count(self, room_id: str):
-        count = self.get_room_client_count(room_id)
-        await self.broadcast_to_room(room_id, "client_count", count)
+        await self.broadcast_to_room(room_id, "client_count", self.get_room_client_counts(room_id))
     
     # Room-scoped display leadership
     def is_display_leader(self, client: ConnectionClient) -> bool:

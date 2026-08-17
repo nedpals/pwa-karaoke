@@ -28,6 +28,7 @@ MAX_SEARCH_LIMIT = 50
 
 class VideoURLResponse(BaseModel):
     video_url: str | None
+    audio_url: str | None = None
 
 
 class ProviderSearchOutcome:
@@ -156,16 +157,20 @@ class KaraokeService:
         """
         if refresh:
             if self.cache:
-                self.cache.invalidate_video_url(entry.id, entry.source)
-            entry = entry.model_copy(update={"video_url": None})
+                self.cache.invalidate_media_urls(entry.id, entry.source)
+            # Both tracks, or a paired entry keeps its audio and short-circuits
+            # the re-resolution below with half of a dead result.
+            entry = entry.model_copy(update={"video_url": None, "audio_url": None})
 
-        if entry.video_url:
-            return VideoURLResponse(video_url=entry.video_url)
+        # Either track alone counts as resolved: an audio-only source leaves
+        # video_url unset, and the two always travel together.
+        if entry.video_url or entry.audio_url:
+            return VideoURLResponse(video_url=entry.video_url, audio_url=entry.audio_url)
 
         if self.cache:
-            cached_url = self.cache.get_video_url(entry.id, entry.source)
-            if cached_url is not None:
-                return VideoURLResponse(video_url=cached_url or None)
+            cached = self.cache.get_media_urls(entry.id, entry.source)
+            if cached is not None:
+                return VideoURLResponse(video_url=cached.video_url, audio_url=cached.audio_url)
 
         provider = self.providers.get(entry.source)
         if provider is None:
@@ -180,11 +185,12 @@ class KaraokeService:
             return VideoURLResponse(video_url=None)
 
         if self.cache and result.cacheable:
-            self.cache.cache_video_url(
+            self.cache.cache_media_urls(
                 entry.id,
                 entry.source,
-                result.video_url or "",
+                result.video_url,
+                result.audio_url,
                 result.cache_ttl_seconds
             )
 
-        return VideoURLResponse(video_url=result.video_url)
+        return VideoURLResponse(video_url=result.video_url, audio_url=result.audio_url)

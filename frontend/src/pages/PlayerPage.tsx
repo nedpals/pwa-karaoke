@@ -15,6 +15,7 @@ import { SystemMessage } from "../components/templates/SystemMessage";
 import { PasswordInput } from "../components/organisms/PasswordInput";
 import { ReactionOverlay } from "../components/organisms/ReactionOverlay";
 import { ScoreScreen } from "../components/organisms/ScoreScreen";
+import { DualTrackVideo, type DualTrackHandle } from "../components/organisms/DualTrackVideo";
 import { RoomProvider, useRoomContext } from "../providers/RoomProvider";
 import { useTempState, type TempStateSetterOptions } from "../hooks/useTempState";
 import { useVideoUrlMutation, useServerStatus } from "../hooks/useApi";
@@ -84,6 +85,7 @@ function usePlayerState() {
 
 function VideoPlayerComponent({
   videoUrl,
+  audioUrl,
   isLoadingVideoUrl,
   error,
   canRetry,
@@ -93,6 +95,7 @@ function VideoPlayerComponent({
   onSongEnded,
 }: {
   videoUrl: string | null;
+  audioUrl: string | null;
   isLoadingVideoUrl: boolean;
   error: Error | null;
   canRetry: boolean;
@@ -101,9 +104,9 @@ function VideoPlayerComponent({
   onNearingEnd: (params: { timeRemaining: number }) => void;
   onSongEnded: (playedSeconds: number) => void;
 }) {
-  const videoRef = useRef<HTMLVideoElement>(null);
+  const videoRef = useRef<DualTrackHandle>(null);
   const { updatePlayerState, refreshVideoUrl, isLeader } = useRoomContext();
-  const { osd, playerState } = usePlayerState();
+  const { osd, setOSD, playerState } = usePlayerState();
   const isBufferingRef = useRef(false);
   const hasNearingEndFiredRef = useRef(false);
   const attemptsRef = useRef<{ entryId: string | null; count: number }>({ entryId: null, count: 0 });
@@ -117,6 +120,14 @@ function VideoPlayerComponent({
   useEffect(() => {
     playerStateRef.current = playerState;
   }, [playerState]);
+
+  const isLeaderRef = useRef(isLeader);
+  // True while a paired song has both tracks parked to buffer.
+  const holdingRef = useRef(false);
+
+  useEffect(() => {
+    isLeaderRef.current = isLeader;
+  }, [isLeader]);
 
   const updateVersionedPlayerState = useCallback((partialState: Partial<DisplayPlayerState>) => {
     const current = playerStateRef.current;
@@ -145,7 +156,9 @@ function VideoPlayerComponent({
 
   // One place decides whether the element runs, so a fresh mount, a buffer
   // recovery and a change from the room cannot disagree about it
-  const applyPlaybackState = useCallback((video: HTMLVideoElement) => {
+  // Takes the element that owns the clock, which is the audio track when the
+  // song resolved to a pair, so this is HTMLMediaElement rather than a video.
+  const applyPlaybackState = useCallback((video: HTMLMediaElement | DualTrackHandle) => {
     const current = playerStateRef.current;
     if (!current) return;
 
@@ -174,6 +187,22 @@ function VideoPlayerComponent({
       return;
     }
 
+    // The pair parked itself to buffer and owns restarting both tracks, so its
+    // own report, which arrives as "buffering", is ignored here: acting on it
+    // would restart the audio and leave the parked video behind. Narrowed to
+    // that report on purpose. Ignoring everything while parked swallowed the
+    // play that follows a pause, and the song never came back.
+    if (holdingRef.current && current.play_state === "buffering") return;
+
+    // A follower mirrors the leader rather than the room's intent: left running
+    // through the leader's stall it advances past the leader's frozen time, and
+    // the forward-only catch-up above never pulls it back. The leader ignores
+    // its own buffering, since the pair owns resuming itself.
+    if (!isLeaderRef.current && current.play_state === "buffering") {
+      if (!video.paused) video.pause();
+      return;
+    }
+
     // "playing" and "buffering" both mean the room is expecting sound
     if (video.paused) {
       video.play().catch((error) => {
@@ -185,22 +214,30 @@ function VideoPlayerComponent({
   }, []);
 
   // A replacement URL for the same song reaches the same element, and swapping
-  // a source does nothing on its own
-  useEffect(() => {
-    const video = videoRef.current;
-    if (!video || !videoUrl || loadedUrlRef.current === videoUrl) return;
+  // a source does nothing on its own. Keyed on the pair, since an audio-only
+  // source has no video URL to notice a change in.
+  const loadKey = videoUrl || audioUrl ? `${videoUrl ?? ""}|${audioUrl ?? ""}` : null;
 
-    loadedUrlRef.current = videoUrl;
-    video.load();
-  }, [videoUrl]);
+  useEffect(() => {
+    const media = videoRef.current;
+    if (!media || !loadKey || loadedUrlRef.current === loadKey) return;
+
+    loadedUrlRef.current = loadKey;
+    media.load();
+  }, [loadKey]);
 
   // videoUrl is a dep because the element only mounts once a URL resolves,
   // which can be long after the song changed.
   useEffect(() => {
     if (!videoRef.current) return;
     applyPlaybackState(videoRef.current);
+    // isLeader is a dependency because promotion changes what this display
+    // should do with a state it already has: a follower parked on the old
+    // leader's buffering is the authority once promoted, and nothing else
+    // would wake it.
   }, [
-    videoUrl,
+    loadKey,
+    isLeader,
     playerState?.entry?.id,
     playerState?.play_state,
     playerState?.current_time,
@@ -251,6 +288,47 @@ function VideoPlayerComponent({
         recoveringRef.current = false;
       });
   }, [isLeader, refreshVideoUrl, updateVersionedPlayerState]);
+
+  // With a separate audio track a stall parks both, and the element events for
+  // that are the pair's business, not the room's. This reports it instead, so
+  // the room still sees buffering and the stall timer below still runs.
+  const handleHoldChange = useCallback((holding: boolean) => {
+    const current = playerStateRef.current;
+    if (!current?.entry) return;
+
+    const media = videoRef.current;
+    holdingRef.current = holding;
+    isBufferingRef.current = holding;
+
+    // Only the engage is announced. On release the pair restarts itself and the
+    // resulting play event reports playing, whereas announcing it here would
+    // override a pause the room asked for while the tracks were parked.
+    if (!holding) return;
+
+    updateVersionedPlayerState({
+      entry: current.entry,
+      play_state: "buffering",
+      current_time: media?.currentTime ?? current.current_time,
+      duration: media?.duration ?? current.duration,
+      volume: media?.volume ?? current.volume,
+    });
+  }, [updateVersionedPlayerState]);
+
+  const handleAudioFailure = useCallback((failure: unknown) => {
+    console.error("Audio track failed to start:", failure);
+    setOSD({ label: "Audio Failed", visible: true });
+
+    const current = playerStateRef.current;
+    if (!current?.entry) return;
+
+    updateVersionedPlayerState({
+      entry: current.entry,
+      play_state: "paused",
+      current_time: videoRef.current?.currentTime ?? current.current_time,
+      duration: videoRef.current?.duration ?? current.duration,
+      volume: current.volume,
+    });
+  }, [setOSD, updateVersionedPlayerState]);
 
   // Buffering has no natural end when the far side has stopped answering, so
   // sitting in it past any plausible wait counts as the stream being gone
@@ -367,7 +445,7 @@ function VideoPlayerComponent({
     );
   }
 
-  if (!videoUrl || streamFailed) {
+  if ((!videoUrl && !audioUrl) || streamFailed) {
     if (!playerState?.entry) return null;
 
     return (
@@ -429,11 +507,18 @@ function VideoPlayerComponent({
 
       {/* No autoPlay: a remount that started itself brought back the song the
           room had just finished with. applyPlaybackState decides instead. */}
-      <video
+      <DualTrackVideo
         key={performanceIdOf(playerState) ?? undefined}
         ref={videoRef}
         className="w-full h-full object-contain"
-        preload="auto"
+        videoUrl={videoUrl}
+        audioUrl={audioUrl}
+        onAudioFailure={handleAudioFailure}
+        onHoldChange={handleHoldChange}
+        onTrackError={() => {
+          isBufferingRef.current = false;
+          recoverPlayback();
+        }}
         onPlay={(ev) => {
           const current = playerStateRef.current;
           if (current?.entry) {
@@ -498,10 +583,6 @@ function VideoPlayerComponent({
           applyPlaybackState(video);
         }}
         onCanPlayThrough={(ev) => applyPlaybackState(ev.currentTarget)}
-        onError={() => {
-          isBufferingRef.current = false;
-          recoverPlayback();
-        }}
         onEnded={(ev) => {
           const current = playerStateRef.current;
           if (!current?.entry || current.play_state === "finished") return;
@@ -516,11 +597,7 @@ function VideoPlayerComponent({
           });
           onSongEnded(video.currentTime || 0);
         }}
-      >
-        <track kind="captions" />
-        <source src={videoUrl} type="video/mp4" />
-        <p className="text-center">Your browser does not support the video tag.</p>
-      </video>
+      />
     </div>
   );
 }
@@ -599,13 +676,14 @@ function PlayingStateContent() {
   const { trigger: triggerVideoUrl } = useVideoUrlMutation();
   const {
     videoUrl: videoUrlData,
+    audioUrl: audioUrlData,
     isLoading: isLoadingVideoUrl,
     error: videoUrlError,
     canRetry,
     retry,
     retryCount
   } = useVideoUrlWithRetry(
-    playerState?.entry && !playerState.entry.video_url
+    playerState?.entry && !playerState.entry.video_url && !playerState.entry.audio_url
       ? playerState.entry
       : null,
   );
@@ -642,17 +720,19 @@ function PlayingStateContent() {
     return upNextQueue?.items[0] ?? null;
   }, [autoplay, playerState?.play_state, upNextQueue]);
 
-  const videoUrl = useMemo(() => {
-    if (!playerState?.entry) return null;
+  const { videoUrl, audioUrl } = useMemo(() => {
+    const entry = playerState?.entry;
+    if (!entry) return { videoUrl: null, audioUrl: null };
 
-    if (playerState.entry.video_url) {
-      return playerState.entry.video_url;
-    } else if (videoUrlData) {
-      return videoUrlData;
+    // Both tracks must come from the same resolution, otherwise a muxed
+    // video_url could be paired with a separately fetched audio_url and the
+    // audio would play twice.
+    if (entry.video_url || entry.audio_url) {
+      return { videoUrl: entry.video_url ?? null, audioUrl: entry.audio_url ?? null };
     }
 
-    return null;
-  }, [playerState?.entry, videoUrlData]);
+    return { videoUrl: videoUrlData, audioUrl: audioUrlData };
+  }, [playerState?.entry, videoUrlData, audioUrlData]);
 
   const handleNearingEnd = useCallback(({ timeRemaining }: { timeRemaining: number }) => {
     if (!upNextQueue || upNextQueue.items.length === 0) return;
@@ -671,7 +751,7 @@ function PlayingStateContent() {
       );
     }
 
-    if (nextSong.entry.video_url) {
+    if (nextSong.entry.video_url || nextSong.entry.audio_url) {
       // Skip prefetching if we already have the URL
       return;
     }
@@ -724,6 +804,7 @@ function PlayingStateContent() {
       <div className="relative h-full w-full flex items-center justify-center">
         <VideoPlayerComponent
           videoUrl={videoUrl}
+          audioUrl={audioUrl}
           isLoadingVideoUrl={videoUrl ? false : isLoadingVideoUrl}
           error={videoUrl ? null : videoUrlError}
           canRetry={canRetry}

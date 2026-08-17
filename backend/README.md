@@ -201,6 +201,13 @@ Set `video_url` on the entry instead when the URL is free to produce during
 search. Track shape is read from URL presence rather than a mode flag: a source
 supplying a bare instrumental leaves `video_url` unset.
 
+A source whose best video carries no sound of its own sets `audio_url` too. A
+populated `audio_url` means exactly that, and the player runs the two elements
+together, keeping the video in sync with the audio clock. Leave `audio_url`
+unset when `video_url` already carries sound, or the player will mute it and
+play silence. Both tracks must come from one resolution call and share a
+timeline, so they cannot be mixed across sources.
+
 ### Ranking Signals
 
 Ranking lives in `core/ranking.py`. Providers report signals rather than sorting
@@ -219,6 +226,8 @@ Which constructor you use decides whether the answer is cached:
 | Constructor | Use when | Cached |
 | --- | --- | --- |
 | `VideoURLResult.resolved(url, ttl)` | The URL is ready to play | Yes |
+| `VideoURLResult.resolved(video, ttl, audio_url=audio)` | The video track is silent and pairs with its own audio | Yes |
+| `VideoURLResult.resolved(None, audio_url=audio)` | The source has audio only | Yes |
 | `VideoURLResult.unavailable()` | The source answered no, and a deleted or private track stays deleted | Yes |
 | `VideoURLResult.failed()` | The attempt broke down (timeout, proxy, missing binary) | No |
 

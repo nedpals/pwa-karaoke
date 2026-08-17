@@ -111,10 +111,10 @@ class ClientCommands:
         if not self.room or not self.room.queue.items:
             return
 
-        # Get first 2 songs that don't already have video URLs
+        # Get first 2 songs that don't already have media URLs
         songs_to_prefetch = []
         for item in self.room.queue.items[:2]:
-            if not item.entry.video_url:
+            if not item.entry.video_url and not item.entry.audio_url:
                 songs_to_prefetch.append(item)
 
         if not songs_to_prefetch:
@@ -135,8 +135,9 @@ class ClientCommands:
         try:
             print(f"[PREFETCH] Fetching URL for: {queue_item.entry.title} by {queue_item.entry.artist}")
             video_response = await self.service.get_video_url(queue_item.entry)
-            if video_response.video_url:
+            if video_response.video_url or video_response.audio_url:
                 queue_item.entry.video_url = video_response.video_url
+                queue_item.entry.audio_url = video_response.audio_url
                 print(f"[PREFETCH] ✓ Successfully prefetched URL for: {queue_item.entry.title}")
                 await self._broadcast_room_state(should_prefetch=False)
             else:

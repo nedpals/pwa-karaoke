@@ -23,6 +23,17 @@ from config import config
 PLAYER_CLIENT = "android_sdkless"
 FORMAT_SELECTOR = "best[ext=mp4]/best[ext=webm]/best"
 
+# A karaoke display gains nothing above 1080p, and the 1440p/2160p rungs are
+# AV1-only, which cheap TV browsers and SBCs cannot decode in real time.
+MAX_VIDEO_HEIGHT = 1080
+
+# avc1 is hardware-decoded essentially everywhere; av01 rarely is.
+VIDEO_CODEC_PREFERENCE = ("avc1", "vp09", "vp9", "av01")
+
+# Protocols the player can play from a plain src. Everything else, HLS and DASH
+# included, needs MSE and a library on the frontend.
+PROGRESSIVE_PROTOCOLS = ("https", "http")
+
 # Sixty results cost about half a second more than thirty, and they are what
 # the ranking, and the pages after the first, have to work with.
 SEARCH_FETCH_LIMIT = 60
@@ -38,6 +49,16 @@ YTDLP_BASE_ARGS = [
     "--no-progress",
     "--no-playlist",
 ]
+
+# The source refused the caller, not the request: a bot check follows the IP.
+# Retrying now changes nothing, and remembering it against the video would keep
+# a song unplayable long after cookies or a cleaner address fixed the cause.
+BLOCKED_ERROR_MARKERS = (
+    "sign in to confirm",
+    "not a bot",
+    "confirm your age",
+    "requires authentication",
+)
 
 RETRYABLE_ERROR_MARKERS = (
     "proxy", "407", "429", "rate limit",
@@ -76,6 +97,8 @@ class ExtractionOutcome(NamedTuple):
     # True when the attempt failed for a reason that says nothing about this
     # particular video.
     environmental_failure: bool
+    # When set, `url` carries no audio of its own and the two play together.
+    audio_url: Optional[str] = None
 
 
 class YtdlpHealth(ProviderHealth):
@@ -219,19 +242,105 @@ async def ytdlp_version(timeout: float = 15.0) -> str:
     return (await run_ytdlp(["--version"], timeout=timeout)).strip()
 
 
-def select_stream_url(info: dict) -> Optional[str]:
+def is_progressive(fmt: dict) -> bool:
     """
-    requested_downloads reflects the selected format, so prefer it and fall back
-    to the top level url that other output shapes carry.
+    Whether a format can be handed to a media element as a plain src.
+
+    HLS and DASH need Media Source Extensions and a library to drive them, so
+    selecting one would resolve cleanly here and then fail silently in the
+    browser. yt-dlp virtually always reports a protocol; when it does not, the
+    format is kept rather than discarded on a guess.
+    """
+    protocol = fmt.get("protocol")
+    return protocol is None or protocol in PROGRESSIVE_PROTOCOLS
+
+
+def _format_rank(fmt: dict) -> tuple:
+    return (fmt.get("height") or 0, fmt.get("tbr") or 0, fmt.get("abr") or 0)
+
+
+def _pick_format(formats: list[dict], preferred_exts: tuple[str, ...]) -> Optional[str]:
+    """Container preference wins over quality, mirroring FORMAT_SELECTOR's chain."""
+    for ext in preferred_exts + (None,):
+        candidates = [f for f in formats if ext is None or f.get("ext") == ext]
+        if candidates:
+            return max(candidates, key=_format_rank).get("url")
+    return None
+
+
+def _pick_video_only(formats: list[dict]) -> Optional[str]:
+    """Decodability beats resolution: a hardware-decoded 720p plays, a 4K AV1 stutters."""
+    for codec in VIDEO_CODEC_PREFERENCE:
+        matching = [f for f in formats if (f.get("vcodec") or "").startswith(codec)]
+        if matching:
+            return max(matching, key=_format_rank).get("url")
+    return max(formats, key=_format_rank).get("url") if formats else None
+
+
+def select_stream_urls(info: dict) -> tuple[Optional[str], Optional[str]]:
+    """
+    Pull the resolved stream URLs out of an info dictionary.
+
+    Returns (video_url, audio_url). A populated audio URL means the video URL
+    carries no audio of its own and the two are meant to play together. That
+    pairing is only used when the separate video track actually beats the muxed
+    one, so nothing pays the sync cost for no quality gain: YouTube's muxed
+    streams top out at 360p in practice while the adaptive ladder reaches 1080p.
+
+    requested_downloads reflects the selected format, so it and the top level
+    url remain the fallback for output shapes that carry no format list.
     """
     if not isinstance(info, dict):
-        return None
+        return None, None
+
+    formats = [f for f in (info.get("formats") or []) if f.get("url")]
+    playable = [f for f in formats if is_progressive(f)]
+    if formats and not playable:
+        protocols = sorted({f.get("protocol") or "unknown" for f in formats})
+        print(
+            f"[YTDLP] No progressive format among {len(formats)}"
+            f" ({', '.join(protocols)}); this source needs MSE support"
+        )
+
+    muxed = [
+        f for f in playable
+        if f.get("vcodec", "none") != "none" and f.get("acodec", "none") != "none"
+    ]
+    audio_only = [
+        f for f in playable
+        if f.get("vcodec", "none") == "none" and f.get("acodec", "none") != "none"
+    ]
+    video_only = [
+        f for f in playable
+        if f.get("vcodec", "none") != "none" and f.get("acodec", "none") == "none"
+    ]
+
+    muxed_url = _pick_format(muxed, ("mp4", "webm"))
+    # m4a before webm: Safari has no Opus-in-WebM support.
+    audio_url = _pick_format(audio_only, ("m4a", "mp4", "webm"))
+
+    best_muxed_height = max((f.get("height") or 0 for f in muxed), default=0)
+    worthwhile = [
+        f for f in video_only
+        if best_muxed_height < (f.get("height") or 0) <= MAX_VIDEO_HEIGHT
+    ]
+    paired_video_url = _pick_video_only(worthwhile) if audio_url else None
+
+    if paired_video_url:
+        return paired_video_url, audio_url
+    if muxed_url:
+        return muxed_url, None
+    if audio_url:
+        return None, audio_url
 
     for download in info.get("requested_downloads") or []:
-        if isinstance(download, dict) and download.get("url"):
-            return download["url"]
+        if isinstance(download, dict) and download.get("url") and is_progressive(download):
+            return download["url"], None
 
-    return info.get("url")
+    if info.get("url") and is_progressive(info):
+        return info["url"], None
+
+    return None, None
 
 
 def channel_name(info: dict) -> str:
@@ -379,36 +488,52 @@ class YTKaraokeSourceProvider(KaraokeSourceProvider):
         youtube_url = f"https://www.youtube.com/watch?v={entry.id}"
         outcome = await self._get_raw_video_url(youtube_url)
 
-        if outcome.url:
+        if outcome.url or outcome.audio_url:
             # YouTube's signed URLs outlive a sitting.
-            return VideoURLResult.resolved(outcome.url, cache_ttl_seconds=4 * 3600)
+            return VideoURLResult.resolved(
+                outcome.url, cache_ttl_seconds=4 * 3600, audio_url=outcome.audio_url
+            )
 
         return VideoURLResult.failed() if outcome.environmental_failure else VideoURLResult.unavailable()
 
     @staticmethod
-    def _is_environmental(error: Exception) -> bool:
+    def _error_details(error: Exception) -> str:
+        return error.details if isinstance(error, YtdlpError) else str(error)
+
+    @classmethod
+    def _is_blocked(cls, error: Exception) -> bool:
+        """Whether the source refused us rather than answering about the video."""
+        details = cls._error_details(error).lower()
+        return any(marker in details for marker in BLOCKED_ERROR_MARKERS)
+
+    @classmethod
+    def _is_environmental(cls, error: Exception) -> bool:
         """
-        Whether a failure is about the extractor or the network rather than the
-        video itself. A private or deleted video is a stable answer worth
-        caching; a dead proxy is not.
+        Whether a failure is about the extractor, the network or who is asking,
+        rather than the video itself. A private or deleted video is a stable
+        answer worth caching; a dead proxy or a bot check is not.
         """
         if isinstance(error, (YtdlpMissing, YtdlpTimeout)):
             return True
 
-        if isinstance(error, YtdlpError):
-            # No exit code means yt-dlp never ran or never produced usable output.
-            if error.returncode is None:
-                return True
-            details = error.details
-        else:
-            details = str(error)
+        if isinstance(error, YtdlpError) and error.returncode is None:
+            # yt-dlp never ran, or never produced usable output.
+            return True
 
-        return any(marker in details.lower() for marker in RETRYABLE_ERROR_MARKERS)
+        if cls._is_blocked(error):
+            return True
+
+        details = cls._error_details(error).lower()
+        return any(marker in details for marker in RETRYABLE_ERROR_MARKERS)
 
     @classmethod
     def _should_retry(cls, error: Exception) -> bool:
         # A missing binary will not appear part way through the loop.
         if isinstance(error, YtdlpMissing):
+            return False
+        # A block on the caller answers the same way however many times it is
+        # asked, and each attempt costs another extraction.
+        if cls._is_blocked(error):
             return False
         return cls._is_environmental(error)
 
@@ -428,7 +553,8 @@ class YTKaraokeSourceProvider(KaraokeSourceProvider):
                     youtube_url,
                 ])
                 self.health.record_ok()
-                return ExtractionOutcome(select_stream_url(info), False)
+                video_url, audio_url = select_stream_urls(info)
+                return ExtractionOutcome(video_url, False, audio_url)
 
             except YtdlpMissing as e:
                 self.health.record_failure(str(e), fatal=True)

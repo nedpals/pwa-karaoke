@@ -13,6 +13,7 @@ class KaraokeEntry(BaseModel):
     title: str
     artist: str
     video_url: Optional[str] = None
+    audio_url: Optional[str] = None  # When set, video_url carries no audio of its own
     source: str
     uploader: str
     duration: Optional[float]
@@ -41,17 +42,37 @@ class KaraokeSearchResult(BaseModel):
 
 class VideoURLResult(BaseModel):
     video_url: Optional[str]
+    audio_url: Optional[str] = None
     cache_ttl_seconds: int = 3600
     cacheable: bool = True
 
+    @property
+    def has_media(self) -> bool:
+        return bool(self.video_url or self.audio_url)
+
     @classmethod
-    def resolved(cls, video_url: str, cache_ttl_seconds: int = 3600) -> "VideoURLResult":
-        return cls(video_url=video_url, cache_ttl_seconds=cache_ttl_seconds, cacheable=True)
+    def resolved(
+        cls,
+        video_url: Optional[str] = None,
+        cache_ttl_seconds: int = 3600,
+        audio_url: Optional[str] = None,
+    ) -> "VideoURLResult":
+        """
+        A populated audio_url means video_url carries no audio of its own and
+        the two are played together, so they must come from one resolution. A
+        source with nothing but a bare instrumental passes audio_url alone.
+        """
+        return cls(
+            video_url=video_url,
+            audio_url=audio_url,
+            cache_ttl_seconds=cache_ttl_seconds,
+            cacheable=True,
+        )
 
     @classmethod
     def unavailable(cls, cache_ttl_seconds: int = 30 * 60) -> "VideoURLResult":
         """The source answered no. A deleted track stays deleted, so remember it."""
-        return cls(video_url=None, cache_ttl_seconds=cache_ttl_seconds, cacheable=True)
+        return cls(video_url=None, audio_url=None, cache_ttl_seconds=cache_ttl_seconds, cacheable=True)
 
     @classmethod
     def failed(cls) -> "VideoURLResult":
@@ -59,7 +80,7 @@ class VideoURLResult(BaseModel):
         The attempt broke down, which says nothing about the track. Caching it
         would keep the song unplayable after the cause is fixed.
         """
-        return cls(video_url=None, cacheable=False)
+        return cls(video_url=None, audio_url=None, cacheable=False)
 
 
 class ProviderHealth:

@@ -34,7 +34,7 @@ export function useSearch(query: string) {
 
 export function useVideoUrl(entry: KaraokeEntry | null) {
   return useSWR(
-    entry && !entry.video_url ? ['video-url', entry.id] : null,
+    entry && !entry.video_url && !entry.audio_url ? ['video-url', entry.id] : null,
     () => entry ? apiClient.getVideoUrl(entry) : null,
     {
       revalidateOnFocus: false,

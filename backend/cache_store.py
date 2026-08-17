@@ -29,12 +29,15 @@ class CacheStore:
     def _init_tables(self):
         self.connection.executescript("""
             -- Video URL cache
+            -- Keyed on both columns: an ID is unique only within its source,
+            -- so keying on it alone lets one source evict another's row.
             CREATE TABLE IF NOT EXISTS video_url_cache (
-                entry_id TEXT PRIMARY KEY,
+                entry_id TEXT NOT NULL,
                 source TEXT NOT NULL,
                 video_url TEXT,
                 created_at REAL NOT NULL,
-                expires_at REAL
+                expires_at REAL,
+                PRIMARY KEY (entry_id, source)
             );
 
             -- Search results cache
@@ -97,7 +100,7 @@ class CacheStore:
             print(f"[CACHE] Error retrieving video URL for {entry_id}: {e}")
             return None
 
-    def cache_search_results(self, query: str, results: Dict[str, Any], ttl_seconds: int = 1800):
+    def cache_search_results(self, query: str, results: Dict[str, Any], ttl_seconds: int = 1800, scope: str = ""):
         """
         Cache search results
 
@@ -105,8 +108,10 @@ class CacheStore:
             query: Search query string
             results: Search results to cache
             ttl_seconds: Time to live in seconds (default 30 minutes)
+            scope: Identifies what produced the results, so a page built by a
+                different set of sources is a different cache entry
         """
-        query_hash = hashlib.sha256(query.lower().encode()).hexdigest()
+        query_hash = self._query_hash(query, scope)
         now = time.time()
         expires_at = now + ttl_seconds
 
@@ -125,8 +130,8 @@ class CacheStore:
         except sqlite3.Error as e:
             print(f"[CACHE] Error storing search results for '{query}': {e}")
 
-    def get_search_results(self, query: str) -> Optional[Dict[str, Any]]:
-        query_hash = hashlib.sha256(query.lower().encode()).hexdigest()
+    def get_search_results(self, query: str, scope: str = "") -> Optional[Dict[str, Any]]:
+        query_hash = self._query_hash(query, scope)
         now = time.time()
 
         try:
@@ -151,6 +156,10 @@ class CacheStore:
         except (sqlite3.Error, json.JSONDecodeError) as e:
             print(f"[CACHE] Error retrieving search results for '{query}': {e}")
             return None
+
+    @staticmethod
+    def _query_hash(query: str, scope: str) -> str:
+        return hashlib.sha256(f"{scope}|{query.lower()}".encode()).hexdigest()
 
     def cleanup_expired(self):
         now = time.time()

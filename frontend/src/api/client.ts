@@ -130,9 +130,13 @@ class ApiClient {
     throw lastError;
   }
 
-  async search(query: string): Promise<KaraokeSearchResult> {
+  async search(query: string, limit?: number, offset?: number): Promise<KaraokeSearchResult> {
+    const params = new URLSearchParams({ query });
+    if (limit !== undefined) params.set('limit', String(limit));
+    if (offset !== undefined) params.set('offset', String(offset));
+
     const response = await this.fetchWithRetry(
-      `${this.baseUrl}/search?query=${encodeURIComponent(query)}`,
+      `${this.baseUrl}/search?${params}`,
       {
         headers: {
           ...this.getAuthHeaders(),

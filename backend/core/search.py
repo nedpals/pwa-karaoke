@@ -16,6 +16,9 @@ class KaraokeEntry(BaseModel):
 
 class KaraokeSearchResult(BaseModel):
     entries: list[KaraokeEntry]
+    # Matches across every page, so a caller knows whether more can be asked
+    # for. Providers leave this alone; the service fills it in.
+    total: int = 0
 
 class VideoURLResult(BaseModel):
     video_url: Optional[str]

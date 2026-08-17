@@ -4,7 +4,7 @@ from os import environ
 import time
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request, Response, WebSocket, Depends, HTTPException, status
+from fastapi import FastAPI, Query, Request, Response, WebSocket, Depends, HTTPException, status
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.websockets import WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
@@ -13,7 +13,13 @@ from pydantic import BaseModel
 
 from core.room import Room
 from core.search import KaraokeEntry
-from services.karaoke_service import KaraokeService, KaraokeSearchResult, VideoURLResponse
+from services.karaoke_service import (
+    KaraokeService,
+    KaraokeSearchResult,
+    VideoURLResponse,
+    DEFAULT_SEARCH_LIMIT,
+    MAX_SEARCH_LIMIT,
+)
 from commands import ControllerCommands, DisplayCommands
 from websocket_errors import WebSocketErrorType, create_error_response
 from websocket_models import validate_websocket_message, QUIET_COMMANDS
@@ -166,9 +172,11 @@ async def serve_spa_index():
 async def search(
     query: str,
     service: Annotated[KaraokeService, Depends()],
-    _: Annotated[str, Depends(get_current_room)]
+    _: Annotated[str, Depends(get_current_room)],
+    limit: int = Query(DEFAULT_SEARCH_LIMIT, ge=1, le=MAX_SEARCH_LIMIT),
+    offset: int = Query(0, ge=0),
 ) -> KaraokeSearchResult:
-    return await service.search(query)
+    return await service.search(query, limit=limit, offset=offset)
 
 @app.post("/get_video_url")
 async def get_video_url(

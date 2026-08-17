@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 from typing_extensions import Annotated
 from fastapi import Depends
 
@@ -13,6 +13,8 @@ from cache_store import get_cache_store, CacheStore
 SOURCE_PROVIDERS: list[KaraokeSourceProvider] = [
     YTKaraokeSourceProvider()
 ]
+
+SEARCH_CACHE_TTL_SECONDS = 30 * 60
 
 class VideoURLResponse(BaseModel):
     video_url: str | None
@@ -43,14 +45,39 @@ class KaraokeService:
             "providers": providers
         }
 
-    async def search(self, query: str):
-        # Direct search without caching for now
-        # TODO: Implement semantic search caching that can match similar queries
+    async def search(self, query: str) -> KaraokeSearchResult:
+        """
+        Search every provider, serving a repeated query from the cache.
+
+        A room works through the same songs all night, and each search is a
+        couple of seconds against YouTube.
+        """
+        normalized = query.strip()
+        if not normalized:
+            return KaraokeSearchResult(entries=[])
+
+        if self.cache:
+            cached = self.cache.get_search_results(normalized)
+            if cached is not None:
+                try:
+                    return KaraokeSearchResult(**cached)
+                except ValidationError as e:
+                    print(f"[SERVICE] Discarding cached results for {normalized!r}: {e}")
+
         all_entries = []
         for provider in self.source_providers:
-            result = await provider.search(query)
+            result = await provider.search(normalized)
             all_entries.extend(result.entries)
-        return KaraokeSearchResult(entries=all_entries)
+
+        results = KaraokeSearchResult(entries=all_entries)
+
+        # An empty result is usually a provider that just failed rather than a
+        # song nobody has uploaded, and caching it holds the failure open long
+        # after it clears.
+        if self.cache and results.entries:
+            self.cache.cache_search_results(normalized, results.model_dump(), SEARCH_CACHE_TTL_SECONDS)
+
+        return results
 
     async def get_video_url(self, entry: KaraokeEntry) -> VideoURLResponse:
         """Get video URL for an entry using the appropriate provider based on source field"""

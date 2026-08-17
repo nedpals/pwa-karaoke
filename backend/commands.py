@@ -327,23 +327,35 @@ class DisplayCommands(ClientCommands):
 
     async def playback_failed(self, payload):
         """
-        Record why a display could not play a stream.
+        Hand a failed playback to the provider that produced the URL.
 
-        The browser cannot read the HTTP status of a cross origin media request,
-        so the media element's own state is the evidence: never reaching
-        metadata points at a rejected request, while stalling after metadata
-        loaded points at a throttled one.
+        A cross origin media request hides its HTTP status from the page, so
+        the media element's own state is the evidence: never reaching metadata
+        means the request was rejected, while stalling after metadata means it
+        was throttled. Those need different fixes, so both the log line and the
+        provider distinguish them.
         """
         data = payload if isinstance(payload, dict) else payload.model_dump()
         ready = data.get("ready_state")
-        verdict = "never loaded (request likely rejected)" if not ready else "stalled after metadata (likely throttled)"
+        verdict = "never loaded (request rejected)" if not ready else "stalled after metadata (throttled)"
 
         print(
-            f"[PLAYBACK] {verdict} entry={data.get('entry_id')} reason={data.get('reason')} "
-            f"error_code={data.get('error_code')} network_state={data.get('network_state')} "
-            f"ready_state={ready} duration={data.get('duration')} "
-            f"buffered_end={data.get('buffered_end')} after={data.get('seconds_since_src')}s"
+            f"[PLAYBACK] {verdict} entry={data.get('entry_id')} source={data.get('source')} "
+            f"reason={data.get('reason')} error_code={data.get('error_code')} "
+            f"network_state={data.get('network_state')} ready_state={ready} "
+            f"duration={data.get('duration')} buffered_end={data.get('buffered_end')} "
+            f"after={data.get('seconds_since_src')}s"
         )
+
+        # The failure is always about whatever is on screen, so prefer the room's
+        # own copy and fall back to the ids the client sent.
+        current = self.room.player_state.entry if self.room and self.room.player_state else None
+        entry = current if current and current.id == data["entry_id"] else KaraokeEntry(
+            id=data["entry_id"], title="", artist="", source=data["source"],
+            uploader="", duration=None,
+        )
+
+        await self.service.report_playback_failure(entry, data)
 
     async def scoring_state(self, payload):
         if not self.session_manager.is_display_leader(self.client):

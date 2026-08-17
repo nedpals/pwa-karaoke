@@ -98,6 +98,7 @@ class JoinRoomPayload(BaseModel):
 class PlaybackFailurePayload(BaseModel):
     """Diagnostics from a display whose video never played."""
     entry_id: str
+    source: str                            # Routes the report to the provider that made the URL
     error_code: Optional[int] = None       # MediaError.code
     network_state: Optional[int] = None    # HTMLMediaElement.networkState
     ready_state: Optional[int] = None      # HTMLMediaElement.readyState

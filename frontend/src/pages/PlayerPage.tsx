@@ -103,13 +103,14 @@ function VideoPlayerComponent({
   const reportPlaybackFailure = useCallback(
     (reason: "error" | "stalled") => {
       const video = videoRef.current;
-      const entryId = playerState?.entry?.id;
-      if (!video || !entryId || failureSentRef.current) return;
+      const entry = playerState?.entry;
+      if (!video || !entry || failureSentRef.current) return;
       failureSentRef.current = true;
 
       const finite = (value: number) => (Number.isFinite(value) ? value : null);
       sendCommand("playback_failed", {
-        entry_id: entryId,
+        entry_id: entry.id,
+        source: entry.source,
         reason,
         error_code: video.error?.code ?? null,
         network_state: video.networkState,
@@ -120,7 +121,7 @@ function VideoPlayerComponent({
         seconds_since_src: srcSetAtRef.current ? (Date.now() - srcSetAtRef.current) / 1000 : null,
       });
     },
-    [playerState?.entry?.id, sendCommand],
+    [playerState?.entry, sendCommand],
   );
 
   // A song that never reaches metadata is the 00:00 case worth reporting.

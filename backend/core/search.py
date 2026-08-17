@@ -78,6 +78,23 @@ class KaraokeSourceProvider:
         can break on its own, such as an external tool or an API credential.
         """
         return self.health.snapshot()
+
+    async def report_playback_failure(self, entry: KaraokeEntry, diagnostics: dict) -> bool:
+        """
+        Tell the provider that a client could not play a URL it handed out.
+
+        Only the provider knows whether its URLs go stale, so it decides what a
+        failure means. Return True to have the cached URL dropped so the next
+        request re-resolves it.
+
+        Args:
+            entry: the entry that failed to play
+            diagnostics: media element state from the client
+
+        Returns:
+            True when the cached URL should be discarded
+        """
+        return False
     
     @property
     def provider_id(self) -> str:

@@ -229,38 +229,6 @@ def select_stream_url(info: dict) -> Optional[str]:
     return info.get("url")
 
 
-async def resolve_cdn_redirect(url: str) -> str:
-    """
-    Follow the googlevideo redirect chain and return the URL it lands on.
-
-    The first URL yt-dlp hands back is a front door that 302s to an actual CDN
-    node, and the redirected URL sometimes carries ipbypass=yes. Handing the
-    client the resolved URL costs one small request and may be the difference
-    between playing and stalling. Any failure returns the original untouched,
-    so this can only help.
-    """
-    if not config.FOLLOW_STREAM_REDIRECTS or not url:
-        return url
-
-    try:
-        async with httpx.AsyncClient(
-            follow_redirects=True,
-            timeout=config.STREAM_REDIRECT_TIMEOUT,
-            proxy=proxy_url(),
-        ) as client:
-            # One byte is enough to be carried through the redirect chain.
-            response = await client.get(url, headers={"Range": "bytes=0-0"})
-            final = str(response.url)
-    except Exception as e:
-        print(f"[YTDLP] Redirect resolution failed, using the original URL: {e}")
-        return url
-
-    if final != url:
-        print(f"[YTDLP] Redirect resolved: status={response.status_code} ipbypass={'ipbypass=yes' in final}")
-
-    return final
-
-
 class YTKaraokeSourceProvider(KaraokeSourceProvider):
     def __init__(self, allowed_channels: list[str] = None, karaoke_keywords: list[str] = None):
         super().__init__()
@@ -275,6 +243,54 @@ class YTKaraokeSourceProvider(KaraokeSourceProvider):
 
     async def check_health(self) -> dict:
         return await self.health.probe()
+
+    async def _resolve_cdn_redirect(self, url: str) -> str:
+        """
+        Follow the googlevideo redirect chain and return the URL it lands on.
+
+        The URL yt-dlp returns is a front door that 302s to a real CDN node,
+        and the redirected URL sometimes carries ipbypass=yes. Handing clients
+        the resolved URL costs one small request. Any failure returns the
+        original untouched, so this cannot make playback worse.
+        """
+        if not config.YTDLP_FOLLOW_REDIRECTS or not url:
+            return url
+
+        try:
+            async with httpx.AsyncClient(
+                follow_redirects=True,
+                timeout=config.YTDLP_REDIRECT_TIMEOUT,
+                proxy=proxy_url(),
+            ) as client:
+                # One byte is enough to be carried through the redirect chain.
+                response = await client.get(url, headers={"Range": "bytes=0-0"})
+                final = str(response.url)
+        except Exception as e:
+            print(f"[YTDLP] Redirect resolution failed, using the original URL: {e}")
+            return url
+
+        if final != url:
+            print(f"[YTDLP] Redirect resolved: status={response.status_code} ipbypass={'ipbypass=yes' in final}")
+
+        return final
+
+    async def report_playback_failure(self, entry: KaraokeEntry, diagnostics: dict) -> bool:
+        """
+        A YouTube URL that never reached metadata was rejected outright, so it
+        is dead and worth re-resolving. One that stalled after metadata loaded
+        is being throttled, and the URL itself is fine, so re-extracting would
+        burn a lookup for nothing.
+        """
+        never_loaded = not diagnostics.get("ready_state")
+
+        if never_loaded:
+            self.health.record_failure(
+                f"Display could not load {entry.id}: "
+                f"error_code={diagnostics.get('error_code')} "
+                f"network_state={diagnostics.get('network_state')}"
+            )
+
+        return never_loaded
 
 
     @staticmethod
@@ -462,7 +478,7 @@ class YTKaraokeSourceProvider(KaraokeSourceProvider):
                 self.health.record_ok()
                 url = select_stream_url(info)
                 if url:
-                    url = await resolve_cdn_redirect(url)
+                    url = await self._resolve_cdn_redirect(url)
                 return ExtractionOutcome(url, False)
 
             except YtdlpMissing as e:

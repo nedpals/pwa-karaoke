@@ -43,6 +43,30 @@ class KaraokeService:
             "providers": providers
         }
 
+    async def report_playback_failure(self, entry: KaraokeEntry, diagnostics: dict) -> bool:
+        """
+        Hand a client side playback failure to the provider that produced the
+        URL, and drop the cached URL when that provider says it is dead.
+
+        Without this a URL the client could not play stays cached for its full
+        TTL, so every retry of that song gets the same dead URL.
+        """
+        for provider in self.source_providers:
+            if provider.provider_id != entry.source:
+                continue
+
+            try:
+                should_invalidate = await provider.report_playback_failure(entry, diagnostics)
+            except Exception as e:
+                print(f"[SERVICE] Provider {provider.provider_id} failed to handle a playback failure: {e}")
+                return False
+
+            if should_invalidate and self.cache:
+                self.cache.invalidate_video_url(entry.id, entry.source)
+            return should_invalidate
+
+        return False
+
     async def search(self, query: str):
         # Direct search without caching for now
         # TODO: Implement semantic search caching that can match similar queries

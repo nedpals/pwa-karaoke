@@ -97,6 +97,28 @@ class CacheStore:
             print(f"[CACHE] Error retrieving video URL for {entry_id}: {e}")
             return None
 
+    def invalidate_video_url(self, entry_id: str, source: str) -> bool:
+        """
+        Drop a cached URL so the next request re-resolves it.
+
+        A URL that a client could not play is worthless for the rest of its
+        TTL, and without this every retry of that song serves the same dead
+        URL for another four hours.
+        """
+        try:
+            cursor = self.connection.execute(
+                "DELETE FROM video_url_cache WHERE entry_id = ? AND source = ?",
+                (entry_id, source),
+            )
+            self.connection.commit()
+            if cursor.rowcount:
+                print(f"[CACHE] Invalidated video URL for {entry_id}")
+            return bool(cursor.rowcount)
+
+        except sqlite3.Error as e:
+            print(f"[CACHE] Error invalidating video URL for {entry_id}: {e}")
+            return False
+
     def cache_search_results(self, query: str, results: Dict[str, Any], ttl_seconds: int = 1800):
         """
         Cache search results

@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 from typing_extensions import Annotated
 from fastapi import Depends
 
@@ -13,6 +13,11 @@ from cache_store import get_cache_store, CacheStore
 SOURCE_PROVIDERS: list[KaraokeSourceProvider] = [
     YTKaraokeSourceProvider()
 ]
+
+SEARCH_CACHE_TTL_SECONDS = 30 * 60
+
+DEFAULT_SEARCH_LIMIT = 12
+MAX_SEARCH_LIMIT = 50
 
 class VideoURLResponse(BaseModel):
     video_url: str | None
@@ -43,14 +48,52 @@ class KaraokeService:
             "providers": providers
         }
 
-    async def search(self, query: str):
-        # Direct search without caching for now
-        # TODO: Implement semantic search caching that can match similar queries
+    async def search(
+        self,
+        query: str,
+        limit: int = DEFAULT_SEARCH_LIMIT,
+        offset: int = 0,
+    ) -> KaraokeSearchResult:
+        """Return one page of matches, with the count of everything behind it."""
+        normalized = query.strip()
+        if not normalized:
+            return KaraokeSearchResult(entries=[], total=0)
+
+        entries = await self._ranked_entries(normalized)
+        return KaraokeSearchResult(entries=entries[offset:offset + limit], total=len(entries))
+
+    async def _ranked_entries(self, query: str) -> list[KaraokeEntry]:
+        """
+        Every match for a query, in rank order.
+
+        Cached whole rather than by page, so asking for more results costs
+        nothing upstream and the ranking cannot shift under a singer part way
+        down the list.
+        """
+        if self.cache:
+            cached = self.cache.get_search_results(query)
+            if cached is not None:
+                try:
+                    return [KaraokeEntry(**entry) for entry in cached.get("entries", [])]
+                except (ValidationError, TypeError) as e:
+                    print(f"[SERVICE] Discarding cached results for {query!r}: {e}")
+
         all_entries = []
         for provider in self.source_providers:
             result = await provider.search(query)
             all_entries.extend(result.entries)
-        return KaraokeSearchResult(entries=all_entries)
+
+        # An empty result is usually a provider that just failed rather than a
+        # song nobody has uploaded, and caching it holds the failure open long
+        # after it clears.
+        if self.cache and all_entries:
+            self.cache.cache_search_results(
+                query,
+                {"entries": [entry.model_dump() for entry in all_entries]},
+                SEARCH_CACHE_TTL_SECONDS,
+            )
+
+        return all_entries
 
     async def get_video_url(self, entry: KaraokeEntry) -> VideoURLResponse:
         """Get video URL for an entry using the appropriate provider based on source field"""

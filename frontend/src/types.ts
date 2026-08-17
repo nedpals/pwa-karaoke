@@ -11,6 +11,7 @@ export interface KaraokeEntry {
 
 export interface KaraokeSearchResult {
   entries: KaraokeEntry[];
+  total: number;
 }
 
 export interface VideoURLResponse {

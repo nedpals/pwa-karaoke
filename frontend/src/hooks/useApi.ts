@@ -1,15 +1,30 @@
 import useSWR from 'swr';
 import useSWRMutation from 'swr/mutation';
+import useSWRInfinite from 'swr/infinite';
 import { apiClient } from '../api/client';
-import type { KaraokeEntry, CreateRoomRequest, VerifyRoomRequest } from '../types';
+import type { KaraokeEntry, KaraokeSearchResult, CreateRoomRequest, VerifyRoomRequest } from '../types';
+
+export const SEARCH_PAGE_SIZE = 12;
 
 export function useSearch(query: string) {
-  return useSWR(
-    query.trim() ? ['search', query] : null,
-    ([, q]) => apiClient.search(q),
+  return useSWRInfinite(
+    (index: number, previous: KaraokeSearchResult | null) => {
+      if (!query.trim()) return null;
+      if (previous && previous.entries.length === 0) return null;
+      return ['search', query, index] as const;
+    },
+    ([, q, index]) => apiClient.search(q, SEARCH_PAGE_SIZE, index * SEARCH_PAGE_SIZE),
     {
       revalidateOnFocus: false,
       revalidateOnReconnect: false,
+      // A song's karaoke tracks are the same a minute later, so a query that
+      // has already been run is served from the cache alone.
+      revalidateIfStale: false,
+      // Asking for the next page should not re-fetch the ones already read.
+      revalidateFirstPage: false,
+      // Holds the previous song's results on screen while the next query
+      // lands, so typing does not blank the list on every keystroke.
+      keepPreviousData: true,
       shouldRetryOnError: true,
       errorRetryCount: 1, // Fewer retries for search to keep it responsive
       errorRetryInterval: 1500,
@@ -30,16 +45,6 @@ export function useVideoUrl(entry: KaraokeEntry | null) {
       onError: (error: Error) => {
         console.error(`[useVideoUrl] Error fetching video URL for ${entry?.title}:`, error);
       }
-    }
-  );
-}
-
-export function useSearchMutation() {
-  return useSWRMutation(
-    'search',
-    async (_: string, { arg }: { arg: string }) => {
-      if (!arg.trim()) throw new Error('Query cannot be empty');
-      return apiClient.search(arg);
     }
   );
 }

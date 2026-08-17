@@ -10,10 +10,8 @@ PROVIDER_FACTORIES: dict[str, Callable[[], KaraokeSourceProvider]] = {
 
 class ProviderRegistry:
     """
-    The set of providers a running server searches.
-
-    Providers are built once and shared, so anything one accumulates (health,
-    sessions, rate limit state) survives between requests.
+    The set of providers a running server searches, built once and shared so
+    that health, sessions and rate limit state survive between requests.
     """
 
     def __init__(self, providers: list[KaraokeSourceProvider]):
@@ -47,9 +45,8 @@ class ProviderRegistry:
 
 def build_registry(enabled: Optional[list[str]] = None) -> ProviderRegistry:
     """
-    Build the registry from a list of provider IDs, or every known provider when
-    the list is empty. An unknown ID is fatal rather than ignored, so a typo
-    surfaces at startup instead of as a quietly missing source.
+    Build from a list of provider IDs, or every known provider when empty. An
+    unknown ID is fatal so a typo surfaces at startup, not as a missing source.
     """
     if not enabled:
         return ProviderRegistry([factory() for factory in PROVIDER_FACTORIES.values()])

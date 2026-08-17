@@ -78,10 +78,7 @@ class KaraokeService:
         return KaraokeSearchResult(entries=entries[offset:offset + limit], total=len(entries))
 
     async def _search_provider(self, provider: KaraokeSourceProvider, query: str) -> ProviderSearchOutcome:
-        """
-        One provider's contribution, with its failures kept to itself. A source
-        that is down should cost the others nothing but the results it owed.
-        """
+        """A source that is down costs the others nothing but the results it owed."""
         try:
             return ProviderSearchOutcome(provider, await provider.search(query), True)
         except Exception as e:
@@ -146,10 +143,7 @@ class KaraokeService:
         return entries
 
     def _cache_scope(self) -> str:
-        """
-        Which sources produced a cached page. Without it, results from a run
-        where a source was down keep being served after it recovers.
-        """
+        """Without this, a page built while a source was down outlives its recovery."""
         return ",".join(sorted(self.providers.ids))
 
     async def get_video_url(self, entry: KaraokeEntry) -> VideoURLResponse:

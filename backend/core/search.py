@@ -3,14 +3,11 @@ import time
 from pydantic import BaseModel, Field
 from typing import Literal, Optional
 
-# Suits a general purpose video platform. A provider whose catalogue is shaped
-# differently overrides them; anime openings run well under the floor a pop
-# track needs.
+# Suits a general video platform. Anime openings run well under this floor.
 DEFAULT_MIN_DURATION_SECONDS = 90.0
 DEFAULT_MAX_DURATION_SECONDS = 15 * 60.0
 
-# "audio" marks a track that needs lyrics drawn over it rather than burned into
-# the video, so the player can pick a surface instead of assuming a <video>.
+# "audio" is a bare instrumental: the lyrics are not burned in.
 MediaKind = Literal["video", "audio"]
 
 
@@ -27,16 +24,10 @@ class KaraokeEntry(BaseModel):
 
 
 class RankingSignals(BaseModel):
-    """
-    What a provider knows about a result that does not belong on the entry.
-
-    Every provider reports the same few signals so the service can compare
-    results it did not fetch itself. A provider that cannot supply one leaves it
-    at its default rather than inventing a value.
-    """
+    """What a provider knows about a result that does not belong on the entry."""
 
     position: int = 0
-    popularity: float = 0.0  # View count or nearest equivalent; 0 means unknown
+    popularity: float = 0.0  # 0 means unknown, not unpopular
     verified: bool = False
 
 
@@ -46,7 +37,7 @@ class SearchCandidate(BaseModel):
 
 
 class KaraokeSearchResult(BaseModel):
-    """A page of hits, as the HTTP API returns them. Providers do not build this."""
+    """The HTTP response. Providers return candidates and never build this."""
 
     entries: list[KaraokeEntry]
     total: int = 0
@@ -63,14 +54,14 @@ class VideoURLResult(BaseModel):
 
     @classmethod
     def unavailable(cls, cache_ttl_seconds: int = 30 * 60) -> "VideoURLResult":
-        """The source answered no. A deleted or private track stays deleted, so remember it."""
+        """The source answered no. A deleted track stays deleted, so remember it."""
         return cls(video_url=None, cache_ttl_seconds=cache_ttl_seconds, cacheable=True)
 
     @classmethod
     def failed(cls) -> "VideoURLResult":
         """
-        The attempt broke down for a reason that says nothing about this track.
-        Caching it would keep the song unplayable after the cause is fixed.
+        The attempt broke down, which says nothing about the track. Caching it
+        would keep the song unplayable after the cause is fixed.
         """
         return cls(video_url=None, cacheable=False)
 
@@ -100,7 +91,10 @@ class ProviderHealth:
             self.version = version
 
     def record_failure(self, detail: str, fatal: bool = False):
-        """Set fatal when the provider itself is broken rather than the request having failed."""
+        """
+        Record a failure. Set fatal when the provider itself is broken rather
+        than the request having failed, which marks it unavailable.
+        """
         self.consecutive_failures += 1
         self.last_error = detail[:500]
         if fatal:
@@ -118,16 +112,13 @@ class ProviderHealth:
 
 class KaraokeSourceProvider:
     """
-    One searchable source of karaoke tracks.
-
-    A provider fetches and normalises. It does not rank, filter by duration or
-    paginate, because those are decided across every source at once and a
+    A provider fetches and normalises one source. It does not rank, filter by
+    duration or paginate: those compare sources against each other, and a
     provider sees only its own results.
     """
 
-    # For a source carrying nothing but karaoke cuts. Ranking leans on titles
-    # saying "karaoke", and a dedicated catalogue would lose every tie for want
-    # of a word it has no reason to print.
+    # Set on a source carrying nothing but karaoke cuts, which have no reason to
+    # print the word ranking otherwise looks for.
     curated: bool = False
 
     min_duration_seconds: float = DEFAULT_MIN_DURATION_SECONDS
@@ -138,36 +129,31 @@ class KaraokeSourceProvider:
 
     @property
     def provider_id(self) -> str:
-        """
-        Matches the `source` field on the entries this provider produces. It
-        routes video URL requests back here and is half of every cache key.
-        """
+        """Matches `source` on this provider's entries and is half of every cache key."""
         raise NotImplementedError(f"{type(self).__name__} must define provider_id")
 
     async def check_health(self) -> dict:
         """
-        Override when the provider leans on something that can break on its own,
-        such as an external tool or an API credential.
+        Refresh and return this provider's health.
+
+        The default treats a provider as usable, which is right for one with no
+        external dependency. Override when the provider leans on something that
+        can break on its own, such as an external tool or an API credential.
         """
         return self.health.snapshot()
 
     async def search(self, query: str) -> list[SearchCandidate]:
         """
-        Return everything that survives source specific filtering, unranked and
-        untrimmed. Trimming here hides candidates that might have outranked ours.
+        Everything that survives source specific filtering, unranked and
+        untrimmed. Trimming here hides candidates that outrank ours elsewhere.
 
-        Raising is safe: the service isolates each provider and records the
-        failure. Returning an empty list instead loses the distinction between a
-        broken source and a song nobody has uploaded.
+        Raise on failure. The service isolates each provider and records it;
+        an empty list instead reads as a song nobody has uploaded.
         """
         return []
 
     async def get_video_url(self, entry: KaraokeEntry) -> VideoURLResult:
-        """
-        Use VideoURLResult.unavailable() when the source has answered that the
-        track cannot be played, and failed() when the attempt itself broke down.
-        The difference decides whether the answer is cached.
-        """
+        """Build the result with resolved(), unavailable() or failed()."""
         return VideoURLResult.failed()
 
     async def close(self):

@@ -2,10 +2,9 @@
 Karaoke ranking, shared by every source.
 
 Sources rank for watching rather than for singing, so an official music video
-or a lyric video routinely outranks the karaoke cut of the same song. The
-corrections for that are not specific to any platform, and keeping them here is
-what lets results from different sources be ordered against each other rather
-than concatenated.
+routinely outranks the karaoke cut of the same song. Correcting for that is not
+platform specific, and keeping it here is what lets results from different
+sources be ordered against each other rather than concatenated.
 """
 
 import math
@@ -81,10 +80,7 @@ def score_candidate(candidate: SearchCandidate, tokens: list[str], curated: bool
 
 
 def is_singable(candidate: SearchCandidate, min_duration: float, max_duration: float) -> bool:
-    """
-    A missing duration usually means a live stream or something else that never
-    ends, which would stall the player once it reached the front of a queue.
-    """
+    """A missing duration means a live stream or similar, which would stall the queue."""
     duration = candidate.entry.duration
     if duration is None:
         return False
@@ -97,10 +93,9 @@ def enhance_query_with_keywords(query: str, keywords: list[str]) -> str:
     Steer a search towards karaoke cuts without drowning out the song.
 
     These search engines have no boolean operators, so a list of alternatives is
-    read as more words to match rather than a choice between them. Spending four
-    of them on keywords leaves the song title outweighed, and results drift onto
-    whatever else the keywords match. One keyword, added only when the query
-    carries none, narrows the search instead.
+    read as more words to match rather than a choice between them, leaving the
+    song title outweighed. One keyword, added only when the query carries none,
+    narrows the search instead.
     """
     if not keywords:
         return query

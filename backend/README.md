@@ -14,7 +14,6 @@ A FastAPI-based WebSocket server for managing karaoke rooms, song queues, and pl
   - [Creating a New Source Provider](#creating-a-new-source-provider)
   - [Ranking Signals](#ranking-signals)
   - [Resolving Video URLs](#resolving-video-urls)
-  - [Media Kind](#media-kind)
   - [Registration](#registration)
   - [Health](#health)
   - [Built-in Providers](#built-in-providers)
@@ -131,10 +130,10 @@ Frontend implements intelligent synchronization for non-leader displays:
 
 ## Source Providers
 
-The backend searches every registered source at once and ranks the results
-together. A provider fetches and normalises one source; it does not rank,
-filter by duration or paginate, because those are decided across all sources at
-once and a provider only ever sees its own results.
+Every registered source is searched at once and the results are ranked together.
+A provider fetches and normalises one source; ranking, duration filtering and
+paging happen in `KaraokeService`, which is the only place that can compare
+sources against each other.
 
 ### Provider Interface
 
@@ -152,9 +151,14 @@ class KaraokeSourceProvider:
     async def close(self): ...
 ```
 
-`provider_id` has no default. It matches the `source` field on the entries the
-provider produces, routes video URL requests back to it, and is half of every
-cache key, so it has to be stable and unique across the registry.
+| Member | Notes |
+| --- | --- |
+| `provider_id` | No default. Matches `source` on the entries produced, and is half of every cache key, so it must be stable and unique. |
+| `curated` | Set on a source carrying nothing but karaoke cuts. Ranking looks for "karaoke" in a title, which such a source has no reason to print. |
+| `min_duration_seconds` / `max_duration_seconds` | What counts as one singable track. Defaults suit a general video platform; lower the floor for a source of anime openings. |
+| `search` | Return candidates unranked and untrimmed. Raise on failure rather than returning `[]`. |
+| `get_video_url` | Build the result with `resolved()`, `unavailable()` or `failed()`. |
+| `close` | Called on every provider at shutdown. Implement if yours holds an HTTP session. |
 
 ### Creating a New Source Provider
 
@@ -193,25 +197,14 @@ class BasicVideoProvider(KaraokeSourceProvider):
         return VideoURLResult.resolved(await your_api_get_stream_url(entry.id))
 ```
 
-Return everything that survives source specific filtering, unranked and
-untrimmed. Trimming here hides candidates that might have outranked yours once
-every source is compared.
-
-Raising from `search` is safe. The service isolates each provider, records the
-failure against its health, and serves what the other sources returned.
-Returning an empty list instead loses the distinction between a broken source
-and a song nobody has uploaded, and a run with a silently broken source gets its
-thin result cached for the next half hour.
-
-Set `video_url` on the entry when the URL is free to produce during search.
-Leave it unset and implement `get_video_url` when resolving is expensive or
-rate limited, which is the common case.
+Set `video_url` on the entry instead when the URL is free to produce during
+search. Set `media_kind="audio"` for a source that supplies a bare instrumental,
+which tells the player the lyrics are not burned in.
 
 ### Ranking Signals
 
-Ranking is shared (`core/ranking.py`) so results from different sources can be
-ordered against each other. Providers report the same few signals rather than
-sorting their own results:
+Ranking lives in `core/ranking.py`. Providers report signals rather than sorting
+their own results, and leave a signal at its default rather than inventing one:
 
 | Signal | Meaning |
 | --- | --- |
@@ -219,37 +212,15 @@ sorting their own results:
 | `popularity` | View count or nearest equivalent; 0 means unknown, not unpopular |
 | `verified` | The uploader is authoritative for this track |
 
-Two class attributes tune how a source is treated:
-
-- `curated` marks a source carrying nothing but karaoke cuts. Ranking leans on
-  titles saying "karaoke" to find the singable take on a general platform, and a
-  dedicated catalogue would lose every tie for want of a word it has no reason
-  to print.
-- `min_duration_seconds` / `max_duration_seconds` bound what counts as a single
-  singable track. The defaults suit a general video platform; anime openings run
-  well under the floor a pop track needs, so a source carrying them should lower
-  it.
-
 ### Resolving Video URLs
 
-`get_video_url` returns a `VideoURLResult`, built through one of three
-constructors. The choice decides whether the answer is cached:
+Which constructor you use decides whether the answer is cached:
 
 | Constructor | Use when | Cached |
 | --- | --- | --- |
 | `VideoURLResult.resolved(url, ttl)` | The URL is ready to play | Yes |
 | `VideoURLResult.unavailable()` | The source answered no, and a deleted or private track stays deleted | Yes |
 | `VideoURLResult.failed()` | The attempt broke down (timeout, proxy, missing binary) | No |
-
-Caching a `failed()` would keep a song unplayable long after the cause is fixed,
-so it retries on the next attempt instead.
-
-### Media Kind
-
-`KaraokeEntry.media_kind` defaults to `"video"`, meaning the resolved URL plays
-in a `<video>` with its lyrics already burned in. Set it to `"audio"` for a
-source that supplies a bare instrumental, which tells the player the lyrics have
-to be drawn over it rather than assumed.
 
 ### Registration
 
@@ -262,14 +233,10 @@ PROVIDER_FACTORIES: dict[str, Callable[[], KaraokeSourceProvider]] = {
 }
 ```
 
-Every known provider is enabled by default. Set `KARAOKE_SOURCES` to a comma
-separated list of IDs to narrow that (`KARAOKE_SOURCES=youtube,basic`). An
-unknown ID fails at startup rather than being ignored, so a typo surfaces
-immediately instead of as a quietly missing source.
-
-Providers are built once and shared, so anything one accumulates (health,
-sessions, rate limit state) survives between requests. `close` is called on
-every provider at shutdown; implement it if yours holds an HTTP session open.
+Every known provider is enabled by default. `KARAOKE_SOURCES` narrows that to a
+comma separated list of IDs (`KARAOKE_SOURCES=youtube,basic`); an unknown ID
+fails at startup rather than going missing quietly. Providers are built once and
+shared, so anything one accumulates survives between requests.
 
 ### Health
 
@@ -290,7 +257,7 @@ class BasicVideoProvider(KaraokeSourceProvider):
 Report on whether the provider can still *resolve* a video, which is what makes
 a queued song playable. A working search does not imply it: the YouTube provider
 searches through the yt-dlp library but extracts through the CLI binary, so it
-deliberately leaves health alone on a successful search.
+leaves health alone on a successful search.
 
 Every provider's state is reported under `sources` on `/health`, which returns
 503 once no provider can resolve a video.

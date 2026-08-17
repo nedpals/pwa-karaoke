@@ -22,10 +22,10 @@ KARAOKE_QUERY_KEYWORDS = (
     "karaoke", "instrumental", "backing track", "sing along", "videoke", "minus one",
 )
 
-# Thirty results come back in about the same time as ten, and the spare twenty
-# are what the ranking has to work with.
-SEARCH_FETCH_LIMIT = 30
-SEARCH_RESULT_LIMIT = 12
+# Sixty results cost about half a second more than thirty, and they are what
+# the ranking, and the pages after the first, have to work with.
+SEARCH_FETCH_LIMIT = 60
+SEARCH_POOL_LIMIT = 48
 
 SEARCH_SOCKET_TIMEOUT_SECONDS = 15
 
@@ -388,7 +388,7 @@ class YTKaraokeSourceProvider(KaraokeSourceProvider):
 
         return opts
 
-    def _search_videos(self, query: str, max_results: int = SEARCH_RESULT_LIMIT) -> list[KaraokeEntry]:
+    def _search_videos(self, query: str, max_results: int = SEARCH_POOL_LIMIT) -> list[KaraokeEntry]:
         """
         Search YouTube and return the best karaoke candidates it offered.
 

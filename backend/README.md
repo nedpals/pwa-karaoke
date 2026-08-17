@@ -121,7 +121,7 @@ Frontend implements intelligent synchronization for non-leader displays:
    The server will start on `http://localhost:8000`
    - WebSocket endpoint: `ws://localhost:8000/ws`
    - Health endpoint: `http://localhost:8000/health`
-   - Search endpoint: `http://localhost:8000/search?query=<search_term>`
+   - Search endpoint: `http://localhost:8000/search?query=<search_term>&limit=<per_page>&offset=<skip>` (`limit` defaults to 12, capped at 50; `offset` defaults to 0)
    - Video URL endpoint: `POST http://localhost:8000/get_video_url`
    - Rooms endpoint: `http://localhost:8000/rooms`
    - API docs: `http://localhost:8000/docs`

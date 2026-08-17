@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { useDebounce } from "use-debounce";
 import { useSearchParams, Navigate } from "react-router";
 import type { KaraokeEntry, KaraokeQueueItem } from "../types";
 import { useRoom } from "../hooks/useRoom";
@@ -31,6 +32,7 @@ import { ReactionPad } from "../components/organisms/ReactionPad";
 import { useLoudnessScore, type MicStatus } from "../hooks/useLoudnessScore";
 import { getNickname } from "../lib/nicknameStorage";
 import { TimeDisplay } from "../components/molecules/TimeDisplay";
+import { cn } from "../lib/utils";
 
 const CONTROLLER_TABS = [
   { id: "song-select", label: "Search" },
@@ -40,7 +42,20 @@ const CONTROLLER_TABS = [
 
 const VOLUME_SEGMENTS = 10;
 
-function SectionLabel({ children, count }: { children: React.ReactNode; count?: number }) {
+const SEARCH_DEBOUNCE_MS = 450;
+// One or two letters match most of the catalogue, so searching them costs a
+// round trip to say nothing.
+const MIN_QUERY_LENGTH = 3;
+
+function SectionLabel({
+  children,
+  count,
+  busy = false,
+}: {
+  children: React.ReactNode;
+  count?: number;
+  busy?: boolean;
+}) {
   return (
     <div className="flex items-center gap-3 border-b-2 border-ka-line pb-1 mb-2">
       <Text font="display" size="lg" weight="bold" tone="accent">
@@ -51,6 +66,7 @@ function SectionLabel({ children, count }: { children: React.ReactNode; count?: 
           {count.toString().padStart(2, "0")}
         </Text>
       )}
+      {busy && <LoadingIndicator size="sm" />}
     </div>
   );
 }
@@ -142,17 +158,6 @@ function SearchResults({
   entryStatus: (entry: KaraokeEntry) => EntryStatus | null;
   onSelect: (entry: KaraokeEntry) => void;
 }) {
-  if (isSearching) {
-    return (
-      <div className="flex flex-col items-center gap-3 py-12">
-        <LoadingIndicator size="lg" />
-        <Text font="display" size="xl" tone="dim">
-          Searching
-        </Text>
-      </div>
-    );
-  }
-
   if (searchError) {
     return (
       <div className="py-12 text-center space-y-2">
@@ -169,8 +174,10 @@ function SearchResults({
   if (searchResults && searchResults.entries.length > 0) {
     return (
       <div>
-        <SectionLabel count={searchResults.entries.length}>Results</SectionLabel>
-        <div className="flex flex-col gap-1">
+        <SectionLabel count={searchResults.entries.length} busy={isSearching}>
+          Results
+        </SectionLabel>
+        <div className={cn("flex flex-col gap-1", isSearching && "opacity-50")}>
           {searchResults.entries.map((entry, i) => (
             <SongRow
               key={`search_result_${entry.id}_${i}`}
@@ -181,6 +188,17 @@ function SearchResults({
             />
           ))}
         </div>
+      </div>
+    );
+  }
+
+  if (isSearching) {
+    return (
+      <div className="flex flex-col items-center gap-3 py-12">
+        <LoadingIndicator size="lg" />
+        <Text font="display" size="xl" tone="dim">
+          Searching
+        </Text>
       </div>
     );
   }
@@ -211,9 +229,15 @@ function SongSelectTab() {
   const entryStatus = useEntryStatus();
   const dialog = useSongDialog();
   const [textInput, setTextInput] = useState("");
-  const [query, setQuery] = useState("");
+  const typed = textInput.trim();
+  const [settled, debounced] = useDebounce(typed, SEARCH_DEBOUNCE_MS);
+  const query = settled.length >= MIN_QUERY_LENGTH ? settled : "";
 
-  const { data: searchResults, error, isLoading: isSearching } = useSearch(query);
+  const { data: searchResults, error, isLoading, isValidating } = useSearch(query);
+  const isFetching = isLoading || isValidating;
+  // Covers the wait for the singer to stop typing as well as the request, so
+  // the results do not read as settled while another one is on its way.
+  const isSearching = isFetching || typed !== settled;
 
   return (
     <div className="px-2 pb-8">
@@ -221,8 +245,8 @@ function SongSelectTab() {
         <SearchInput
           value={textInput}
           onChange={(e) => setTextInput(e.target.value)}
-          onSearch={(value) => setQuery(value.trim())}
-          isSearching={isSearching}
+          onSearch={() => debounced.flush()}
+          isSearching={isFetching}
           placeholder="Song title or artist"
         />
       </div>

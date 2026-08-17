@@ -13,6 +13,9 @@ export function useSearch(query: string) {
       // A song's karaoke tracks are the same a minute later, so a query that
       // has already been run is served from the cache alone.
       revalidateIfStale: false,
+      // Holds the previous song's results on screen while the next query
+      // lands, so typing does not blank the list on every keystroke.
+      keepPreviousData: true,
       shouldRetryOnError: true,
       errorRetryCount: 1, // Fewer retries for search to keep it responsive
       errorRetryInterval: 1500,

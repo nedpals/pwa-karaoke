@@ -32,6 +32,7 @@ import { ReactionPad } from "../components/organisms/ReactionPad";
 import { useLoudnessScore, type MicStatus } from "../hooks/useLoudnessScore";
 import { getNickname } from "../lib/nicknameStorage";
 import { TimeDisplay } from "../components/molecules/TimeDisplay";
+import { performanceIdOf } from "../lib/scoring";
 import { cn } from "../lib/utils";
 
 const CONTROLLER_TABS = [
@@ -330,8 +331,8 @@ function micNotice(status: MicStatus, yourTurn: boolean): string | null {
 
 function PlayerTab({ notice }: { notice: string | null }) {
   const {
-    playerState, playSong, pauseSong, playNext, setVolume,
-    sendReaction, connected, autoplay, setAutoplay, scoringActive,
+    playerState, playSong, pauseSong, skipSong, setVolume,
+    sendReaction, connected, autoplay, setAutoplay, scoringActive, upNextQueue,
   } = useRoomContext();
   const [isPlaybackLoading, setIsPlaybackLoading] = useState(false);
   const [isVolumeLoading, setIsVolumeLoading] = useState(false);
@@ -345,11 +346,29 @@ function PlayerTab({ notice }: { notice: string | null }) {
   const hasEntry = Boolean(playerState?.entry);
   // Nothing is mounted to play or pause once the song is over
   const isFinished = hasEntry && playerState?.play_state === "finished";
+  const isStreamError = hasEntry && playerState?.play_state === "error";
   const isScoring = isFinished && scoringActive;
+  const reservedCount = upNextQueue?.items.length ?? 0;
+  // The room is sitting on a finished song with the next one on the card, so
+  // Play starts that rather than resuming anything
+  const isHolding = isFinished && !isScoring && reservedCount > 0;
+  const isCold = !hasEntry && reservedCount > 0;
   // Stands in as the entry on air, so the panel needs no case of its own
   const nowPlaying = isScoring
     ? { title: "Scoring...", artist: "Unknown Artist", uploader: null }
     : playerState?.entry ?? null;
+
+  const playbackStatus = isPlaying || isScoring
+    ? "Playing"
+    : isStreamError
+      ? "Disc Error"
+      : isFinished
+        ? "Finished"
+        : hasEntry
+          ? "Paused"
+          : isCold
+            ? "Ready"
+            : "Stopped";
 
   // Clear optimistic volume once the server state catches up
   useEffect(() => {
@@ -367,10 +386,10 @@ function PlayerTab({ notice }: { notice: string | null }) {
     setErrorMessage(null);
 
     try {
-      if (isPlaying) {
-        await pauseSong();
-      } else {
-        await playSong();
+      const { screens } = isPlaying ? await pauseSong() : await playSong();
+      if (screens === 0) {
+        setErrorMessage("No screen is connected to this room.");
+        setTimeout(() => setErrorMessage(null), 3000);
       }
     } catch (error) {
       console.error("Failed to control playback:", error);
@@ -426,9 +445,13 @@ function PlayerTab({ notice }: { notice: string | null }) {
     setErrorMessage(null);
 
     try {
-      await playNext();
+      const { screens } = await skipSong();
+      if (screens === 0) {
+        setErrorMessage("No screen is connected to this room.");
+        setTimeout(() => setErrorMessage(null), 3000);
+      }
     } catch (error) {
-      console.error("Failed to play next:", error);
+      console.error("Failed to skip:", error);
       setErrorMessage("Could not skip to the next song.");
       setTimeout(() => setErrorMessage(null), 3000);
     } finally {
@@ -442,8 +465,14 @@ function PlayerTab({ notice }: { notice: string | null }) {
 
       <Panel className="p-3">
         <div className="flex items-center gap-3 mb-3 border-b-2 border-ka-line pb-2">
-          <Text font="display" size="lg" weight="bold" tone={isPlaying || isScoring ? "accent" : "dim"} className="flex-1">
-            {isPlaying || isScoring ? "Playing" : isFinished ? "Finished" : hasEntry ? "Paused" : "Stopped"}
+          <Text
+            font="display"
+            size="lg"
+            weight="bold"
+            tone={isStreamError ? "danger" : isPlaying || isScoring ? "accent" : "dim"}
+            className="flex-1"
+          >
+            {playbackStatus}
           </Text>
           {nowPlaying?.uploader && (
             <Text size="xs" tone="dim" truncate className="max-w-40">
@@ -479,10 +508,15 @@ function PlayerTab({ notice }: { notice: string | null }) {
               <MaterialSymbolsPlayArrowRounded className="text-5xl" />
             )
           }
-          label={isPlaying ? "Pause" : "Play"}
+          label={isPlaying ? "Pause" : isHolding ? "Play Next" : "Play"}
           showLabel
           onClick={handlePlayerPlayback}
-          disabled={!hasEntry || isFinished || isPlaybackLoading}
+          disabled={
+            (!hasEntry && !isCold) ||
+            (isFinished && !isHolding) ||
+            isStreamError ||
+            isPlaybackLoading
+          }
           variant="accent"
           className="py-4"
         />
@@ -547,7 +581,7 @@ function PlayerTab({ notice }: { notice: string | null }) {
 }
 
 function QueueTab() {
-  const { upNextQueue, playerState, autoplay, playNext, clearQueue, queueNextSong } = useRoomContext();
+  const { upNextQueue, playerState, autoplay, skipSong, clearQueue, queueNextSong } = useRoomContext();
   const entryStatus = useEntryStatus();
   const dialog = useSongDialog();
   const [isClearingQueue, setIsClearingQueue] = useState(false);
@@ -588,9 +622,9 @@ function QueueTab() {
                 label: "Next",
                 onClick: async () => {
                   try {
-                    await playNext();
+                    await skipSong();
                   } catch (error) {
-                    console.error("Failed to play next:", error);
+                    console.error("Failed to skip:", error);
                   }
                 },
               },
@@ -611,7 +645,9 @@ function QueueTab() {
       </div>
 
       {!autoplay && upNextItems.length > 0 && (
-        <Notice tone="dim">Autoplay is off. Press Next to start the song at the top.</Notice>
+        <Notice tone="dim">
+          Autoplay is off. Press Play to start the song at the top, or Next to skip it.
+        </Notice>
       )}
 
       {upNextItems.length === 0 ? (
@@ -716,7 +752,7 @@ function ControllerPageContent() {
 
   const mic = useLoudnessScore({
     active: scoringTurn,
-    entryId: playerState?.entry?.id ?? null,
+    itemId: performanceIdOf(playerState),
     playState: playerState?.play_state ?? null,
     onSubmit: submitScore,
   });

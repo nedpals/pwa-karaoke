@@ -1,69 +1,65 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { DisplayPlayerState } from "../types";
 
+// Past this a follower is not drifting, it is a report behind
 const SYNC_THRESHOLD_SECONDS = 2.0;
 
-export default function useSmartSync(playerState: DisplayPlayerState | null, isLeader: boolean) {
-  const lastSyncRef = useRef<{ state: DisplayPlayerState; timestamp: number } | null>(null);
+// Matches how often the leader reports, so a stall cannot freeze a follower's
+// clock
+const TICK_MS = 1000;
 
-  const predictedState = useMemo(() => {
-    if (isLeader || !lastSyncRef.current || !playerState) return playerState;
+interface StampedState {
+  state: DisplayPlayerState;
+  at: number;
+}
 
-    const { state: lastState, timestamp: lastTimestamp } = lastSyncRef.current;
-
-    if (lastState.play_state !== "playing") return lastState;
-
-    // Predict where we should be now based on elapsed time
-    const elapsed = (Date.now() - lastTimestamp) / 1000;
-    return {
-      ...lastState,
-      current_time: lastState.current_time + elapsed,
-      timestamp: Date.now()
-    };
-  }, [playerState, isLeader]);
-
-  const shouldHardSync = useMemo(() => {
-    if (isLeader || !lastSyncRef.current || !playerState) return true;
-
-    const predicted = predictedState;
-    if (!predicted) return true;
-
-    const timeDrift = Math.abs(predicted.current_time - playerState.current_time);
-
-    // Always hard sync for play/pause state changes (critical for controller commands)
-    const playStateChanged = predicted.play_state !== playerState.play_state;
-
-    // Hard sync if:
-    // - Time drift > threshold
-    // - Song changed
-    // - Play state changed (ALWAYS sync immediately)
-    // - Version changed (seeking, etc.)
-    // - Any critical state change
-    return (
-      playStateChanged || // Force immediate sync for play/pause
-      timeDrift > SYNC_THRESHOLD_SECONDS ||
-      predicted.entry?.id !== playerState.entry?.id ||
-      playerState.version > predicted.version
-    );
-  }, [predictedState, playerState, isLeader]);
+/**
+ * Keeps follower displays on the leader's clock.
+ *
+ * Only `current_time` is ever predicted. The entry, the play state and the
+ * version are always whatever the server last said: predicting those is what
+ * let a follower hold on to a song the room had already left behind, and flip
+ * between that song and the new one on every update.
+ */
+export default function useSmartSync(
+  playerState: DisplayPlayerState | null,
+  isLeader: boolean,
+): DisplayPlayerState | null {
+  // Stamped on arrival. `timestamp` comes off the server's clock, which cannot
+  // say how old the state is here.
+  const [stamped, setStamped] = useState<StampedState | null>(null);
+  const [tick, setTick] = useState(0);
 
   useEffect(() => {
-    // Update sync reference when we hard sync
-    if (shouldHardSync && playerState) {
-      const predicted = predictedState;
-      const playStateChanged = predicted && predicted.play_state !== playerState.play_state;
+    setStamped(playerState ? { state: playerState, at: Date.now() } : null);
+  }, [playerState]);
 
-      lastSyncRef.current = { state: playerState, timestamp: Date.now() };
-      console.log('[SmartSync] Hard sync triggered', {
-        isLeader,
-        playStateChanged,
-        from_state: predicted?.play_state,
-        to_state: playerState.play_state,
-        timeDrift: predicted ? Math.abs(predicted.current_time - playerState.current_time) : 0,
-        version: playerState.version
-      });
-    }
-  }, [shouldHardSync, playerState, predictedState, isLeader]);
+  const predicting = !isLeader && playerState?.play_state === "playing";
 
-  return shouldHardSync ? playerState : predictedState;
+  useEffect(() => {
+    if (!predicting) return;
+
+    const timer = window.setInterval(() => setTick((n) => n + 1), TICK_MS);
+    return () => window.clearInterval(timer);
+  }, [predicting]);
+
+  return useMemo(() => {
+    // The leader is the source of truth, so predicting against itself is only drift
+    if (isLeader || !playerState) return playerState;
+
+    if (playerState.play_state !== "playing") return playerState;
+
+    // The stamp belongs to an older state, so its age says nothing about this one
+    if (!stamped || stamped.state !== playerState) return playerState;
+
+    const elapsed = (Date.now() - stamped.at) / 1000;
+
+    // Reports arriving on time need no help. Returning the same object keeps
+    // every effect keyed on player state from re-running once a second.
+    if (elapsed < SYNC_THRESHOLD_SECONDS) return playerState;
+
+    return { ...playerState, current_time: playerState.current_time + elapsed };
+  // tick is here to re-run the prediction, not because it is read
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [playerState, stamped, isLeader, tick]);
 }

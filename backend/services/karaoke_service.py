@@ -147,7 +147,21 @@ class KaraokeService:
         """Without this, a page built while a source was down outlives its recovery."""
         return ",".join(sorted(self.providers.ids))
 
-    async def get_video_url(self, entry: KaraokeEntry) -> VideoURLResponse:
+    async def get_video_url(self, entry: KaraokeEntry, refresh: bool = False) -> VideoURLResponse:
+        """
+        Resolve a playable URL through the provider that owns the entry.
+
+        `refresh` re-resolves even when a URL is already in hand, for the case
+        where the one we have has stopped playing. Provider URLs expire, so a
+        cached copy of a dead link is worse than none.
+        """
+        if refresh:
+            if self.cache:
+                self.cache.invalidate_media_urls(entry.id, entry.source)
+            # Both tracks, or a paired entry keeps its audio and short-circuits
+            # the re-resolution below with half of a dead result.
+            entry = entry.model_copy(update={"video_url": None, "audio_url": None})
+
         # Either track alone counts as resolved: an audio-only source leaves
         # video_url unset, and the two always travel together.
         if entry.video_url or entry.audio_url:

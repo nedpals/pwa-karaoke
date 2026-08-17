@@ -6,6 +6,7 @@ from nanoid import generate as generate_nanoid
 
 from core.search import KaraokeEntry
 from core.player import DisplayPlayerState
+from core.room import MIN_SCORED_SECONDS
 from services.karaoke_service import KaraokeService
 from client_manager import ConnectionClient
 from session_manager import SessionManager
@@ -21,8 +22,6 @@ ROOM_REACTION_RATE_WINDOW = 3.0
 SCORE_RATE_LIMIT = 4
 SCORE_RATE_WINDOW = 10.0
 
-MIN_SCORED_SECONDS = 5.0
-
 class ClientCommands:
     def __init__(self, client: ConnectionClient, session_manager: SessionManager, service: KaraokeService) -> None:
         self.service = service
@@ -32,11 +31,11 @@ class ClientCommands:
         
     async def _receive_current_state(self):
         if not self.client.room_id:
-            await self.client.send_command("client_count", 0)
+            await self.client.send_command("client_count", {"total": 0, "controllers": 0, "displays": 0})
             return
         
         # Send the current player_state and queue to the client
-        await self.client.send_command("client_count", self.session_manager.get_room_client_count(self.client.room_id))
+        await self.client.send_command("client_count", self.session_manager.get_room_client_counts(self.client.room_id))
         await self.client.send_command("queue_update", self.room.get_queue_update_payload())
         await self.client.send_command("room_settings", self.room.get_settings_payload())
         if self.room.player_state:
@@ -61,13 +60,13 @@ class ClientCommands:
     async def _update_player_state(self, state_data):
         state = state_data if isinstance(state_data, DisplayPlayerState) else DisplayPlayerState.parse_obj(state_data)
 
-        previous = self.room.player_state.entry if self.room.player_state else None
-        previous_entry_id = previous.id if previous else None
-        entry_id = state.entry.id if state.entry else None
+        previous_item_id = self.room.player_state.item_id if self.room.player_state else None
 
         self.room.update_player_state(state)
 
-        if entry_id != previous_entry_id:
+        # Keyed on the reservation: the same song queued twice is a new turn for
+        # a different phone, and comparing entry ids would miss the handover
+        if self.room.player_state.item_id != previous_item_id:
             await self._send_scoring_turns(self.client.room_id)
 
         # Broadcast the room's copy so clients see the server-stamped version
@@ -86,8 +85,15 @@ class ClientCommands:
                 pass
 
     async def _toggle_playback_state(self, playback_state: Literal["play", "pause"]):
+        """Pass a remote's play or pause to the screens.
+
+        Same shape as a skip: the room does not set its own play state, it
+        learns it from the leader's report of what the element actually did.
+        """
         command = "play_song" if playback_state == "play" else "pause_song"
+        displays = self.session_manager.get_room_displays(self.client.room_id)
         await self.session_manager.broadcast_to_room_displays(self.client.room_id, command, {})
+        return {"screens": len(displays)}
 
     async def _broadcast_room_state(self, should_prefetch: bool = True):
         # Broadcast queue update to all clients
@@ -141,6 +147,12 @@ class ClientCommands:
             # Silent failure - client will handle fetching if needed
             print(f"[PREFETCH] ✗ Failed to prefetch URL for {queue_item.entry.title}: {e}")
 
+    async def _remove_song(self, item_id: str):
+        removed = self.room.remove_song(item_id)
+        if removed:
+            await self._broadcast_room_state()
+        return removed
+
     async def join_room(self, payload):
         room_id = payload.get("room_id", "default")
         nickname = payload.get("nickname")
@@ -150,26 +162,27 @@ class ClientCommands:
         return {"room_id": room_id, "nickname": nickname, "success": True}
     
     async def play_next(self, payload=None):
-        # Only a display rolling over at the end of a song is gated by autoplay.
-        # Manual skips from a remote always advance.
-        is_auto = bool(payload.get("auto")) if isinstance(payload, dict) else False
+        """Pop the queue. Asking is the whole decision.
 
-        # Nothing reserved means nothing is being held back, so let it fall
-        # through and clear the room the same way an autoplaying one does.
-        if is_auto and not self.room.autoplay and self.room.queue.items:
-            print(f"[DEBUG] Autoplay is off for room {self.client.room_id} - holding the queue")
-            await self._hold_at_end_of_song()
-            return {"advanced": False, "autoplay": False}
+        When to start, whether to hold a song for its score, and what autoplay
+        means all belong to the leader screen, which is the only party that
+        knows how far the song actually got.
+        """
+        from_item_id = payload.get("from_item_id") if isinstance(payload, dict) else None
+        current_item_id = self.room.player_state.item_id if self.room.player_state else None
 
-        if not is_auto and await self._score_skipped_song():
-            return {"advanced": False, "scoring": True}
+        # The caller was deciding about a turn the room has already left, so
+        # honouring it would swallow whatever is playing now
+        if from_item_id and from_item_id != current_item_id:
+            print(f"[DEBUG] Ignoring stale play_next for {from_item_id} in room {self.client.room_id}")
+            return {"advanced": False, "stale": True}
 
         next_song = self.room.play_next()
         print(f"[DEBUG] Playing next song: {next_song}")
 
         await self._update_player_state(DisplayPlayerState(
             entry=next_song.entry if next_song else None,
-            play_state="playing" if next_song else "finished",
+            play_state="playing" if next_song else "idle",
             current_time=0.0,
             duration=0.0,
             volume=self.room.player_state.volume if self.room.player_state else 0.5,
@@ -178,62 +191,35 @@ class ClientCommands:
         ))
 
         await self._broadcast_room_state()
-        return {"advanced": next_song is not None, "autoplay": self.room.autoplay}
-
-    async def _score_skipped_song(self) -> bool:
-        """Hold a skipped song on screen for its score. True when it did."""
-        state = self.room.player_state
-        entry = state.entry if state else None
-
-        # Already finished means the display is back for the advance it was held from
-        if not entry or state.play_state == "finished":
-            return False
-
-        if state.current_time < MIN_SCORED_SECONDS:
-            return False
-
-        # Finishing rather than scoring leaves the grace window open for a report
-        await self._hold_at_end_of_song()
-        await self.session_manager.broadcast_to_room_displays(
-            self.client.room_id, "scoring", {"entry_id": entry.id, "quick": True}
-        )
-        return True
-
-    async def _hold_at_end_of_song(self):
-        """Stop on the finished song and leave the queue untouched."""
-        current = self.room.player_state
-        await self._update_player_state(DisplayPlayerState(
-            entry=current.entry if current else None,
-            play_state="finished",
-            current_time=current.current_time if current else 0.0,
-            duration=current.duration if current else 0.0,
-            volume=current.volume if current else 0.5,
-            version=int(time.time() * 1000),
-            timestamp=time.time()
-        ))
-
-        await self._broadcast_room_state()
+        return {"advanced": next_song is not None}
 
 class ControllerCommands(ClientCommands):
     async def remove_song(self, payload):
-        removed = self.room.remove_song(payload["entry_id"])
-        if removed:
-            await self._broadcast_room_state()
+        await self._remove_song(payload["entry_id"])
+
+    async def skip_song(self, _: None):
+        """Pass a remote's Next to the screens and let the leader work it out.
+
+        Whether a skip ends the song for its score or moves straight on depends
+        on how far it got, which only a screen knows.
+        """
+        displays = self.session_manager.get_room_displays(self.client.room_id)
+        await self.session_manager.broadcast_to_room_displays(
+            self.client.room_id, "skip_request", {}
+        )
+        return {"screens": len(displays)}
 
     async def queue_song(self, payload):
         entry = KaraokeEntry.parse_obj(payload)
         print(f"[DEBUG] Controller queue_song received: {entry.title} by {entry.artist}")
-        
-        is_previously_empty = self.room.is_empty
-        is_currently_playing = self.room.player_state and self.room.player_state.entry is not None
 
         self.room.add_song(entry, self.client.nickname, self.client.device_id)
         await asyncio.sleep(0.1)  # Small delay to ensure state consistency
+
+        # Reserving does not start anything. The leader asks when it sees a
+        # reservation with nothing on air, which also starts a room a screen
+        # joined late.
         await self._broadcast_room_state()
-        
-        if is_previously_empty and not is_currently_playing:
-            # Directly play if queue is empty
-            await self.play_next(None)
 
     async def queue_next_song(self, payload):
         # Move song to next position in room queue and broadcast update
@@ -247,10 +233,10 @@ class ControllerCommands(ClientCommands):
         await self._broadcast_room_state()
 
     async def play_song(self, _: None):
-        await self._toggle_playback_state("play")
+        return await self._toggle_playback_state("play")
 
     async def pause_song(self, _: None):
-        await self._toggle_playback_state("pause")
+        return await self._toggle_playback_state("pause")
 
     async def player_state(self, _state):
         await self._update_player_state(_state)
@@ -290,20 +276,21 @@ class ControllerCommands(ClientCommands):
         if not target or self.client.device_id != target:
             return
 
-        entry_id = payload["entry_id"]
+        item_id = payload["item_id"]
         state = self.room.player_state
-        current = state.entry if state else None
 
-        if not current or current.id != entry_id:
+        if not state or not state.entry or state.item_id != item_id:
             return
 
+        # Bounds what a remote can claim to have measured, using the same rule
+        # the screen used to decide the turn was worth scoring
         if state.current_time < MIN_SCORED_SECONDS:
             return
 
         await self.session_manager.broadcast_to_room_displays(
             self.client.room_id,
             "score_reading",
-            {"entry_id": entry_id, "performance": payload["performance"]},
+            {"item_id": item_id, "performance": payload["performance"]},
         )
 
     async def set_autoplay(self, payload):
@@ -315,16 +302,74 @@ class ControllerCommands(ClientCommands):
         return {"autoplay": self.room.autoplay}
 
 class DisplayCommands(ClientCommands):
+    async def remove_song(self, payload):
+        """The leader dropping the song it was holding, because Next was pressed.
+
+        Which reservation that is, is the screen's to know: the one on its card.
+        """
+        if not self.session_manager.is_display_leader(self.client):
+            return {"removed": False}
+
+        return {"removed": await self._remove_song(payload["entry_id"])}
+
     async def update_player_state(self, _state):
         # Only allow leader displays to update player state
         if not self.session_manager.is_display_leader(self.client):
             print(f"[DEBUG] Non-leader display {self.client.id} attempted to update player state - ignoring")
             return
 
-        await self._update_player_state(_state)
+        state = _state if isinstance(_state, DisplayPlayerState) else DisplayPlayerState.parse_obj(_state)
+        current = self.room.player_state
+
+        # A report about some other turn is a video element that has not caught
+        # up, and accepting it would drag the room back to the previous song.
+        current_item_id = current.item_id if current else None
+        incoming_item_id = state.item_id if state.entry else None
+        if current and incoming_item_id != current_item_id:
+            print(f"[DEBUG] Ignoring player state for {incoming_item_id} while {current_item_id} is on air")
+            return
+
+        # Finished covers the end of a song, a skip and an autoplay hold. A
+        # video element that remounts and starts itself must not reopen it.
+        if current and current.play_state == "finished" and state.play_state != "finished":
+            print(f"[DEBUG] Ignoring {state.play_state} report for finished turn {current_item_id}")
+            return
+
+        await self._update_player_state(state)
 
     async def queue_update(self, queue_data):
         await self.session_manager.broadcast_to_room_controllers(self.client.room_id, "queue_update", queue_data)
+
+    async def refresh_video_url(self, payload):
+        """Re-resolve the URL for the song on air, because it stopped playing.
+
+        The room hands the same dead URL to every screen and to the next reload,
+        so it has to be replaced at the source rather than retried.
+        """
+        if not self.session_manager.is_display_leader(self.client):
+            return {"refreshed": False}
+
+        state = self.room.player_state
+        entry = state.entry if state else None
+        if not entry or entry.id != payload["entry_id"]:
+            return {"refreshed": False}
+
+        response = await self.service.get_video_url(entry, refresh=True)
+        if not response.video_url:
+            print(f"[DEBUG] Could not re-resolve a URL for {entry.id}")
+            return {"refreshed": False}
+
+        entry.video_url = response.video_url
+        await self._update_player_state(DisplayPlayerState(
+            entry=entry,
+            play_state="buffering",
+            current_time=state.current_time,
+            duration=state.duration,
+            volume=state.volume,
+            version=int(time.time() * 1000),
+            timestamp=time.time()
+        ))
+        return {"refreshed": True}
 
     async def scoring_state(self, payload):
         if not self.session_manager.is_display_leader(self.client):
@@ -342,7 +387,7 @@ class DisplayCommands(ClientCommands):
             self.client.room_id,
             "score",
             {
-                "entry_id": payload["entry_id"],
+                "item_id": payload["item_id"],
                 "score": payload["score"],
                 "source": payload["source"],
                 "timestamp": time.time(),

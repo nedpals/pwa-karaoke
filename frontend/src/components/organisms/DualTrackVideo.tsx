@@ -41,6 +41,8 @@ export interface DualTrackHandle {
   readonly ended: boolean;
   play: () => Promise<void>;
   pause: () => void;
+  /** Reload both tracks, for when a src was swapped in place. */
+  load: () => void;
   addEventListener: (type: string, listener: EventListenerOrEventListenerObject) => void;
   removeEventListener: (type: string, listener: EventListenerOrEventListenerObject) => void;
 }
@@ -299,10 +301,14 @@ export const DualTrackVideo = forwardRef<DualTrackHandle, DualTrackVideoProps>(
         },
         play,
         pause,
+        load: () => {
+          videoRef.current?.load();
+          if (separateAudio) audioRef.current?.load();
+        },
         addEventListener: (type, listener) => getMaster()?.addEventListener(type, listener),
         removeEventListener: (type, listener) => getMaster()?.removeEventListener(type, listener),
       }),
-      [getMaster, seek, play, pause],
+      [getMaster, seek, play, pause, separateAudio],
     );
 
     // While parked, a pause is the hold's own doing and one track becoming

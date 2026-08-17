@@ -1,5 +1,5 @@
 import { Text } from "../atoms/Text";
-import { MaterialSymbolsFastForwardRounded } from "../icons/MaterialSymbolsFastForwardRounded";
+import { MaterialSymbolsPlayArrowRounded } from "../icons/MaterialSymbolsPlayRounded";
 import { Card } from "./Card";
 import { SongDetails } from "./SongDetails";
 import { cn } from "../../lib/utils";
@@ -18,9 +18,9 @@ export function UpNextCard({ entry, singer, className, ...props }: UpNextCardPro
         <SongDetails entry={entry} singer={singer} size="lg" />
 
         <div className="flex items-center gap-3 border-t-2 border-ka-line pt-4">
-          <MaterialSymbolsFastForwardRounded className="text-3xl text-ka-amber shrink-0" />
+          <MaterialSymbolsPlayArrowRounded className="text-3xl text-ka-amber shrink-0" />
           <Text size="lg" tone="dim">
-            Press Next on the controller to continue.
+            Press Play on the controller to start it, or Next to skip it.
           </Text>
         </div>
       </div>

@@ -6,7 +6,6 @@ import re
 import random
 import shlex
 import time
-from concurrent.futures import ThreadPoolExecutor
 from typing import NamedTuple, Optional, Union
 from urllib.parse import urlparse, urlunparse
 
@@ -27,6 +26,8 @@ KARAOKE_QUERY_KEYWORDS = (
 # are what the ranking has to work with.
 SEARCH_FETCH_LIMIT = 30
 SEARCH_RESULT_LIMIT = 12
+
+SEARCH_SOCKET_TIMEOUT_SECONDS = 15
 
 # Below the floor sit isolated solo backing tracks, above the ceiling sit
 # hour-long nonstop medleys.
@@ -373,6 +374,7 @@ class YTKaraokeSourceProvider(KaraokeSourceProvider):
             'no_warnings': True,
             'extract_flat': True,
             'noplaylist': True,
+            'socket_timeout': SEARCH_SOCKET_TIMEOUT_SECONDS,
             'extractor_args': {
                 'youtube': {
                     'player_client': [PLAYER_CLIENT]
@@ -445,14 +447,24 @@ class YTKaraokeSourceProvider(KaraokeSourceProvider):
         return [entry for _, entry in ranked[:max_results]]
 
     async def search(self, query: str) -> KaraokeSearchResult:
+        """
+        Search in a worker thread, bounded by SEARCH_TIMEOUT_SECONDS.
+
+        The extraction path gets its hard limit from the CLI wrapper, but this
+        one runs in process, where a stalled request would otherwise hold the
+        controller on "Searching" for as long as yt-dlp took to give up.
+        """
         try:
-            loop = asyncio.get_event_loop()
-            if not loop.is_running():
-                return KaraokeSearchResult(entries=[])
-            with ThreadPoolExecutor() as executor:
-                # Run the search in a thread to avoid blocking the event loop
-                entries = await loop.run_in_executor(executor, self._search_videos, query)
+            entries = await asyncio.wait_for(
+                asyncio.to_thread(self._search_videos, query),
+                timeout=config.SEARCH_TIMEOUT_SECONDS,
+            )
             return KaraokeSearchResult(entries=entries)
+
+        except asyncio.TimeoutError:
+            # The thread is left to unwind on its own; socket_timeout bounds it.
+            print(f"[YTDLP] Search for {query!r} timed out after {config.SEARCH_TIMEOUT_SECONDS:g}s")
+            return KaraokeSearchResult(entries=[])
 
         except Exception as e:
             print(f"Search failed: {e}")

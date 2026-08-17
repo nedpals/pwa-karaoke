@@ -14,6 +14,7 @@ import { MessageTemplate } from "../components/templates/MessageTemplate";
 import { SystemMessage } from "../components/templates/SystemMessage";
 import { PasswordInput } from "../components/organisms/PasswordInput";
 import { ReactionOverlay } from "../components/organisms/ReactionOverlay";
+import { ScoreScreen } from "../components/organisms/ScoreScreen";
 import { RoomProvider, useRoomContext } from "../providers/RoomProvider";
 import { useTempState, type TempStateSetterOptions } from "../hooks/useTempState";
 import { useVideoUrlMutation, useServerStatus } from "../hooks/useApi";
@@ -21,8 +22,19 @@ import { useVideoUrlWithRetry } from "../hooks/useVideoUrlWithRetry";
 import { getDisplayNickname } from "../lib/nicknameStorage";
 import type { DisplayPlayerState } from "../types";
 import useSmartSync from "../hooks/useSmartSync";
+import { rollScore, scoreFromPerformance } from "../lib/scoring";
 
-type AppState = "awaiting-interaction" | "connecting" | "connected" | "ready" | "playing";
+type AppState = "awaiting-interaction" | "connecting" | "connected" | "ready" | "scoring" | "playing";
+
+// Measured from the reveal, so the number is readable for the same beat
+const REVEAL_HOLD_MS = 4000;
+const SKIP_REVEAL_HOLD_MS = 2000;
+
+const SCORE_WAIT_MAX_MS = 6000;
+
+const JURY_GRACE_MS = 1000;
+
+const MIN_SCORED_SECONDS = 5;
 
 interface Announcement {
   title: string;
@@ -41,6 +53,9 @@ interface PlayerContextType {
   hasInteracted: boolean;
   setHasInteracted: (value: boolean) => void;
   playerState: DisplayPlayerState | null;
+  scoring: { entryId: string; quick: boolean } | null;
+  scoreRevealed: () => void;
+  finishSong: (entryId: string, playedSeconds: number) => void;
   osd: OSDState;
   setOSD: (osd: OSDState, options?: TempStateSetterOptions<OSDState>) => void;
 }
@@ -63,6 +78,7 @@ function VideoPlayerComponent({
   onRetry,
   retryCount,
   onNearingEnd,
+  onSongEnded,
 }: {
   videoUrl: string | null;
   isLoadingVideoUrl: boolean;
@@ -71,11 +87,11 @@ function VideoPlayerComponent({
   onRetry: () => void;
   retryCount: number;
   onNearingEnd: (params: { timeRemaining: number }) => void;
+  onSongEnded: (playedSeconds: number) => void;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const { updatePlayerState } = useRoomContext();
   const { osd, playerState } = usePlayerState();
-  const { playNext } = useRoomContext();
   const isBufferingRef = useRef(false);
   const hasNearingEndFiredRef = useRef(false);
 
@@ -364,7 +380,7 @@ function VideoPlayerComponent({
             duration: video.duration || 0,
             volume: video.volume,
           });
-          playNext({ auto: true });
+          onSongEnded(video.currentTime || 0);
         }}
       >
         <track kind="captions" />
@@ -446,6 +462,7 @@ function PlayingStateContent() {
   const [queued, setQueued] = useTempState<Announcement | null>(null);
 
   const { playerState, upNextQueue, autoplay } = useRoomContext();
+  const { finishSong } = usePlayerState();
   const { trigger: triggerVideoUrl } = useVideoUrlMutation();
   const {
     videoUrl: videoUrlData,
@@ -580,6 +597,7 @@ function PlayingStateContent() {
           onRetry={retry}
           retryCount={retryCount}
           onNearingEnd={handleNearingEnd}
+          onSongEnded={(playedSeconds) => finishSong(playerState.entry!.id, playedSeconds)}
         />
       </div>
 
@@ -628,6 +646,29 @@ function ConnectedStateScreen() {
         </div>
       </div>
     </MessageTemplate>
+  );
+}
+
+function ScoringStateScreen() {
+  const { score } = useRoomContext();
+  const { scoring, scoreRevealed } = usePlayerState();
+
+  // A leftover score is ignored rather than shown against the wrong song
+  const shownScore = score && scoring && score.entry_id === scoring.entryId ? score.score : null;
+
+  return (
+    <div className="relative h-screen w-screen">
+      <Backdrop name="idle" />
+
+      <div className="relative z-10 h-full w-full flex items-center justify-center title-safe">
+        <ScoreScreen
+          score={shownScore}
+          quick={scoring?.quick ?? false}
+          sound={!scoring?.quick}
+          onRevealed={scoreRevealed}
+        />
+      </div>
+    </div>
   );
 }
 
@@ -695,6 +736,8 @@ function AwaitingInteractionStateScreen() {
 
 function PlayerStateProviderInternal({ children }: { children: React.ReactNode }) {
   const [hasInteracted, setHasInteracted] = useState(false);
+  const [scoring, setScoring] = useState<{ entryId: string; quick: boolean } | null>(null);
+  const scoreTimer = useRef<number | null>(null);
 
   const {
     connected,
@@ -703,6 +746,11 @@ function PlayerStateProviderInternal({ children }: { children: React.ReactNode }
     updatePlayerState,
     lastQueueCommand,
     isLeader,
+    playNext,
+    scoringCue,
+    scoreReading,
+    publishScore,
+    announceScoring,
   } = useRoomContext();
 
   // Use smart sync for non-leader displays
@@ -716,10 +764,143 @@ function PlayerStateProviderInternal({ children }: { children: React.ReactNode }
   const appState: AppState = useMemo(() => {
     if (!hasInteracted) return "awaiting-interaction";
     if (!connected) return "connecting";
+    if (scoring) return "scoring";
     if (playerState?.entry) return "playing";
     // If no entry is set, we are ready to play
     return clientCount > 1 ? "ready" : "connected";
-  }, [hasInteracted, connected, playerState?.entry, clientCount]);
+  }, [hasInteracted, connected, scoring, playerState?.entry, clientCount]);
+
+  const scoringRef = useRef<{ entryId: string; quick: boolean } | null>(null);
+  const juryTimer = useRef<number | null>(null);
+  const readingRef = useRef<{ entryId: string; performance: number } | null>(null);
+  const judged = useRef<string | null>(null);
+
+  // Read when the timer fires, so a display promoted mid-grace still judges
+  const isLeaderRef = useRef(isLeader);
+  const publishScoreRef = useRef(publishScore);
+  const announceScoringRef = useRef(announceScoring);
+  const announced = useRef<boolean | null>(null);
+
+  useEffect(() => {
+    isLeaderRef.current = isLeader;
+    publishScoreRef.current = publishScore;
+    announceScoringRef.current = announceScoring;
+    scoringRef.current = scoring;
+  }, [isLeader, publishScore, announceScoring, scoring]);
+
+  // The remotes cannot see the scoring screen, so the leader says when it is up
+  useEffect(() => {
+    const active = Boolean(scoring);
+    if (!isLeaderRef.current || announced.current === active) return;
+
+    announced.current = active;
+    announceScoringRef.current(active);
+  }, [scoring]);
+
+  useEffect(() => {
+    if (!scoreReading) return;
+    readingRef.current = { entryId: scoreReading.entryId, performance: scoreReading.performance };
+  }, [scoreReading]);
+
+  const clearJuryTimer = useCallback(() => {
+    if (juryTimer.current === null) return;
+
+    window.clearTimeout(juryTimer.current);
+    juryTimer.current = null;
+  }, []);
+
+  // Only the leader decides, so every screen in the room shows one number
+  const judge = useCallback((entryId: string) => {
+    clearJuryTimer();
+    if (!isLeaderRef.current || judged.current === entryId) return;
+
+    judged.current = entryId;
+    const reading = readingRef.current;
+    const heard = reading && reading.entryId === entryId;
+
+    publishScoreRef.current(
+      entryId,
+      heard ? scoreFromPerformance(reading.performance) : rollScore(),
+      heard ? "mic" : "auto",
+    );
+  }, [clearJuryTimer]);
+
+  const clearScoreTimer = useCallback(() => {
+    if (scoreTimer.current === null) return;
+
+    window.clearTimeout(scoreTimer.current);
+    scoreTimer.current = null;
+  }, []);
+
+  const finishScoring = useCallback((quick: boolean, delay: number) => {
+    clearScoreTimer();
+
+    scoreTimer.current = window.setTimeout(() => {
+      scoreTimer.current = null;
+      setScoring(null);
+      // A skip advances whatever autoplay says, since someone asked for it
+      playNext({ auto: !quick });
+    }, delay);
+  }, [clearScoreTimer, playNext]);
+
+  const beginScoring = useCallback((entryId: string, quick: boolean) => {
+    setScoring({ entryId, quick });
+    clearJuryTimer();
+
+    // Judged at once when a reading is already in hand
+    if (readingRef.current?.entryId === entryId) {
+      judge(entryId);
+    } else {
+      juryTimer.current = window.setTimeout(() => judge(entryId), JURY_GRACE_MS);
+    }
+
+    // Replaced by the reveal when one arrives
+    finishScoring(quick, SCORE_WAIT_MAX_MS);
+  }, [clearJuryTimer, finishScoring, judge]);
+
+  const scoreRevealed = useCallback(() => {
+    const quick = scoringRef.current?.quick ?? false;
+    finishScoring(quick, quick ? SKIP_REVEAL_HOLD_MS : REVEAL_HOLD_MS);
+  }, [finishScoring]);
+
+  const finishSong = useCallback((entryId: string, playedSeconds: number) => {
+    if (playedSeconds < MIN_SCORED_SECONDS) {
+      playNext({ auto: true });
+      return;
+    }
+
+    beginScoring(entryId, false);
+  }, [beginScoring, playNext]);
+
+  // Keyed on the cue, so a re-render cannot restart a hold already running
+  const handledCue = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (!scoring || !scoreReading || scoreReading.entryId !== scoring.entryId) return;
+    judge(scoring.entryId);
+  }, [scoring, scoreReading, judge]);
+
+  useEffect(() => {
+    if (!scoringCue || handledCue.current === scoringCue.at) return;
+
+    handledCue.current = scoringCue.at;
+    beginScoring(scoringCue.entryId, scoringCue.quick);
+  }, [scoringCue, beginScoring]);
+
+  useEffect(() => {
+    setScoring(null);
+    clearScoreTimer();
+    clearJuryTimer();
+    readingRef.current = null;
+    judged.current = null;
+  }, [playerState?.entry?.id, clearScoreTimer, clearJuryTimer]);
+
+  useEffect(() => {
+    return () => {
+      clearScoreTimer();
+      clearJuryTimer();
+    };
+  }, [clearScoreTimer, clearJuryTimer]);
 
   const lastPlayStateRef = useRef<string | null>(null);
 
@@ -770,6 +951,9 @@ function PlayerStateProviderInternal({ children }: { children: React.ReactNode }
     hasInteracted,
     setHasInteracted,
     playerState,
+    scoring,
+    scoreRevealed,
+    finishSong,
     osd,
     setOSD,
   };
@@ -791,6 +975,8 @@ function PlayerPageContent() {
       return <ConnectedStateScreen />;
     case "ready":
       return <ReadyStateScreen />;
+    case "scoring":
+      return <ScoringStateScreen />;
     case "playing":
       return <PlayingStateContent />;
     default:

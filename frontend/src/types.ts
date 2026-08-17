@@ -36,6 +36,16 @@ export interface ReactionEvent {
   timestamp: number;
 }
 
+export type ScoreSource = "mic" | "auto";
+
+export interface SongScore {
+  entry_id: string;
+  score: number;
+  source: ScoreSource;
+  version: number;
+  timestamp: number;
+}
+
 export interface KaraokeQueueItem {
   id: string;
   entry: KaraokeEntry;

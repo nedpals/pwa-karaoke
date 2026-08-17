@@ -28,6 +28,7 @@ import { SystemMessage } from "../components/templates/SystemMessage";
 import { PasswordInput } from "../components/organisms/PasswordInput";
 import { NicknameInput } from "../components/organisms/NicknameInput";
 import { ReactionPad } from "../components/organisms/ReactionPad";
+import { useLoudnessScore, type MicStatus } from "../hooks/useLoudnessScore";
 import { getNickname } from "../lib/nicknameStorage";
 import { TimeDisplay } from "../components/molecules/TimeDisplay";
 
@@ -282,10 +283,26 @@ function VolumeMeter({ value }: { value: number }) {
   );
 }
 
-function PlayerTab() {
+const MIC_NOTICE: Partial<Record<MicStatus, string>> = {
+  off: "Mic scoring is off. The machine will score you anyway.",
+  denied: "Microphone blocked. The machine will score you anyway.",
+  unsupported: "Mic scoring needs a secure connection, so it is off.",
+};
+
+function micNotice(status: MicStatus, yourTurn: boolean): string | null {
+  if (status === "listening") {
+    return yourTurn
+      ? "Mic scoring is on. Keep the phone near the singer."
+      : "Mic scoring is on. It listens only on songs you reserved.";
+  }
+
+  return MIC_NOTICE[status] ?? null;
+}
+
+function PlayerTab({ notice }: { notice: string | null }) {
   const {
     playerState, playSong, pauseSong, playNext, setVolume,
-    sendReaction, connected, autoplay, setAutoplay,
+    sendReaction, connected, autoplay, setAutoplay, scoringActive,
   } = useRoomContext();
   const [isPlaybackLoading, setIsPlaybackLoading] = useState(false);
   const [isVolumeLoading, setIsVolumeLoading] = useState(false);
@@ -297,6 +314,13 @@ function PlayerTab() {
   const volumePerc = Math.round(volume * 100);
   const isPlaying = playerState?.play_state === "playing";
   const hasEntry = Boolean(playerState?.entry);
+  // Nothing is mounted to play or pause once the song is over
+  const isFinished = hasEntry && playerState?.play_state === "finished";
+  const isScoring = isFinished && scoringActive;
+  // Stands in as the entry on air, so the panel needs no case of its own
+  const nowPlaying = isScoring
+    ? { title: "Scoring...", artist: "Unknown Artist", uploader: null }
+    : playerState?.entry ?? null;
 
   // Clear optimistic volume once the server state catches up
   useEffect(() => {
@@ -389,21 +413,21 @@ function PlayerTab() {
 
       <Panel className="p-3">
         <div className="flex items-center gap-3 mb-3 border-b-2 border-ka-line pb-2">
-          <Text font="display" size="lg" weight="bold" tone={isPlaying ? "accent" : "dim"} className="flex-1">
-            {isPlaying ? "Playing" : hasEntry ? "Paused" : "Stopped"}
+          <Text font="display" size="lg" weight="bold" tone={isPlaying || isScoring ? "accent" : "dim"} className="flex-1">
+            {isPlaying || isScoring ? "Playing" : isFinished ? "Finished" : hasEntry ? "Paused" : "Stopped"}
           </Text>
-          {playerState?.entry?.uploader && (
+          {nowPlaying?.uploader && (
             <Text size="xs" tone="dim" truncate className="max-w-40">
-              {playerState.entry.uploader}
+              {nowPlaying.uploader}
             </Text>
           )}
         </div>
 
         <MarqueeText size="2xl" weight="bold" pauseOnHover>
-          {playerState?.entry ? playerState.entry.title : "No Song"}
+          {nowPlaying ? nowPlaying.title : "No Song"}
         </MarqueeText>
         <MarqueeText size="lg" tone="dim" pauseOnHover>
-          {playerState?.entry ? playerState.entry.artist : "--"}
+          {nowPlaying ? nowPlaying.artist : "--"}
         </MarqueeText>
 
         <div className="flex items-center gap-2 mt-3">
@@ -429,7 +453,7 @@ function PlayerTab() {
           label={isPlaying ? "Pause" : "Play"}
           showLabel
           onClick={handlePlayerPlayback}
-          disabled={!hasEntry || isPlaybackLoading}
+          disabled={!hasEntry || isFinished || isPlaybackLoading}
           variant="accent"
           className="py-4"
         />
@@ -483,6 +507,12 @@ function PlayerTab() {
       </Panel>
 
       <ReactionPad onReact={sendReaction} disabled={!connected} />
+
+      {notice && (
+        <Text size="xs" tone="dim" className="px-1">
+          {notice}
+        </Text>
+      )}
     </div>
   );
 }
@@ -630,16 +660,60 @@ function ControllerHeader() {
   );
 }
 
+function MicCheckScreen({ onAllow, onSkip }: { onAllow: () => void; onSkip: () => void }) {
+  return (
+    <SystemMessage
+      title="Mic Check"
+      subtitle="To score your performance, we use your device's microphone. Only the score is sent."
+      actions={() => (
+        <div className="flex flex-col items-center gap-3 w-full">
+          <Button onClick={onAllow} variant="accent" size="xl" className="w-full">
+            Allow Mic
+          </Button>
+          <Button onClick={onSkip} variant="ghost" size="lg" className="w-full">
+            Not Now
+          </Button>
+        </div>
+      )}
+      variant="controller"
+    />
+  );
+}
+
 function ControllerPageContent() {
   const [tab, setTab] = useState<(typeof CONTROLLER_TABS)[number]["id"]>("song-select");
+  const [micAsked, setMicAsked] = useState(false);
+  const { playerState, submitScore, scoringTurn } = useRoomContext();
+
+  const mic = useLoudnessScore({
+    active: scoringTurn,
+    entryId: playerState?.entry?.id ?? null,
+    playState: playerState?.play_state ?? null,
+    onSubmit: submitScore,
+  });
 
   const tabs: Tab[] = CONTROLLER_TABS.map((t) => ({
     id: t.id,
     label: t.label,
     content: t.id === "song-select" ? <SongSelectTab /> :
-             t.id === "player" ? <PlayerTab /> :
+             t.id === "player" ? <PlayerTab notice={micNotice(mic.status, scoringTurn)} /> :
              <QueueTab />
   }));
+
+  if (!micAsked) {
+    return (
+      <MicCheckScreen
+        onAllow={() => {
+          mic.start();
+          setMicAsked(true);
+        }}
+        onSkip={() => {
+          mic.decline();
+          setMicAsked(true);
+        }}
+      />
+    );
+  }
 
   return (
     <ControllerLayout>

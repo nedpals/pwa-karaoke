@@ -53,6 +53,21 @@ class SendReactionPayload(BaseModel):
     """Reaction sent by a controller"""
     reaction: ReactionType
 
+class SubmitScorePayload(BaseModel):
+    """Loudness reading a controller measured for the song it just heard"""
+    entry_id: str = Field(..., min_length=1)
+    performance: float = Field(..., ge=0.0, le=1.0)
+
+class PublishScorePayload(BaseModel):
+    """Score decided by the leader display"""
+    entry_id: str = Field(..., min_length=1)
+    score: int = Field(..., ge=0, le=100)
+    source: Literal["mic", "auto"]
+
+class ScoringStatePayload(BaseModel):
+    """Leader display reporting whether it is on the scoring screen"""
+    active: bool
+
 class QueueUpdatePayload(BaseModel):
     """Queue update payload"""
     items: list = Field(default_factory=list)
@@ -70,6 +85,7 @@ class JoinRoomPayload(BaseModel):
     """Join room command payload"""
     room_id: str
     nickname: Optional[str] = None
+    device_id: Optional[str] = Field(None, max_length=64)
 
     @validator('nickname')
     def normalize_nickname(cls, v):
@@ -96,6 +112,9 @@ COMMAND_PAYLOAD_MAP = {
     "queue_update": QueueUpdatePayload,
     "video_loaded": PlayerStatePayload,
     "send_reaction": SendReactionPayload,
+    "submit_score": SubmitScorePayload,
+    "publish_score": PublishScorePayload,
+    "scoring_state": ScoringStatePayload,
     "ack": AckPayload,
     # Commands without payload validation
     "play_song": dict,

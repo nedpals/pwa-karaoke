@@ -18,6 +18,7 @@ class Room(BaseModel):
     autoplay: bool = True
     # Held here because a display echoing player state back does not carry it.
     current_singer: Optional[str] = None
+    current_singer_device_id: Optional[str] = None
     settings_version: int = 1
     password_hash: Optional[str] = None
     created_at: float = time.time()
@@ -46,8 +47,13 @@ class Room(BaseModel):
     def requires_password(self) -> bool:
         return self.password_hash is not None
 
-    def add_song(self, entry: KaraokeEntry, singer: Optional[str] = None) -> KaraokeQueueItem:
-        self.queue.enqueue(entry, singer)
+    def add_song(
+        self,
+        entry: KaraokeEntry,
+        singer: Optional[str] = None,
+        singer_device_id: Optional[str] = None,
+    ) -> KaraokeQueueItem:
+        self.queue.enqueue(entry, singer, singer_device_id)
         self.queue_version += 1
         return self.queue.items[-1]  # Return the newly added item
 
@@ -69,9 +75,11 @@ class Room(BaseModel):
             next_song = self.queue.items.pop(0)
             self.queue_version += 1
             self.current_singer = next_song.singer
+            self.current_singer_device_id = next_song.singer_device_id
             return next_song
 
         self.current_singer = None
+        self.current_singer_device_id = None
         return None
 
     def clear_queue(self) -> None:

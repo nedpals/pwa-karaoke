@@ -9,12 +9,20 @@ class KaraokeQueueItem(BaseModel):
     entry: KaraokeEntry
     id: str = Field(default_factory=generate_nanoid)
     singer: Optional[str] = None
+    singer_device_id: Optional[str] = None
 
 class KaraokeQueue(BaseModel):
     items: list[KaraokeQueueItem]
 
-    def enqueue(self, entry: KaraokeEntry, singer: Optional[str] = None):
-        self.items.append(KaraokeQueueItem(entry=entry, singer=singer))
+    def enqueue(
+        self,
+        entry: KaraokeEntry,
+        singer: Optional[str] = None,
+        singer_device_id: Optional[str] = None,
+    ):
+        self.items.append(
+            KaraokeQueueItem(entry=entry, singer=singer, singer_device_id=singer_device_id)
+        )
 
     def dequeue(self, id_to_delete: str):
         for queue_item in self.items:

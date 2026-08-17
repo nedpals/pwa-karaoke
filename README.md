@@ -118,6 +118,14 @@ The **Autoplay** toggle in the controller's Player tab turns that off. With it o
 
 Pressing **Next** always skips to the next reserved song, whatever the toggle is set to.
 
+### Scoring
+
+Every song is scored when it ends, and skipping one still scores it. The display spins through digits until the score lands, holds it, then moves on. Anything that played for less than five seconds is not scored.
+
+A controller opens with a **Mic Check**, the same way a display opens with a Sound Check. Allowing it scores singing through the phone's microphone, with the audio staying on the device and only the score sent. Only the remote that reserved the song listens.
+
+Declining, denying the browser, or reaching the app over plain `http`, where microphones are unavailable, leaves the machine to invent the score instead. Both land in the same range.
+
 ### Development
 
 To contribute to PWA Karaoke, fork the repository and create a new branch for your changes. See the individual README files in the `backend/` and `frontend/` directories for setup instructions. After making your changes, submit a pull request with a clear description of what you've modified.

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { useDebounce } from "use-debounce";
 import { useSearchParams, Navigate } from "react-router";
 import type { KaraokeEntry, KaraokeQueueItem } from "../types";
@@ -144,15 +144,21 @@ function useSongDialog() {
 }
 
 function SearchResults({
-  searchResults,
+  entries,
   isSearching,
+  isLoadingMore,
+  hasMore,
+  onLoadMore,
   searchError,
   searchQuery,
   entryStatus,
   onSelect,
 }: {
-  searchResults: { entries: KaraokeEntry[] } | undefined;
+  entries: KaraokeEntry[];
   isSearching: boolean;
+  isLoadingMore: boolean;
+  hasMore: boolean;
+  onLoadMore: () => void;
   searchError: string | null;
   searchQuery: string;
   entryStatus: (entry: KaraokeEntry) => EntryStatus | null;
@@ -171,14 +177,14 @@ function SearchResults({
     );
   }
 
-  if (searchResults && searchResults.entries.length > 0) {
+  if (entries.length > 0) {
     return (
       <div>
-        <SectionLabel count={searchResults.entries.length} busy={isSearching}>
+        <SectionLabel count={entries.length} busy={isSearching}>
           Results
         </SectionLabel>
         <div className={cn("flex flex-col gap-1", isSearching && "opacity-50")}>
-          {searchResults.entries.map((entry, i) => (
+          {entries.map((entry, i) => (
             <SongRow
               key={`search_result_${entry.id}_${i}`}
               entry={entry}
@@ -188,6 +194,17 @@ function SearchResults({
             />
           ))}
         </div>
+
+        {hasMore && (
+          <Button
+            type="button"
+            onClick={onLoadMore}
+            disabled={isLoadingMore || isSearching}
+            className="w-full mt-2"
+          >
+            {isLoadingMore ? "Loading" : "More Songs"}
+          </Button>
+        )}
       </div>
     );
   }
@@ -233,8 +250,13 @@ function SongSelectTab() {
   const [settled, debounced] = useDebounce(typed, SEARCH_DEBOUNCE_MS);
   const query = settled.length >= MIN_QUERY_LENGTH ? settled : "";
 
-  const { data: searchResults, error, isLoading, isValidating } = useSearch(query);
-  const isFetching = isLoading || isValidating;
+  const { data: pages, error, isLoading, isValidating, size, setSize } = useSearch(query);
+  const entries = useMemo(() => pages?.flatMap((page) => page.entries) ?? [], [pages]);
+  const total = pages?.[pages.length - 1]?.total ?? 0;
+  const hasMore = entries.length > 0 && entries.length < total;
+  // The page just asked for has not arrived while its slot is still empty.
+  const isLoadingMore = pages !== undefined && size > 0 && pages[size - 1] === undefined;
+  const isFetching = isLoading || (isValidating && !isLoadingMore);
   // Covers the wait for the singer to stop typing as well as the request, so
   // the results do not read as settled while another one is on its way.
   const isSearching = isFetching || typed !== settled;
@@ -255,8 +277,11 @@ function SongSelectTab() {
         {dialog.error && <Notice>{dialog.error}</Notice>}
 
         <SearchResults
-          searchResults={searchResults}
+          entries={entries}
           isSearching={isSearching}
+          isLoadingMore={isLoadingMore}
+          hasMore={hasMore}
+          onLoadMore={() => setSize(size + 1)}
           searchError={error ? "Search failed. Check the connection." : null}
           searchQuery={query}
           entryStatus={entryStatus}

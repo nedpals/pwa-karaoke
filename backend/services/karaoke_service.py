@@ -1,31 +1,46 @@
+import asyncio
+
 from pydantic import BaseModel, ValidationError
 from typing_extensions import Annotated
 from fastapi import Depends
 
-from core.search import KaraokeSearchResult, KaraokeEntry, VideoURLResult, KaraokeSourceProvider
-from source_providers.youtube import YTKaraokeSourceProvider
+from core.ranking import is_singable, query_tokens, score_candidate
+from core.search import (
+    KaraokeSearchResult,
+    KaraokeEntry,
+    KaraokeSourceProvider,
+    SearchCandidate,
+)
+from source_providers.registry import build_registry
 from cache_store import get_cache_store, CacheStore
+from config import config
 
-# Providers are shared rather than rebuilt per request. KaraokeService is
-# constructed through Depends on every call, so anything a provider accumulates
-# (health, sessions, rate limit state) would otherwise reset each time.
-# Register additional providers here.
-SOURCE_PROVIDERS: list[KaraokeSourceProvider] = [
-    YTKaraokeSourceProvider()
-]
+# Built once and shared. KaraokeService is constructed through Depends on every
+# call, so anything a provider accumulates (health, sessions, rate limit state)
+# would otherwise reset each time.
+SOURCE_REGISTRY = build_registry(config.KARAOKE_SOURCES)
 
 SEARCH_CACHE_TTL_SECONDS = 30 * 60
 
 DEFAULT_SEARCH_LIMIT = 12
 MAX_SEARCH_LIMIT = 50
 
+
 class VideoURLResponse(BaseModel):
     video_url: str | None
     audio_url: str | None = None
 
+
+class ProviderSearchOutcome:
+    def __init__(self, provider: KaraokeSourceProvider, candidates: list[SearchCandidate], ok: bool):
+        self.provider = provider
+        self.candidates = candidates
+        self.ok = ok
+
+
 class KaraokeService:
     def __init__(self, cache: Annotated[CacheStore, Depends(get_cache_store)] = None):
-        self.source_providers = SOURCE_PROVIDERS
+        self.providers = SOURCE_REGISTRY
         self.cache = cache
 
     async def get_health(self) -> dict:
@@ -34,7 +49,7 @@ class KaraokeService:
         video. Playback is only impossible once every provider is down.
         """
         providers = {}
-        for provider in self.source_providers:
+        for provider in self.providers.all():
             try:
                 providers[provider.provider_id] = await provider.check_health()
             except Exception as e:
@@ -63,6 +78,16 @@ class KaraokeService:
         entries = await self._ranked_entries(normalized)
         return KaraokeSearchResult(entries=entries[offset:offset + limit], total=len(entries))
 
+    async def _search_provider(self, provider: KaraokeSourceProvider, query: str) -> ProviderSearchOutcome:
+        """A source that is down costs the others nothing but the results it owed."""
+        try:
+            return ProviderSearchOutcome(provider, await provider.search(query), True)
+        except Exception as e:
+            detail = str(e) or type(e).__name__
+            provider.health.record_failure(detail)
+            print(f"[SERVICE] Search failed for {provider.provider_id}: {detail}")
+            return ProviderSearchOutcome(provider, [], False)
+
     async def _ranked_entries(self, query: str) -> list[KaraokeEntry]:
         """
         Every match for a query, in rank order.
@@ -72,52 +97,80 @@ class KaraokeService:
         down the list.
         """
         if self.cache:
-            cached = self.cache.get_search_results(query)
+            cached = self.cache.get_search_results(query, scope=self._cache_scope())
             if cached is not None:
                 try:
                     return [KaraokeEntry(**entry) for entry in cached.get("entries", [])]
                 except (ValidationError, TypeError) as e:
                     print(f"[SERVICE] Discarding cached results for {query!r}: {e}")
 
-        all_entries = []
-        for provider in self.source_providers:
-            result = await provider.search(query)
-            all_entries.extend(result.entries)
+        providers = self.providers.all()
+        outcomes = await asyncio.gather(*(self._search_provider(p, query) for p in providers))
 
-        # An empty result is usually a provider that just failed rather than a
-        # song nobody has uploaded, and caching it holds the failure open long
-        # after it clears.
-        if self.cache and all_entries:
+        tokens = query_tokens(query)
+        scored: list[tuple[float, KaraokeEntry]] = []
+        seen: set[tuple[str, str]] = set()
+
+        for outcome in outcomes:
+            provider = outcome.provider
+            for candidate in outcome.candidates:
+                key = (candidate.entry.source, candidate.entry.id)
+                if key in seen:
+                    continue
+
+                if not is_singable(candidate, provider.min_duration_seconds, provider.max_duration_seconds):
+                    continue
+
+                seen.add(key)
+                scored.append((
+                    score_candidate(candidate, tokens, curated=provider.curated),
+                    candidate.entry,
+                ))
+
+        # A stable sort leaves equally scored results in registry order.
+        scored.sort(key=lambda ranked: ranked[0], reverse=True)
+        entries = [entry for _, entry in scored]
+
+        # A partial result caches a source's outage for the next half hour, and
+        # an empty one is usually a failure rather than a song nobody uploaded.
+        if self.cache and entries and all(outcome.ok for outcome in outcomes):
             self.cache.cache_search_results(
                 query,
-                {"entries": [entry.model_dump() for entry in all_entries]},
+                {"entries": [entry.model_dump() for entry in entries]},
                 SEARCH_CACHE_TTL_SECONDS,
+                scope=self._cache_scope(),
             )
 
-        return all_entries
+        return entries
+
+    def _cache_scope(self) -> str:
+        """Without this, a page built while a source was down outlives its recovery."""
+        return ",".join(sorted(self.providers.ids))
 
     async def get_video_url(self, entry: KaraokeEntry) -> VideoURLResponse:
-        """Get media URLs for an entry using the appropriate provider based on source field"""
-        # Return existing URLs if already present
+        # Either track alone counts as resolved: an audio-only source leaves
+        # video_url unset, and the two always travel together.
         if entry.video_url or entry.audio_url:
             return VideoURLResponse(video_url=entry.video_url, audio_url=entry.audio_url)
-        elif self.cache:
+
+        if self.cache:
             cached = self.cache.get_media_urls(entry.id, entry.source)
             if cached is not None:
                 return VideoURLResponse(video_url=cached.video_url, audio_url=cached.audio_url)
 
-        result = None
-        for provider in self.source_providers:
-            if provider.provider_id == entry.source:
-                try:
-                    got_result = await provider.get_video_url(entry)
-                    result = VideoURLResult(video_url=got_result, cacheable=True) if isinstance(got_result, str) else got_result
-                except Exception as e:
-                    print(f"[SERVICE] Provider {provider.provider_id} failed for {entry.id}: {e}")
-                    return VideoURLResponse(video_url=None, audio_url=None)
+        provider = self.providers.get(entry.source)
+        if provider is None:
+            print(f"[SERVICE] No provider registered for source {entry.source!r}")
+            return VideoURLResponse(video_url=None)
 
-        # Cache the result (if cache available and cacheable)
-        if result and self.cache and result.cacheable:
+        try:
+            result = await provider.get_video_url(entry)
+        except Exception as e:
+            print(f"[SERVICE] Provider {provider.provider_id} failed for {entry.id}: {e}")
+            provider.health.record_failure(str(e))
+            return VideoURLResponse(video_url=None)
+
+        if self.cache and result.cacheable:
             self.cache.cache_media_urls(
                 entry.id,
                 entry.source,
@@ -125,8 +178,5 @@ class KaraokeService:
                 result.audio_url,
                 result.cache_ttl_seconds
             )
-
-        if result is None:
-            return VideoURLResponse(video_url=None, audio_url=None)
 
         return VideoURLResponse(video_url=result.video_url, audio_url=result.audio_url)

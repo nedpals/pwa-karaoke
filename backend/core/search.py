@@ -1,24 +1,44 @@
 import time
 
-from pydantic import BaseModel
-from typing import Optional, Union
+from pydantic import BaseModel, Field
+from typing import Optional
+
+# Suits a general video platform. Anime openings run well under this floor.
+DEFAULT_MIN_DURATION_SECONDS = 90.0
+DEFAULT_MAX_DURATION_SECONDS = 15 * 60.0
+
 
 class KaraokeEntry(BaseModel):
-    id: str  # Use source ID directly (e.g., YouTube video ID)
+    id: str  # Unique only within its source
     title: str
     artist: str
-    video_url: Optional[str] = None  # Now optional for lazy loading
+    video_url: Optional[str] = None
     audio_url: Optional[str] = None  # When set, video_url carries no audio of its own
     source: str
     uploader: str
     duration: Optional[float]
     thumbnail_url: Optional[str] = None
 
+
+class RankingSignals(BaseModel):
+    """What a provider knows about a result that does not belong on the entry."""
+
+    position: int = 0
+    popularity: float = 0.0  # 0 means unknown, not unpopular
+    verified: bool = False
+
+
+class SearchCandidate(BaseModel):
+    entry: KaraokeEntry
+    signals: RankingSignals = Field(default_factory=RankingSignals)
+
+
 class KaraokeSearchResult(BaseModel):
+    """The HTTP response. Providers return candidates and never build this."""
+
     entries: list[KaraokeEntry]
-    # Matches across every page, so a caller knows whether more can be asked
-    # for. Providers leave this alone; the service fills it in.
     total: int = 0
+
 
 class VideoURLResult(BaseModel):
     video_url: Optional[str]
@@ -29,6 +49,39 @@ class VideoURLResult(BaseModel):
     @property
     def has_media(self) -> bool:
         return bool(self.video_url or self.audio_url)
+
+    @classmethod
+    def resolved(
+        cls,
+        video_url: Optional[str] = None,
+        cache_ttl_seconds: int = 3600,
+        audio_url: Optional[str] = None,
+    ) -> "VideoURLResult":
+        """
+        A populated audio_url means video_url carries no audio of its own and
+        the two are played together, so they must come from one resolution. A
+        source with nothing but a bare instrumental passes audio_url alone.
+        """
+        return cls(
+            video_url=video_url,
+            audio_url=audio_url,
+            cache_ttl_seconds=cache_ttl_seconds,
+            cacheable=True,
+        )
+
+    @classmethod
+    def unavailable(cls, cache_ttl_seconds: int = 30 * 60) -> "VideoURLResult":
+        """The source answered no. A deleted track stays deleted, so remember it."""
+        return cls(video_url=None, audio_url=None, cache_ttl_seconds=cache_ttl_seconds, cacheable=True)
+
+    @classmethod
+    def failed(cls) -> "VideoURLResult":
+        """
+        The attempt broke down, which says nothing about the track. Caching it
+        would keep the song unplayable after the cause is fixed.
+        """
+        return cls(video_url=None, audio_url=None, cacheable=False)
+
 
 class ProviderHealth:
     """
@@ -41,7 +94,7 @@ class ProviderHealth:
 
     def __init__(self, available: bool = True):
         self.available = available
-        self.version: Optional[str] = None  # Version of the backing dependency, when it has one
+        self.version: Optional[str] = None
         self.consecutive_failures: int = 0
         self.last_error: Optional[str] = None
         self.last_success_at: Optional[float] = None
@@ -75,8 +128,26 @@ class ProviderHealth:
 
 
 class KaraokeSourceProvider:
+    """
+    A provider fetches and normalises one source. It does not rank, filter by
+    duration or paginate: those compare sources against each other, and a
+    provider sees only its own results.
+    """
+
+    # Set on a source carrying nothing but karaoke cuts, which have no reason to
+    # print the word ranking otherwise looks for.
+    curated: bool = False
+
+    min_duration_seconds: float = DEFAULT_MIN_DURATION_SECONDS
+    max_duration_seconds: float = DEFAULT_MAX_DURATION_SECONDS
+
     def __init__(self) -> None:
         self.health = ProviderHealth()
+
+    @property
+    def provider_id(self) -> str:
+        """Matches `source` on this provider's entries and is half of every cache key."""
+        raise NotImplementedError(f"{type(self).__name__} must define provider_id")
 
     async def check_health(self) -> dict:
         """
@@ -87,31 +158,20 @@ class KaraokeSourceProvider:
         can break on its own, such as an external tool or an API credential.
         """
         return self.health.snapshot()
-    
-    @property
-    def provider_id(self) -> str:
-        """
-        Return the provider ID that should match the 'source' field in KaraokeEntry.
-        Should be implemented by subclasses.
-        """
-        return "unknown"
 
-    async def search(self, query: str) -> KaraokeSearchResult:
-        # Implement search logic here
-        return KaraokeSearchResult(entries=[])
-    
-    async def get_video_url(self, entry: KaraokeEntry) -> Union[str, VideoURLResult, None]:
+    async def search(self, query: str) -> list[SearchCandidate]:
         """
-        Fetch the actual media URLs for an entry on demand.
-        Should be implemented by subclasses that support lazy loading.
+        Everything that survives source specific filtering, unranked and
+        untrimmed. Trimming here hides candidates that outrank ours elsewhere.
 
-        Args:
-            entry: KaraokeEntry that needs media URL fetching
-
-        Returns:
-            - str: Simple video URL (uses default cache settings)
-            - VideoURLResult: Video and/or audio URL with custom cache settings.
-              Audio-only sources may leave video_url unset.
-            - None: No media available
+        Raise on failure. The service isolates each provider and records it;
+        an empty list instead reads as a song nobody has uploaded.
         """
-        return None  # Default implementation - no media available
+        return []
+
+    async def get_video_url(self, entry: KaraokeEntry) -> VideoURLResult:
+        """Build the result with resolved(), unavailable() or failed()."""
+        return VideoURLResult.failed()
+
+    async def close(self):
+        pass

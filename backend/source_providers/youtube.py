@@ -1,17 +1,23 @@
 import asyncio
 import json
-import math
 import os
-import re
 import random
 import shlex
 import time
-from typing import NamedTuple, Optional, Union
+from typing import NamedTuple, Optional
 from urllib.parse import urlparse, urlunparse
 
 import yt_dlp
 
-from core.search import KaraokeSourceProvider, KaraokeSearchResult, KaraokeEntry, VideoURLResult, ProviderHealth
+from core.ranking import KARAOKE_QUERY_KEYWORDS, enhance_query_with_keywords
+from core.search import (
+    KaraokeSourceProvider,
+    KaraokeEntry,
+    RankingSignals,
+    SearchCandidate,
+    VideoURLResult,
+    ProviderHealth,
+)
 from config import config
 
 PLAYER_CLIENT = "android_sdkless"
@@ -28,52 +34,11 @@ VIDEO_CODEC_PREFERENCE = ("avc1", "vp09", "vp9", "av01")
 # included, needs MSE and a library on the frontend.
 PROGRESSIVE_PROTOCOLS = ("https", "http")
 
-# Words that mark a query as already asking for a karaoke cut.
-KARAOKE_QUERY_KEYWORDS = (
-    "karaoke", "instrumental", "backing track", "sing along", "videoke", "minus one",
-)
-
 # Sixty results cost about half a second more than thirty, and they are what
 # the ranking, and the pages after the first, have to work with.
 SEARCH_FETCH_LIMIT = 60
-SEARCH_POOL_LIMIT = 48
 
 SEARCH_SOCKET_TIMEOUT_SECONDS = 15
-
-# Below the floor sit isolated solo backing tracks, above the ceiling sit
-# hour-long nonstop medleys.
-MIN_DURATION_SECONDS = 90
-MAX_DURATION_SECONDS = 15 * 60
-
-KARAOKE_TITLE_MARKERS = KARAOKE_QUERY_KEYWORDS + (
-    "sing-along", "no vocal", "lyrics on screen", "karaoke version",
-)
-
-# Shapes that match the song but are not something to sing over.
-NON_KARAOKE_TITLE_MARKERS = (
-    "official video", "official music video", "official lyric", "lyric video",
-    "(lyrics)", "reaction", "live performance", "behind the scenes",
-    "tutorial", "how to", "review", "full album", "medley", "nonstop",
-    "compilation",
-)
-
-KARAOKE_CHANNEL_MARKERS = (
-    "karaoke", "videoke", "sing king", "karafun", "singalong", "sing along",
-)
-
-TITLE_MARKER_WEIGHT = 3.0
-NON_KARAOKE_PENALTY = 3.0
-KARAOKE_CHANNEL_WEIGHT = 2.0
-VERIFIED_CHANNEL_WEIGHT = 1.5
-# Damped by a log and capped, so a well known track edges out an equally
-# karaoke one without burying it.
-POPULARITY_WEIGHT = 0.4
-POPULARITY_CEILING = 7.0
-# YouTube's own ordering stays the baseline; a result has to earn its way off it.
-POSITION_PENALTY = 0.15
-# Outweighs the rest, or a karaoke channel's most popular upload outranks the
-# song that was actually asked for.
-QUERY_MATCH_WEIGHT = 6.0
 
 # Applied to every CLI invocation. --ignore-config keeps a stray user or system
 # config file from changing behaviour under us.
@@ -120,7 +85,7 @@ class YtdlpMissing(YtdlpError):
 class ExtractionOutcome(NamedTuple):
     url: Optional[str]
     # True when the attempt failed for a reason that says nothing about this
-    # particular video, so the result is not worth remembering.
+    # particular video.
     environmental_failure: bool
     # When set, `url` carries no audio of its own and the two play together.
     audio_url: Optional[str] = None
@@ -141,8 +106,6 @@ class YtdlpHealth(ProviderHealth):
 
     async def probe(self, force: bool = False) -> dict:
         """
-        Refresh the version probe.
-
         Skipped while the binary is known good and rate limited otherwise, so
         /health can call it on every request. Probing on the way back up is what
         lets an install into a running container recover without a restart.
@@ -184,10 +147,7 @@ def proxy_url() -> Optional[str]:
 
 
 def _subprocess_env() -> dict:
-    """
-    Pass the proxy through the environment rather than argv so credentials stay
-    out of the host process list.
-    """
+    """Pass the proxy through the environment so credentials stay out of the host process list."""
     env = os.environ.copy()
     proxy = proxy_url()
     if proxy:
@@ -373,61 +333,12 @@ def select_stream_urls(info: dict) -> tuple[Optional[str], Optional[str]]:
     return None, None
 
 
-def query_tokens(query: str) -> list[str]:
-    return re.findall(r"\w+", query.lower(), flags=re.UNICODE)
-
-
-def query_match_ratio(title: str, tokens: list[str]) -> float:
-    if not tokens:
-        return 1.0
-    return sum(1 for token in tokens if token in title) / len(tokens)
-
-
 def channel_name(info: dict) -> str:
     return info.get("channel") or info.get("uploader") or ""
 
 
-def is_playable_entry(info: dict) -> bool:
-    """
-    Whether a search result is a single track someone can queue and sing.
-
-    A live stream never ends and reports no duration, so it would stall the
-    player once it reached the front of a queue.
-    """
-    if info.get("live_status") in ("is_live", "is_upcoming", "post_live"):
-        return False
-
-    duration = info.get("duration")
-    if duration is None:
-        return False
-
-    return MIN_DURATION_SECONDS <= duration <= MAX_DURATION_SECONDS
-
-
-def score_entry(info: dict, position: int, tokens: list[str]) -> float:
-    """
-    Rank a search result by how much it looks like a karaoke track.
-
-    YouTube ranks for watching rather than for singing, so an official music
-    video or a lyric video routinely outranks the karaoke cut of the same song.
-    """
-    title = (info.get("title") or "").lower()
-    channel = channel_name(info).lower()
-
-    score = QUERY_MATCH_WEIGHT * query_match_ratio(title, tokens)
-    score += TITLE_MARKER_WEIGHT * sum(1 for marker in KARAOKE_TITLE_MARKERS if marker in title)
-    score -= NON_KARAOKE_PENALTY * sum(1 for marker in NON_KARAOKE_TITLE_MARKERS if marker in title)
-
-    if any(marker in channel for marker in KARAOKE_CHANNEL_MARKERS):
-        score += KARAOKE_CHANNEL_WEIGHT
-
-    if info.get("channel_is_verified"):
-        score += VERIFIED_CHANNEL_WEIGHT
-
-    views = info.get("view_count") or 0
-    score += POPULARITY_WEIGHT * min(math.log10(views + 1), POPULARITY_CEILING)
-
-    return score - POSITION_PENALTY * position
+def is_live(info: dict) -> bool:
+    return info.get("live_status") in ("is_live", "is_upcoming", "post_live")
 
 
 class YTKaraokeSourceProvider(KaraokeSourceProvider):
@@ -447,7 +358,6 @@ class YTKaraokeSourceProvider(KaraokeSourceProvider):
     async def check_health(self) -> dict:
         return await self.health.probe()
 
-
     @staticmethod
     def _thumbnail_url(video_id: str) -> Optional[str]:
         """
@@ -460,10 +370,9 @@ class YTKaraokeSourceProvider(KaraokeSourceProvider):
 
     def _get_ydl_opts(self) -> dict:
         """
-        Options for the in-process search path. Search stays on the library
-        because it runs on the interactive path, where a process spawn per
-        keystroke would be felt, and because a flat search returns a far more
-        stable shape than a full extraction.
+        Search stays on the library because it runs on the interactive path,
+        where a process spawn per keystroke would be felt, and because a flat
+        search returns a far more stable shape than a full extraction.
         """
         opts = {
             'quiet': True,
@@ -484,65 +393,55 @@ class YTKaraokeSourceProvider(KaraokeSourceProvider):
 
         return opts
 
-    def _search_videos(self, query: str, max_results: int = SEARCH_POOL_LIMIT) -> list[KaraokeEntry]:
-        """
-        Search YouTube and return the best karaoke candidates it offered.
-
-        More results are fetched than are returned so that the unplayable and
-        the merely song-shaped can be dropped without thinning the list.
-
-        Takes the query as the singer typed it: the keyword added on the way to
-        YouTube would otherwise count as a word every karaoke result matches.
-        """
+    def _search_videos(self, query: str) -> list[SearchCandidate]:
         ydl_opts = self._get_ydl_opts()
-        tokens = query_tokens(query)
-        ranked: list[tuple[float, KaraokeEntry]] = []
+        candidates: list[SearchCandidate] = []
         seen: set[str] = set()
 
-        try:
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                search_query = f"ytsearch{SEARCH_FETCH_LIMIT}:{self._enhance_query_with_keywords(query)}"
-                search_results = ydl.extract_info(search_query, download=False)
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            search_query = f"ytsearch{SEARCH_FETCH_LIMIT}:{self._enhance_query(query)}"
+            search_results = ydl.extract_info(search_query, download=False)
 
-                if not search_results or 'entries' not in search_results:
-                    return []
+            if not search_results or 'entries' not in search_results:
+                return []
 
-                for position, video_info in enumerate(search_results['entries']):
-                    if not video_info:
-                        continue
+            for position, video_info in enumerate(search_results['entries']):
+                if not video_info:
+                    continue
 
-                    video_id = video_info.get('id', '')
-                    if not video_id or video_id in seen:
-                        continue
+                video_id = video_info.get('id', '')
+                if not video_id or video_id in seen:
+                    continue
 
-                    if not is_playable_entry(video_info):
-                        continue
+                if is_live(video_info):
+                    continue
 
-                    uploader = channel_name(video_info)
-                    if self.allowed_channels and not self._is_allowed_channel(uploader):
-                        continue
+                uploader = channel_name(video_info)
+                if self.allowed_channels and not self._is_allowed_channel(uploader):
+                    continue
 
-                    seen.add(video_id)
-                    ranked.append((score_entry(video_info, position, tokens), KaraokeEntry(
+                seen.add(video_id)
+                candidates.append(SearchCandidate(
+                    entry=KaraokeEntry(
                         id=video_id,
                         title=video_info.get('title', 'Unknown Title'),
                         artist=uploader,
-                        video_url=None,  # Will be loaded on demand
+                        video_url=None,  # Loaded on demand
                         source=self.provider_id,
                         uploader=uploader,
                         duration=video_info.get('duration'),
-                        thumbnail_url=self._thumbnail_url(video_id)
-                    )))
+                        thumbnail_url=self._thumbnail_url(video_id),
+                    ),
+                    signals=RankingSignals(
+                        position=position,
+                        popularity=video_info.get('view_count') or 0,
+                        verified=bool(video_info.get('channel_is_verified')),
+                    ),
+                ))
 
-        except Exception as e:
-            print(f"Search failed: {e}")
-            return []
+        return candidates
 
-        # A stable sort leaves equally scored results in YouTube's order.
-        ranked.sort(key=lambda scored: scored[0], reverse=True)
-        return [entry for _, entry in ranked[:max_results]]
-
-    async def search(self, query: str) -> KaraokeSearchResult:
+    async def search(self, query: str) -> list[SearchCandidate]:
         """
         Search in a worker thread, bounded by SEARCH_TIMEOUT_SECONDS.
 
@@ -551,87 +450,47 @@ class YTKaraokeSourceProvider(KaraokeSourceProvider):
         controller on "Searching" for as long as yt-dlp took to give up.
         """
         try:
-            entries = await asyncio.wait_for(
+            candidates = await asyncio.wait_for(
                 asyncio.to_thread(self._search_videos, query),
                 timeout=config.SEARCH_TIMEOUT_SECONDS,
             )
-            return KaraokeSearchResult(entries=entries)
-
         except asyncio.TimeoutError:
             # The thread is left to unwind on its own; socket_timeout bounds it.
-            print(f"[YTDLP] Search for {query!r} timed out after {config.SEARCH_TIMEOUT_SECONDS:g}s")
-            return KaraokeSearchResult(entries=[])
+            raise YtdlpTimeout(f"Search timed out after {config.SEARCH_TIMEOUT_SECONDS:g}s")
 
-        except Exception as e:
-            print(f"Search failed: {e}")
-            return KaraokeSearchResult(entries=[])
+        # Deliberately not recorded as health: search runs on the library and
+        # extraction on the CLI binary, so a working search says nothing about
+        # whether a queued song can actually be resolved.
+        return candidates
 
-
-    def _enhance_query_with_keywords(self, query: str) -> str:
-        """
-        Steer a search towards karaoke cuts without drowning out the song.
-
-        YouTube has no boolean search operators, so a list of alternatives is
-        read as more words to match rather than a choice between them. Spending
-        four of them on keywords leaves the song title outweighed, and the
-        results drift onto whatever else the keywords match: searching "my way"
-        that way returned ABBA and Toni Braxton in the top ten. One keyword,
-        added only when the query carries none, narrows the search instead.
-        """
-        if not self.karaoke_keywords:
-            return query
-
-        lowered = query.lower()
-        if any(keyword in lowered for keyword in self.karaoke_keywords):
-            return query
-
-        return f"{query} {self.karaoke_keywords[0]}"
+    def _enhance_query(self, query: str) -> str:
+        return enhance_query_with_keywords(query, self.karaoke_keywords)
 
     def _is_allowed_channel(self, channel_name: str) -> bool:
         if not self.allowed_channels:
             return True
         return any(allowed.lower() in channel_name.lower() for allowed in self.allowed_channels)
 
-    async def get_video_url(self, entry: KaraokeEntry) -> Union[str, VideoURLResult, None]:
-        """
-        Fetch the actual video URL for a YouTube entry on demand.
-
-        Args:
-            entry: KaraokeEntry with YouTube video ID as the id
-
-        Returns:
-            VideoURLResult with YouTube-specific cache settings, or None if not available
-        """
+    async def get_video_url(self, entry: KaraokeEntry) -> VideoURLResult:
         if not entry.id:
-            return None  # No video ID
+            return VideoURLResult.unavailable()
 
-        # Construct YouTube URL from video ID
         youtube_url = f"https://www.youtube.com/watch?v={entry.id}"
         outcome = await self._get_raw_video_url(youtube_url)
 
         if outcome.url or outcome.audio_url:
-            return VideoURLResult(
-                video_url=outcome.url,
-                audio_url=outcome.audio_url,
-                cache_ttl_seconds=4 * 3600,  # 4 hours - YouTube URLs are stable
-                cacheable=True
+            # YouTube's signed URLs outlive a sitting.
+            return VideoURLResult.resolved(
+                outcome.url, cache_ttl_seconds=4 * 3600, audio_url=outcome.audio_url
             )
 
-        # A missing binary, a timeout or a blocked proxy is our problem, not
-        # this video's. Caching it would keep the song unplayable for another
-        # 30 minutes after the cause is fixed, so let the next attempt retry.
-        return VideoURLResult(
-            video_url=None,
-            audio_url=None,
-            cache_ttl_seconds=30 * 60,  # 30 minutes for failures
-            cacheable=not outcome.environmental_failure
-        )
+        return VideoURLResult.failed() if outcome.environmental_failure else VideoURLResult.unavailable()
 
     @staticmethod
     def _is_environmental(error: Exception) -> bool:
         """
-        Whether a failure is about the extractor or the network rather than
-        the video itself. A private or deleted video is a stable answer worth
+        Whether a failure is about the extractor or the network rather than the
+        video itself. A private or deleted video is a stable answer worth
         caching; a dead proxy is not.
         """
         if isinstance(error, (YtdlpMissing, YtdlpTimeout)):
@@ -649,17 +508,13 @@ class YTKaraokeSourceProvider(KaraokeSourceProvider):
 
     @classmethod
     def _should_retry(cls, error: Exception) -> bool:
-        # A missing binary will not appear part way through the loop, so
-        # retrying only delays the failure.
+        # A missing binary will not appear part way through the loop.
         if isinstance(error, YtdlpMissing):
             return False
         return cls._is_environmental(error)
 
     async def _get_raw_video_url(self, youtube_url: str, max_retries: int = 3, base_delay: float = 1.0) -> ExtractionOutcome:
         """
-        Extract raw video URL by running the yt-dlp CLI.
-        Returns the best quality video stream URL.
-
         Every attempt is bounded by the wrapper's timeout, so a hung extraction
         releases the request instead of pinning it until yt-dlp gives up on its
         own. yt-dlp's internal retries are kept low for the same reason.
@@ -705,7 +560,3 @@ class YTKaraokeSourceProvider(KaraokeSourceProvider):
                 return ExtractionOutcome(None, environmental)
 
         return ExtractionOutcome(None, True)
-
-    async def close(self):
-        # No cleanup needed for yt-dlp
-        pass

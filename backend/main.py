@@ -19,6 +19,7 @@ from services.karaoke_service import (
     VideoURLResponse,
     DEFAULT_SEARCH_LIMIT,
     MAX_SEARCH_LIMIT,
+    SOURCE_REGISTRY,
 )
 from commands import ControllerCommands, DisplayCommands
 from websocket_errors import WebSocketErrorType, create_error_response
@@ -56,6 +57,7 @@ async def lifespan(app: FastAPI):
     set_cache_store(cache)
     print(f"[STARTUP] Cache initialized: {cache.get_stats()}")
 
+    print(f"[STARTUP] Sources enabled: {', '.join(SOURCE_REGISTRY.ids)}")
     sources = await KaraokeService().get_health()
     for provider_id, state in sources["providers"].items():
         if state["available"]:
@@ -67,6 +69,7 @@ async def lifespan(app: FastAPI):
 
     # Shutdown
     print("[SHUTDOWN] Karaoke server shutting down...")
+    await SOURCE_REGISTRY.close()
     cache = get_cache_store()
     cache.cleanup()
     clear_cache_store()

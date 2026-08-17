@@ -1,5 +1,5 @@
 export interface KaraokeEntry {
-  id: string;  // Changed to string to match YouTube video IDs
+  id: string;  // Unique only within its source
   title: string;
   artist: string;
   video_url: string | null;  // Made optional for lazy loading

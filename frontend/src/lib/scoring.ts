@@ -1,4 +1,18 @@
 import type { TextTone } from "../components/atoms/Text";
+import type { DisplayPlayerState } from "../types";
+
+/**
+ * What counts as one performance.
+ *
+ * The reservation, not the song: queue the same track twice and it is two
+ * turns, two singers and two scores. entry.id is the same for both, so keying
+ * anything on it silently merges them. Falls back to the song only for a state
+ * old enough to predate the field.
+ */
+export function performanceIdOf(state: DisplayPlayerState | null | undefined): string | null {
+  if (!state?.entry) return null;
+  return state.item_id ?? state.entry.id;
+}
 
 const SCORE_FLOOR = 60;
 const SCORE_CEILING = 100;

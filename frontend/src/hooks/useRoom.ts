@@ -32,7 +32,7 @@ export interface RoomState {
   /** A remote asked to move on. The leader display decides what that means. */
   skipRequest: { at: number } | null;
   scoringTurn: boolean;
-  scoreReading: { entryId: string; performance: number; at: number } | null;
+  scoreReading: { itemId: string; performance: number; at: number } | null;
   scoringActive: boolean;
   lastQueueCommand: {
     command: string;
@@ -55,15 +55,15 @@ export interface RoomActions {
   removeSong: (id: string) => Promise<unknown>;
   playSong: () => Promise<unknown>;
   pauseSong: () => Promise<unknown>;
-  playNext: (options?: { fromEntryId?: string | null }) => Promise<unknown>;
+  playNext: (options?: { fromItemId?: string | null }) => Promise<unknown>;
   skipSong: () => Promise<{ screens: number }>;
   queueNextSong: (entryId: string) => void;
   refreshVideoUrl: (entryId: string) => Promise<{ refreshed: boolean }>;
   clearQueue: () => Promise<unknown>;
   setVolume: (volume: number) => Promise<unknown>;
   sendReaction: (reaction: ReactionType) => void;
-  submitScore: (entryId: string, performance: number) => void;
-  publishScore: (entryId: string, score: number, source: ScoreSource) => void;
+  submitScore: (itemId: string, performance: number) => void;
+  publishScore: (itemId: string, score: number, source: ScoreSource) => void;
   announceScoring: (active: boolean) => void;
   setAutoplay: (enabled: boolean) => Promise<unknown>;
 
@@ -271,14 +271,12 @@ export function useRoom(clientType: ClientType, nickname?: string | null): UseRo
         }
         break;
       case "score":
-        // Stamped on arrival so a screen can tell this score from the one the
-        // same song was given the last time it was reserved
-        setScore({ ...(data as SongScore), receivedAt: Date.now() });
+        setScore(data as SongScore);
         break;
       case "score_reading":
         if (clientType === "display") {
-          const reading = data as { entry_id: string; performance: number };
-          setScoreReading({ entryId: reading.entry_id, performance: reading.performance, at: Date.now() });
+          const reading = data as { item_id: string; performance: number };
+          setScoreReading({ itemId: reading.item_id, performance: reading.performance, at: Date.now() });
         }
         break;
       case "scoring_state":
@@ -369,16 +367,16 @@ export function useRoom(clientType: ClientType, nickname?: string | null): UseRo
     removeSong: (id: string) => ws.sendCommandWithAck("remove_song", { entry_id: id }),
     playSong: () => ws.sendCommandWithAck("play_song"),
     pauseSong: () => ws.sendCommandWithAck("pause_song"),
-    playNext: (options?: { fromEntryId?: string | null }) => {
+    playNext: (options?: { fromItemId?: string | null }) => {
       // Only leader displays should trigger next song
       if (clientType === "display" && !isLeader) {
         console.log(`[${clientType}] Non-leader display ignoring playNext request`);
         return Promise.resolve({});
       }
       return ws.sendCommandWithAck("play_next", {
-        // Names the song this advance was decided for. A timer that fires after
+        // Names the turn this advance was decided for. A timer that fires after
         // a remote already skipped would otherwise eat the song after it too.
-        from_entry_id: options?.fromEntryId ?? null,
+        from_item_id: options?.fromItemId ?? null,
       });
     },
     // A remote asks; the leader display decides whether that means scoring the
@@ -401,10 +399,10 @@ export function useRoom(clientType: ClientType, nickname?: string | null): UseRo
     clearQueue: () => ws.sendCommandWithAck("clear_queue"),
     setVolume: (volume: number) => ws.sendCommandWithAck("set_volume", { volume }),
     sendReaction: (reaction: ReactionType) => ws.sendCommand("send_reaction", { reaction }),
-    submitScore: (entryId: string, performance: number) =>
-      ws.sendCommand("submit_score", { entry_id: entryId, performance }),
-    publishScore: (entryId: string, score: number, source: ScoreSource) =>
-      ws.sendCommand("publish_score", { entry_id: entryId, score, source }),
+    submitScore: (itemId: string, performance: number) =>
+      ws.sendCommand("submit_score", { item_id: itemId, performance }),
+    publishScore: (itemId: string, score: number, source: ScoreSource) =>
+      ws.sendCommand("publish_score", { item_id: itemId, score, source }),
     announceScoring: (active: boolean) => ws.sendCommand("scoring_state", { active }),
     setAutoplay: async (enabled: boolean) => {
       const previousSettings = settings;

@@ -20,6 +20,8 @@ export interface VideoURLResponse {
 
 export interface DisplayPlayerState {
   entry: KaraokeEntry | null;
+  /** The reservation on air. See performanceIdOf in lib/scoring. */
+  item_id?: string | null;
   singer?: string | null;
   play_state: "playing" | "paused" | "finished" | "buffering" | "error";
   current_time: number;
@@ -40,13 +42,11 @@ export interface ReactionEvent {
 export type ScoreSource = "mic" | "auto";
 
 export interface SongScore {
-  entry_id: string;
+  item_id: string;
   score: number;
   source: ScoreSource;
   version: number;
   timestamp: number;
-  /** Client clock, stamped on arrival. `timestamp` is the server's. */
-  receivedAt?: number;
 }
 
 export interface KaraokeQueueItem {

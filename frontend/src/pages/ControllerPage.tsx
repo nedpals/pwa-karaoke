@@ -32,6 +32,7 @@ import { ReactionPad } from "../components/organisms/ReactionPad";
 import { useLoudnessScore, type MicStatus } from "../hooks/useLoudnessScore";
 import { getNickname } from "../lib/nicknameStorage";
 import { TimeDisplay } from "../components/molecules/TimeDisplay";
+import { performanceIdOf } from "../lib/scoring";
 import { cn } from "../lib/utils";
 
 const CONTROLLER_TABS = [
@@ -740,7 +741,7 @@ function ControllerPageContent() {
 
   const mic = useLoudnessScore({
     active: scoringTurn,
-    entryId: playerState?.entry?.id ?? null,
+    itemId: performanceIdOf(playerState),
     playState: playerState?.play_state ?? null,
     onSubmit: submitScore,
   });

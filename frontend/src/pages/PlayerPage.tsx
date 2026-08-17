@@ -22,7 +22,7 @@ import { useVideoUrlWithRetry } from "../hooks/useVideoUrlWithRetry";
 import { getDisplayNickname } from "../lib/nicknameStorage";
 import type { DisplayPlayerState } from "../types";
 import useSmartSync from "../hooks/useSmartSync";
-import { rollScore, scoreFromPerformance } from "../lib/scoring";
+import { performanceIdOf, rollScore, scoreFromPerformance } from "../lib/scoring";
 
 type AppState = "awaiting-interaction" | "connecting" | "connected" | "ready" | "scoring" | "playing";
 
@@ -59,10 +59,8 @@ interface OSDState {
 }
 
 interface ScoringSession {
-  entryId: string;
+  itemId: string;
   quick: boolean;
-  /** Anything published before this belongs to an earlier run of the song. */
-  startedAt: number;
 }
 
 interface PlayerContextType {
@@ -72,7 +70,7 @@ interface PlayerContextType {
   playerState: DisplayPlayerState | null;
   scoring: ScoringSession | null;
   scoreRevealed: () => void;
-  finishSong: (entryId: string, playedSeconds: number) => void;
+  finishSong: (itemId: string, playedSeconds: number) => void;
   osd: OSDState;
   setOSD: (osd: OSDState, options?: TempStateSetterOptions<OSDState>) => void;
 }
@@ -151,8 +149,8 @@ function VideoPlayerComponent({
     const current = playerStateRef.current;
     if (!current) return;
 
-    // Held on its last frame. Starting it again replayed the skipped song
-    // instead of handing over to the next one.
+    // Held on its last frame, and left there. Starting it again is how a
+    // skipped song replays itself instead of handing over.
     if (current.play_state === "finished" || current.play_state === "error") {
       if (!video.paused) video.pause();
       return;
@@ -269,7 +267,7 @@ function VideoPlayerComponent({
   }, [playerState?.volume]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Send periodic updates while playing. Keyed on the song rather than the
-  // whole state, which changes every second and kept restarting the timer.
+  // whole state, which changes every second and would restart the timer.
   useEffect(() => {
     if (
       !videoRef.current ||
@@ -346,8 +344,8 @@ function VideoPlayerComponent({
     };
   }, [playerState?.entry]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // The stream died after it started, which is a different failure from never
-  // having resolved one, and the room has to be told rather than left waiting
+  // A stream that died after it started is a different failure from one that
+  // never resolved, and reads differently to the room
   const streamFailed = playerState?.play_state === "error";
 
   if (isLoadingVideoUrl && !streamFailed) {
@@ -429,7 +427,7 @@ function VideoPlayerComponent({
       {/* No autoPlay: a remount that started itself brought back the song the
           room had just finished with. applyPlaybackState decides instead. */}
       <video
-        key={playerState?.entry?.id}
+        key={performanceIdOf(playerState) ?? undefined}
         ref={videoRef}
         className="w-full h-full object-contain"
         preload="auto"
@@ -730,7 +728,7 @@ function PlayingStateContent() {
           onRetry={retry}
           retryCount={retryCount}
           onNearingEnd={handleNearingEnd}
-          onSongEnded={(playedSeconds) => finishSong(playerState.entry!.id, playedSeconds)}
+          onSongEnded={(playedSeconds) => finishSong(performanceIdOf(playerState)!, playedSeconds)}
         />
       </div>
 
@@ -786,14 +784,8 @@ function ScoringStateScreen() {
   const { score } = useRoomContext();
   const { scoring, scoreRevealed } = usePlayerState();
 
-  // A leftover score is ignored rather than shown against the wrong song, or
-  // against the same song reserved a second time
-  const isCurrentScore =
-    score &&
-    scoring &&
-    score.entry_id === scoring.entryId &&
-    (score.receivedAt ?? 0) >= scoring.startedAt;
-  const shownScore = isCurrentScore ? score.score : null;
+  // A leftover score is ignored rather than shown against the wrong turn
+  const shownScore = score && scoring && score.item_id === scoring.itemId ? score.score : null;
 
   return (
     <div className="relative h-screen w-screen">
@@ -916,7 +908,7 @@ function PlayerStateProviderInternal({ children }: { children: React.ReactNode }
   const advancing = useRef(false);
   const starting = useRef(false);
   const recovering = useRef(false);
-  const currentEntryId = playerState?.entry?.id ?? null;
+  const currentItemId = performanceIdOf(playerState);
   const playState = playerState?.play_state ?? null;
 
   // useRoom hands back fresh closures every render, so timers and one-shot
@@ -952,22 +944,21 @@ function PlayerStateProviderInternal({ children }: { children: React.ReactNode }
     reservedCount,
   ]);
 
-  // Autoplay is a room setting the player enforces, not something the server
-  // weighs up: asking it to advance always advances. With autoplay off the room
-  // is simply left sitting on the song it already reported as finished, which
-  // is what the held screen is showing. Null means it was held.
-  const rollOver = useCallback((entryId: string): Promise<unknown> | null => {
+  // Autoplay is enforced here, not by the server: asking always advances, so
+  // holding is simply not asking, and the room stays on the song it already
+  // reported as finished. Null means it was held.
+  const rollOver = useCallback((itemId: string): Promise<unknown> | null => {
     // Nothing reserved means nothing is being held back, so let it roll and
     // clear the room the same way an autoplaying one does
     if (!autoplayRef.current && reservedCountRef.current > 0) return null;
 
-    return Promise.resolve(playNextRef.current({ fromEntryId: entryId }));
+    return Promise.resolve(playNextRef.current({ fromItemId: itemId }));
   }, []);
 
   // Nothing on air and something reserved, so the leader calls for it. This is
   // also what starts a room whose screen joined after the songs did.
   useEffect(() => {
-    if (!isLeader || currentEntryId || reservedCount === 0 || starting.current) return;
+    if (!isLeader || currentItemId || reservedCount === 0 || starting.current) return;
 
     starting.current = true;
     Promise.resolve(playNextRef.current({}))
@@ -977,17 +968,16 @@ function PlayerStateProviderInternal({ children }: { children: React.ReactNode }
       .finally(() => {
         starting.current = false;
       });
-  }, [isLeader, currentEntryId, reservedCount]);
+  }, [isLeader, currentItemId, reservedCount]);
 
-  // The ask that ends a finished song is a timer living in one screen, so
-  // reloading it during the score screen drops the rollover and parks the room
-  // on a dead song. Nothing was held in a cue that would need replaying: a
+  // The ask that ends a finished song is a timer in one screen, so reloading
+  // that screen drops the rollover and parks the room on a dead song. A
   // finished song still sitting there is the whole story, so the leader reads
-  // it back off the state and finishes the job.
+  // it back off the state rather than needing a cue replayed.
   useEffect(() => {
     const held =
       isLeader &&
-      currentEntryId &&
+      currentItemId &&
       playState === "finished" &&
       autoplay &&
       !scoring &&
@@ -1002,7 +992,7 @@ function PlayerStateProviderInternal({ children }: { children: React.ReactNode }
 
       console.warn("[Player] Finishing a rollover that was dropped");
       recovering.current = true;
-      Promise.resolve(playNextRef.current({ fromEntryId: currentEntryId }))
+      Promise.resolve(playNextRef.current({ fromItemId: currentItemId }))
         .catch((error: unknown) => {
           console.error("[Player] Could not finish the dropped rollover:", error);
         })
@@ -1012,7 +1002,7 @@ function PlayerStateProviderInternal({ children }: { children: React.ReactNode }
     }, ROLLOVER_WATCHDOG_MS);
 
     return () => window.clearTimeout(timer);
-  }, [isLeader, currentEntryId, playState, autoplay, scoring]);
+  }, [isLeader, currentItemId, playState, autoplay, scoring]);
 
   // The remotes cannot see the scoring screen, so the leader says when it is up
   useEffect(() => {
@@ -1027,17 +1017,17 @@ function PlayerStateProviderInternal({ children }: { children: React.ReactNode }
   // and being promoted mid grace re-arms it rather than costing the singer
   // their score.
   useEffect(() => {
-    if (!isLeader || !scoring || judged.current === scoring.entryId) return;
+    if (!isLeader || !scoring || judged.current === scoring.itemId) return;
 
-    const { entryId } = scoring;
-    const heard = scoreReading?.entryId === entryId ? scoreReading : null;
+    const { itemId } = scoring;
+    const heard = scoreReading?.itemId === itemId ? scoreReading : null;
 
     const publish = () => {
-      if (judged.current === entryId) return;
+      if (judged.current === itemId) return;
 
-      judged.current = entryId;
+      judged.current = itemId;
       publishScoreRef.current(
-        entryId,
+        itemId,
         heard ? scoreFromPerformance(heard.performance) : rollScore(),
         heard ? "mic" : "auto",
       );
@@ -1060,8 +1050,8 @@ function PlayerStateProviderInternal({ children }: { children: React.ReactNode }
     scoreTimer.current = null;
   }, []);
 
-  // Held until the room has actually moved on. Dropping the screen first put
-  // the finished song back on air for the length of the round trip.
+  // Held until the room has actually moved on, so the finished song does not
+  // come back on air for the length of the round trip.
   const finishScoring = useCallback((quick: boolean, delay: number) => {
     if (advancing.current) return;
 
@@ -1076,8 +1066,8 @@ function PlayerStateProviderInternal({ children }: { children: React.ReactNode }
       // A skip advances whatever autoplay says, since someone asked for it.
       // The end of a song is the rollover autoplay governs.
       const advance = quick
-        ? Promise.resolve(playNextRef.current({ fromEntryId: session.entryId }))
-        : rollOver(session.entryId);
+        ? Promise.resolve(playNextRef.current({ fromItemId: session.itemId }))
+        : rollOver(session.itemId);
 
       if (!advance) {
         setScoring(null);
@@ -1096,10 +1086,10 @@ function PlayerStateProviderInternal({ children }: { children: React.ReactNode }
     }, delay);
   }, [clearScoreTimer, rollOver]);
 
-  const beginScoring = useCallback((entryId: string, quick: boolean) => {
-    if (scoringRef.current?.entryId === entryId || advancing.current) return;
+  const beginScoring = useCallback((itemId: string, quick: boolean) => {
+    if (scoringRef.current?.itemId === itemId || advancing.current) return;
 
-    const session: ScoringSession = { entryId, quick, startedAt: Date.now() };
+    const session: ScoringSession = { itemId, quick };
     scoringRef.current = session;
     setScoring(session);
 
@@ -1114,25 +1104,24 @@ function PlayerStateProviderInternal({ children }: { children: React.ReactNode }
 
   // A song reaching its own end, and a song ended early by a remote, are the
   // same event from here on
-  const endSong = useCallback((entryId: string, playedSeconds: number, quick: boolean) => {
-    const current = playerStateRef.current;
-    if (current?.entry?.id !== entryId) return;
+  const endSong = useCallback((itemId: string, playedSeconds: number, quick: boolean) => {
+    if (performanceIdOf(playerStateRef.current) !== itemId) return;
 
     // Too short to be worth a score, but the end of a song all the same
     if (playedSeconds < MIN_SCORED_SECONDS) {
       if (quick) {
-        playNextRef.current({ fromEntryId: entryId });
+        playNextRef.current({ fromItemId: itemId });
       } else {
-        rollOver(entryId);
+        rollOver(itemId);
       }
       return;
     }
 
-    beginScoring(entryId, quick);
+    beginScoring(itemId, quick);
   }, [beginScoring, rollOver]);
 
-  const finishSong = useCallback((entryId: string, playedSeconds: number) => {
-    endSong(entryId, playedSeconds, false);
+  const finishSong = useCallback((itemId: string, playedSeconds: number) => {
+    endSong(itemId, playedSeconds, false);
   }, [endSong]);
 
   // Keyed on the request, so a re-render cannot skip twice
@@ -1146,13 +1135,13 @@ function PlayerStateProviderInternal({ children }: { children: React.ReactNode }
     handledSkip.current = skipRequest.at;
 
     const current = playerStateRef.current;
-    const entryId = current?.entry?.id;
-    if (!entryId) return;
+    const itemId = performanceIdOf(current);
+    if (!current || !itemId) return;
 
     // Already over: the score screen is up, or the queue is held. Either way
     // the room was asked to move on, so move on.
     if (current.play_state === "finished") {
-      playNextRef.current({ fromEntryId: entryId });
+      playNextRef.current({ fromItemId: itemId });
       return;
     }
 
@@ -1165,7 +1154,7 @@ function PlayerStateProviderInternal({ children }: { children: React.ReactNode }
       timestamp: Date.now(),
     });
 
-    endSong(entryId, current.current_time, true);
+    endSong(itemId, current.current_time, true);
   }, [skipRequest, endSong]);
 
   useEffect(() => {
@@ -1174,7 +1163,7 @@ function PlayerStateProviderInternal({ children }: { children: React.ReactNode }
     setScoring(null);
     clearScoreTimer();
     judged.current = null;
-  }, [currentEntryId, clearScoreTimer]);
+  }, [currentItemId, clearScoreTimer]);
 
   useEffect(() => {
     return () => clearScoreTimer();

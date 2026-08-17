@@ -61,13 +61,13 @@ class ClientCommands:
     async def _update_player_state(self, state_data):
         state = state_data if isinstance(state_data, DisplayPlayerState) else DisplayPlayerState.parse_obj(state_data)
 
-        previous = self.room.player_state.entry if self.room.player_state else None
-        previous_entry_id = previous.id if previous else None
-        entry_id = state.entry.id if state.entry else None
+        previous_item_id = self.room.player_state.item_id if self.room.player_state else None
 
         self.room.update_player_state(state)
 
-        if entry_id != previous_entry_id:
+        # Keyed on the reservation: the same song queued twice is a new turn for
+        # a different phone, and comparing entry ids would miss the handover
+        if self.room.player_state.item_id != previous_item_id:
             await self._send_scoring_turns(self.client.room_id)
 
         # Broadcast the room's copy so clients see the server-stamped version
@@ -156,15 +156,13 @@ class ClientCommands:
         knows how far the song actually got. Nothing here reads the clock or the
         setting, so the room cannot disagree with the screen about either.
         """
-        from_entry_id = payload.get("from_entry_id") if isinstance(payload, dict) else None
+        from_item_id = payload.get("from_item_id") if isinstance(payload, dict) else None
+        current_item_id = self.room.player_state.item_id if self.room.player_state else None
 
-        current_entry = self.room.player_state.entry if self.room.player_state else None
-        current_entry_id = current_entry.id if current_entry else None
-
-        # The caller was deciding about a song the room has already left, so
+        # The caller was deciding about a turn the room has already left, so
         # honouring it would swallow whatever is playing now
-        if from_entry_id and from_entry_id != current_entry_id:
-            print(f"[DEBUG] Ignoring stale play_next for {from_entry_id} in room {self.client.room_id}")
+        if from_item_id and from_item_id != current_item_id:
+            print(f"[DEBUG] Ignoring stale play_next for {from_item_id} in room {self.client.room_id}")
             return {"advanced": False, "stale": True}
 
         next_song = self.room.play_next()
@@ -269,11 +267,10 @@ class ControllerCommands(ClientCommands):
         if not target or self.client.device_id != target:
             return
 
-        entry_id = payload["entry_id"]
+        item_id = payload["item_id"]
         state = self.room.player_state
-        current = state.entry if state else None
 
-        if not current or current.id != entry_id:
+        if not state or not state.entry or state.item_id != item_id:
             return
 
         if state.current_time < MIN_SCORED_SECONDS:
@@ -282,7 +279,7 @@ class ControllerCommands(ClientCommands):
         await self.session_manager.broadcast_to_room_displays(
             self.client.room_id,
             "score_reading",
-            {"entry_id": entry_id, "performance": payload["performance"]},
+            {"item_id": item_id, "performance": payload["performance"]},
         )
 
     async def set_autoplay(self, payload):
@@ -304,18 +301,18 @@ class DisplayCommands(ClientCommands):
         current = self.room.player_state
 
         # What is on air is decided here, never by a display. A report about
-        # some other song is a video element that has not caught up yet, and
+        # some other turn is a video element that has not caught up yet, and
         # accepting it would drag the room back to the song before this one.
-        current_entry_id = current.entry.id if current and current.entry else None
-        incoming_entry_id = state.entry.id if state.entry else None
-        if current and incoming_entry_id != current_entry_id:
-            print(f"[DEBUG] Ignoring player state for {incoming_entry_id} while {current_entry_id} is on air")
+        current_item_id = current.item_id if current else None
+        incoming_item_id = state.item_id if state.entry else None
+        if current and incoming_item_id != current_item_id:
+            print(f"[DEBUG] Ignoring player state for {incoming_item_id} while {current_item_id} is on air")
             return
 
         # Finished covers the end of a song, a skip and an autoplay hold. A
         # video element that remounts and starts itself must not reopen it.
         if current and current.play_state == "finished" and state.play_state != "finished":
-            print(f"[DEBUG] Ignoring {state.play_state} report for finished entry {current_entry_id}")
+            print(f"[DEBUG] Ignoring {state.play_state} report for finished turn {current_item_id}")
             return
 
         await self._update_player_state(state)
@@ -371,7 +368,7 @@ class DisplayCommands(ClientCommands):
             self.client.room_id,
             "score",
             {
-                "entry_id": payload["entry_id"],
+                "item_id": payload["item_id"],
                 "score": payload["score"],
                 "source": payload["source"],
                 "timestamp": time.time(),

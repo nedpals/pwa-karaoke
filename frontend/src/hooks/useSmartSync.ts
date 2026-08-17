@@ -48,7 +48,6 @@ export default function useSmartSync(
     // The leader is the source of truth, so predicting against itself is only drift
     if (isLeader || !playerState) return playerState;
 
-    // Nothing to advance unless the room is actually running
     if (playerState.play_state !== "playing") return playerState;
 
     // The stamp belongs to an older state, so its age says nothing about this one

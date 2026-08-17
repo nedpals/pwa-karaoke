@@ -17,6 +17,7 @@ class Room(BaseModel):
     player_version: int = 1
     autoplay: bool = True
     # Held here because a display echoing player state back does not carry it.
+    current_item_id: Optional[str] = None
     current_singer: Optional[str] = None
     current_singer_device_id: Optional[str] = None
     settings_version: int = 1
@@ -74,10 +75,12 @@ class Room(BaseModel):
         if self.queue.items:
             next_song = self.queue.items.pop(0)
             self.queue_version += 1
+            self.current_item_id = next_song.id
             self.current_singer = next_song.singer
             self.current_singer_device_id = next_song.singer_device_id
             return next_song
 
+        self.current_item_id = None
         self.current_singer = None
         self.current_singer_device_id = None
         return None
@@ -109,6 +112,9 @@ class Room(BaseModel):
 
         state.version = version
         state.timestamp = time.time()
+        # Which reservation is on air is the room's to say, so a client echo
+        # cannot relabel a performance
+        state.item_id = self.current_item_id if state.entry else None
         state.singer = self.current_singer if state.entry else None
         self.player_state = state
         self.player_version += 1

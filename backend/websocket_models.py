@@ -41,9 +41,9 @@ class SetAutoplayPayload(BaseModel):
 
 class PlayNextPayload(BaseModel):
     """Play next command payload."""
-    # The song the caller decided to advance from. Set by a display, whose
+    # The turn the caller decided to advance from. Set by a display, whose
     # timers can fire after a remote has already moved the room on.
-    from_entry_id: Optional[str] = None
+    from_item_id: Optional[str] = None
 
 class PlayerStatePayload(DisplayPlayerState):
     """Player state update payload - inherits from DisplayPlayerState"""
@@ -56,13 +56,13 @@ class SendReactionPayload(BaseModel):
     reaction: ReactionType
 
 class SubmitScorePayload(BaseModel):
-    """Loudness reading a controller measured for the song it just heard"""
-    entry_id: str = Field(..., min_length=1)
+    """Loudness reading a controller measured for the turn it just heard"""
+    item_id: str = Field(..., min_length=1)
     performance: float = Field(..., ge=0.0, le=1.0)
 
 class PublishScorePayload(BaseModel):
     """Score decided by the leader display"""
-    entry_id: str = Field(..., min_length=1)
+    item_id: str = Field(..., min_length=1)
     score: int = Field(..., ge=0, le=100)
     source: Literal["mic", "auto"]
 

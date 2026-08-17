@@ -1,6 +1,8 @@
 import asyncio
 import json
+import math
 import os
+import re
 import random
 import shlex
 import time
@@ -16,11 +18,51 @@ from config import config
 PLAYER_CLIENT = "android_sdkless"
 FORMAT_SELECTOR = "best[ext=mp4]/best[ext=webm]/best"
 
-# Words that mark a query as already asking for a karaoke cut. "videoke" and
-# "minus one" are here because they are what a lot of people actually type.
+# Words that mark a query as already asking for a karaoke cut.
 KARAOKE_QUERY_KEYWORDS = (
     "karaoke", "instrumental", "backing track", "sing along", "videoke", "minus one",
 )
+
+# Thirty results come back in about the same time as ten, and the spare twenty
+# are what the ranking has to work with.
+SEARCH_FETCH_LIMIT = 30
+SEARCH_RESULT_LIMIT = 12
+
+# Below the floor sit isolated solo backing tracks, above the ceiling sit
+# hour-long nonstop medleys.
+MIN_DURATION_SECONDS = 90
+MAX_DURATION_SECONDS = 15 * 60
+
+KARAOKE_TITLE_MARKERS = KARAOKE_QUERY_KEYWORDS + (
+    "sing-along", "no vocal", "lyrics on screen", "karaoke version",
+)
+
+# Shapes that match the song but are not something to sing over.
+NON_KARAOKE_TITLE_MARKERS = (
+    "official video", "official music video", "official lyric", "lyric video",
+    "(lyrics)", "reaction", "live performance", "behind the scenes",
+    "tutorial", "how to", "review", "full album", "medley", "nonstop",
+    "compilation",
+)
+
+KARAOKE_CHANNEL_MARKERS = (
+    "karaoke", "videoke", "sing king", "karafun", "singalong", "sing along",
+)
+
+TITLE_MARKER_WEIGHT = 3.0
+NON_KARAOKE_PENALTY = 3.0
+KARAOKE_CHANNEL_WEIGHT = 2.0
+VERIFIED_CHANNEL_WEIGHT = 1.5
+# Damped by a log and capped, so a well known track edges out an equally
+# karaoke one without burying it.
+POPULARITY_WEIGHT = 0.4
+POPULARITY_CEILING = 7.0
+# YouTube's own ordering stays the baseline; a result has to earn its way off it.
+POSITION_PENALTY = 0.15
+# Outweighs the rest, or a karaoke channel's most popular upload outranks the
+# song that was actually asked for.
+QUERY_MATCH_WEIGHT = 6.0
+
 
 # Applied to every CLI invocation. --ignore-config keeps a stray user or system
 # config file from changing behaviour under us.
@@ -234,6 +276,63 @@ def select_stream_url(info: dict) -> Optional[str]:
     return info.get("url")
 
 
+def query_tokens(query: str) -> list[str]:
+    return re.findall(r"\w+", query.lower(), flags=re.UNICODE)
+
+
+def query_match_ratio(title: str, tokens: list[str]) -> float:
+    if not tokens:
+        return 1.0
+    return sum(1 for token in tokens if token in title) / len(tokens)
+
+
+def channel_name(info: dict) -> str:
+    return info.get("channel") or info.get("uploader") or ""
+
+
+def is_playable_entry(info: dict) -> bool:
+    """
+    Whether a search result is a single track someone can queue and sing.
+
+    A live stream never ends and reports no duration, so it would stall the
+    player once it reached the front of a queue.
+    """
+    if info.get("live_status") in ("is_live", "is_upcoming", "post_live"):
+        return False
+
+    duration = info.get("duration")
+    if duration is None:
+        return False
+
+    return MIN_DURATION_SECONDS <= duration <= MAX_DURATION_SECONDS
+
+
+def score_entry(info: dict, position: int, tokens: list[str]) -> float:
+    """
+    Rank a search result by how much it looks like a karaoke track.
+
+    YouTube ranks for watching rather than for singing, so an official music
+    video or a lyric video routinely outranks the karaoke cut of the same song.
+    """
+    title = (info.get("title") or "").lower()
+    channel = channel_name(info).lower()
+
+    score = QUERY_MATCH_WEIGHT * query_match_ratio(title, tokens)
+    score += TITLE_MARKER_WEIGHT * sum(1 for marker in KARAOKE_TITLE_MARKERS if marker in title)
+    score -= NON_KARAOKE_PENALTY * sum(1 for marker in NON_KARAOKE_TITLE_MARKERS if marker in title)
+
+    if any(marker in channel for marker in KARAOKE_CHANNEL_MARKERS):
+        score += KARAOKE_CHANNEL_WEIGHT
+
+    if info.get("channel_is_verified"):
+        score += VERIFIED_CHANNEL_WEIGHT
+
+    views = info.get("view_count") or 0
+    score += POPULARITY_WEIGHT * min(math.log10(views + 1), POPULARITY_CEILING)
+
+    return score - POSITION_PENALTY * position
+
+
 class YTKaraokeSourceProvider(KaraokeSourceProvider):
     def __init__(self, allowed_channels: list[str] = None, karaoke_keywords: list[str] = None):
         super().__init__()
@@ -287,32 +386,46 @@ class YTKaraokeSourceProvider(KaraokeSourceProvider):
 
         return opts
 
-    def _search_videos(self, query: str, max_results: int = 10) -> list[KaraokeEntry]:
-        """Search for videos using yt-dlp's ytsearch functionality."""
+    def _search_videos(self, query: str, max_results: int = SEARCH_RESULT_LIMIT) -> list[KaraokeEntry]:
+        """
+        Search YouTube and return the best karaoke candidates it offered.
+
+        More results are fetched than are returned so that the unplayable and
+        the merely song-shaped can be dropped without thinning the list.
+
+        Takes the query as the singer typed it: the keyword added on the way to
+        YouTube would otherwise count as a word every karaoke result matches.
+        """
         ydl_opts = self._get_ydl_opts()
-        entries = []
+        tokens = query_tokens(query)
+        ranked: list[tuple[float, KaraokeEntry]] = []
+        seen: set[str] = set()
 
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                # Use ytsearch to get multiple results
-                search_query = f"ytsearch{max_results}:{query}"
+                search_query = f"ytsearch{SEARCH_FETCH_LIMIT}:{self._enhance_query_with_keywords(query)}"
                 search_results = ydl.extract_info(search_query, download=False)
 
                 if not search_results or 'entries' not in search_results:
-                    return entries
+                    return []
 
-                for video_info in search_results['entries']:
+                for position, video_info in enumerate(search_results['entries']):
                     if not video_info:
                         continue
 
-                    # Filter by allowed channels if specified
-                    uploader = video_info.get('uploader', '')
+                    video_id = video_info.get('id', '')
+                    if not video_id or video_id in seen:
+                        continue
+
+                    if not is_playable_entry(video_info):
+                        continue
+
+                    uploader = channel_name(video_info)
                     if self.allowed_channels and not self._is_allowed_channel(uploader):
                         continue
 
-                    video_id = video_info.get('id', '')
-
-                    entries.append(KaraokeEntry(
+                    seen.add(video_id)
+                    ranked.append((score_entry(video_info, position, tokens), KaraokeEntry(
                         id=video_id,
                         title=video_info.get('title', 'Unknown Title'),
                         artist=uploader,
@@ -321,22 +434,24 @@ class YTKaraokeSourceProvider(KaraokeSourceProvider):
                         uploader=uploader,
                         duration=video_info.get('duration'),
                         thumbnail_url=self._thumbnail_url(video_id)
-                    ))
+                    )))
 
         except Exception as e:
             print(f"Search failed: {e}")
+            return []
 
-        return entries
+        # A stable sort leaves equally scored results in YouTube's order.
+        ranked.sort(key=lambda scored: scored[0], reverse=True)
+        return [entry for _, entry in ranked[:max_results]]
 
     async def search(self, query: str) -> KaraokeSearchResult:
         try:
-            enhanced_query = self._enhance_query_with_keywords(query)
             loop = asyncio.get_event_loop()
             if not loop.is_running():
                 return KaraokeSearchResult(entries=[])
             with ThreadPoolExecutor() as executor:
                 # Run the search in a thread to avoid blocking the event loop
-                entries = await loop.run_in_executor(executor, self._search_videos, enhanced_query)
+                entries = await loop.run_in_executor(executor, self._search_videos, query)
             return KaraokeSearchResult(entries=entries)
 
         except Exception as e:

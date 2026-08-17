@@ -10,10 +10,12 @@ A FastAPI-based WebSocket server for managing karaoke rooms, song queues, and pl
   - [Installation](#installation)
   - [Configuration](#configuration)
 - [Source Providers](#source-providers)
+  - [Provider Interface](#provider-interface)
   - [Creating a New Source Provider](#creating-a-new-source-provider)
+  - [Ranking Signals](#ranking-signals)
+  - [Resolving Video URLs](#resolving-video-urls)
   - [Registration](#registration)
   - [Health](#health)
-  - [Provider Interface](#provider-interface)
   - [Built-in Providers](#built-in-providers)
 - [HTTP API Endpoints](#http-api-endpoints)
 - [WebSocket Protocol](#websocket-protocol)
@@ -128,59 +130,118 @@ Frontend implements intelligent synchronization for non-leader displays:
 
 ## Source Providers
 
-The backend supports multiple video sources through a pluggable provider system. Implement custom providers to search additional video platforms beyond the built-in YouTube provider.
+Every registered source is searched at once and the results are ranked together.
+A provider fetches and normalises one source; ranking, duration filtering and
+paging happen in `KaraokeService`, which is the only place that can compare
+sources against each other.
 
-### Basic Example
+### Provider Interface
 
-Create a provider that returns video URLs immediately during search:
+```python
+class KaraokeSourceProvider:
+    curated: bool = False
+    min_duration_seconds: float = 90.0
+    max_duration_seconds: float = 900.0
+
+    @property
+    def provider_id(self) -> str: ...
+    async def check_health(self) -> dict: ...
+    async def search(self, query: str) -> list[SearchCandidate]: ...
+    async def get_video_url(self, entry: KaraokeEntry) -> VideoURLResult: ...
+    async def close(self): ...
+```
+
+| Member | Notes |
+| --- | --- |
+| `provider_id` | No default. Matches `source` on the entries produced, and is half of every cache key, so it must be stable and unique. |
+| `curated` | Set on a source carrying nothing but karaoke cuts. Ranking looks for "karaoke" in a title, which such a source has no reason to print. |
+| `min_duration_seconds` / `max_duration_seconds` | What counts as one singable track. Defaults suit a general video platform; lower the floor for a source of anime openings. |
+| `search` | Return candidates unranked and untrimmed. Raise on failure rather than returning `[]`. |
+| `get_video_url` | Build the result with `resolved()`, `unavailable()` or `failed()`. |
+| `close` | Called on every provider at shutdown. Implement if yours holds an HTTP session. |
+
+### Creating a New Source Provider
 
 ```python
 # source_providers/basic_provider.py
-from core.search import KaraokeSourceProvider, KaraokeSearchResult, KaraokeEntry
+from core.search import (
+    KaraokeSourceProvider, KaraokeEntry, RankingSignals, SearchCandidate, VideoURLResult
+)
 
 class BasicVideoProvider(KaraokeSourceProvider):
     @property
     def provider_id(self) -> str:
         return "basic"
-    
-    async def search(self, query: str) -> KaraokeSearchResult:
-        entries = []
-        
-        # Your search logic here
-        search_results = await your_api_search(query)
-        
-        for result in search_results:
-            entries.append(KaraokeEntry(
-                id=result["id"],
-                title=result["title"],
-                artist=result["artist"],
-                source="basic",
-                uploader=result["uploader"],
-                duration=result["duration"],
-                video_url=result["direct_url"]  # Include URL directly
-            ))
-        
-        return KaraokeSearchResult(entries=entries)
+
+    async def search(self, query: str) -> list[SearchCandidate]:
+        return [
+            SearchCandidate(
+                entry=KaraokeEntry(
+                    id=result["id"],
+                    title=result["title"],
+                    artist=result["artist"],
+                    source=self.provider_id,
+                    uploader=result["uploader"],
+                    duration=result["duration"],
+                ),
+                signals=RankingSignals(
+                    position=position,
+                    popularity=result.get("views", 0),
+                    verified=result.get("official", False),
+                ),
+            )
+            for position, result in enumerate(await your_api_search(query))
+        ]
+
+    async def get_video_url(self, entry: KaraokeEntry) -> VideoURLResult:
+        return VideoURLResult.resolved(await your_api_get_stream_url(entry.id))
 ```
+
+Set `video_url` on the entry instead when the URL is free to produce during
+search. Track shape is read from URL presence rather than a mode flag: a source
+supplying a bare instrumental leaves `video_url` unset.
+
+### Ranking Signals
+
+Ranking lives in `core/ranking.py`. Providers report signals rather than sorting
+their own results, and leave a signal at its default rather than inventing one:
+
+| Signal | Meaning |
+| --- | --- |
+| `position` | Where the source itself put the result |
+| `popularity` | View count or nearest equivalent; 0 means unknown, not unpopular |
+| `verified` | The uploader is authoritative for this track |
+
+### Resolving Video URLs
+
+Which constructor you use decides whether the answer is cached:
+
+| Constructor | Use when | Cached |
+| --- | --- | --- |
+| `VideoURLResult.resolved(url, ttl)` | The URL is ready to play | Yes |
+| `VideoURLResult.unavailable()` | The source answered no, and a deleted or private track stays deleted | Yes |
+| `VideoURLResult.failed()` | The attempt broke down (timeout, proxy, missing binary) | No |
 
 ### Registration
 
-Add your provider to the shared registry in `services/karaoke_service.py`:
+Add a factory to `source_providers/registry.py`:
 
 ```python
-from source_providers.basic_provider import BasicVideoProvider
-
-SOURCE_PROVIDERS: list[KaraokeSourceProvider] = [
-    YTKaraokeSourceProvider(),
-    BasicVideoProvider(),  # Add your provider here
-]
+PROVIDER_FACTORIES: dict[str, Callable[[], KaraokeSourceProvider]] = {
+    "youtube": YTKaraokeSourceProvider,
+    "basic": BasicVideoProvider,
+}
 ```
 
-Providers are constructed once and shared across requests, so anything a provider accumulates survives between calls.
+Every known provider is enabled by default. `KARAOKE_SOURCES` narrows that to a
+comma separated list of IDs (`KARAOKE_SOURCES=youtube,basic`); an unknown ID
+fails at startup rather than going missing quietly. Providers are built once and
+shared, so anything one accumulates survives between requests.
 
 ### Health
 
-A provider is assumed usable by default. If yours depends on something that can break on its own, such as an external tool or an API credential, override `check_health` to report it:
+A provider is assumed usable by default. Override `check_health` if yours
+depends on something that can break on its own:
 
 ```python
 class BasicVideoProvider(KaraokeSourceProvider):
@@ -193,43 +254,20 @@ class BasicVideoProvider(KaraokeSourceProvider):
         return self.health.snapshot()
 ```
 
-Every provider's state is reported under `sources` on `/health`, which returns 503 once no provider can resolve a video.
+Report on whether the provider can still *resolve* a video, which is what makes
+a queued song playable. A working search does not imply it: the YouTube provider
+searches through the yt-dlp library but extracts through the CLI binary, so it
+leaves health alone on a successful search.
 
-### Lazy Loading with get_video_url
+Every provider's state is reported under `sources` on `/health`, which returns
+503 once no provider can resolve a video.
 
-For scenarios where fetching video URLs during search is inefficient (rate limits, expensive API calls, etc.), implement `get_video_url`:
+### Built-in Providers
 
-```python
-class LazyVideoProvider(KaraokeSourceProvider):
-    @property
-    def provider_id(self) -> str:
-        return "lazy"
-    
-    async def search(self, query: str) -> KaraokeSearchResult:
-        entries = []
-        search_results = await your_api_search(query)
-        
-        for result in search_results:
-            entries.append(KaraokeEntry(
-                id=result["id"],
-                title=result["title"],
-                artist=result["artist"],
-                source="lazy",
-                uploader=result["uploader"],
-                duration=result["duration"]
-                # No video_url - will be fetched on-demand
-            ))
-        
-        return KaraokeSearchResult(entries=entries)
-    
-    async def get_video_url(self, entry: KaraokeEntry) -> Union[str, VideoURLResult, None]:
-        # Fetch video URL when actually needed
-        return VideoURLResult(
-            video_url=await your_api_get_stream_url(entry.id),
-            cache_ttl_seconds=3600,
-            cacheable=True
-        )
-```
+| ID | Source | Notes |
+| --- | --- | --- |
+| `youtube` | YouTube, via yt-dlp | Searches through the library, extracts through the CLI binary |
+
 
 ## HTTP Server
 
@@ -387,13 +425,13 @@ The server processes incoming WebSocket messages by extracting the command name 
 #### KaraokeEntry
 ```typescript
 {
-  id: string,
+  id: string,            // Unique only within its source
   title: string,
   artist: string,
   duration?: number,
   thumbnail_url?: string,
   video_url?: string,
-  source: string,
+  source: string,        // Provider ID that produced this entry
   uploader: string
 }
 ```

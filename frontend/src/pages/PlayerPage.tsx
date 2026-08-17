@@ -917,6 +917,9 @@ function PlayerStateProviderInternal({ children }: { children: React.ReactNode }
   const scoringRef = useRef<ScoringSession | null>(null);
   const judged = useRef<string | null>(null);
   const advancing = useRef(false);
+  // A turn is scored once. Without this the held song would open a fresh score
+  // screen every time a screen re-read the finished state.
+  const scoredItem = useRef<string | null>(null);
   const starting = useRef(false);
   const recovering = useRef(false);
   const currentItemId = performanceIdOf(playerState);
@@ -1110,9 +1113,10 @@ function PlayerStateProviderInternal({ children }: { children: React.ReactNode }
   }, [clearScoreTimer, rollOver]);
 
   const beginScoring = useCallback((itemId: string, quick: boolean) => {
-    if (scoringRef.current?.itemId === itemId || advancing.current) return;
+    if (scoredItem.current === itemId || advancing.current) return;
 
     const session: ScoringSession = { itemId, quick };
+    scoredItem.current = itemId;
     scoringRef.current = session;
     setScoring(session);
 
@@ -1151,12 +1155,14 @@ function PlayerStateProviderInternal({ children }: { children: React.ReactNode }
   const handledSkip = useRef<number | null>(null);
   const handledPlayback = useRef<number | null>(null);
 
-  // A remote pressed Next. Only a screen knows how far the song got, so the
-  // choice between scoring it and moving straight on is made here.
+  // A remote pressed Next. Only the leader decides what that means, because
+  // only its clock is the room's: a follower predicting between reports could
+  // land on the other side of the scoring threshold and disagree.
   useEffect(() => {
     if (!skipRequest || handledSkip.current === skipRequest.at) return;
 
     handledSkip.current = skipRequest.at;
+    if (!isLeader) return;
 
     const current = playerStateRef.current;
     const itemId = performanceIdOf(current);
@@ -1189,7 +1195,20 @@ function PlayerStateProviderInternal({ children }: { children: React.ReactNode }
     });
 
     endSong(itemId, current.current_time, true);
-  }, [skipRequest, endSong]);
+  }, [skipRequest, isLeader, endSong]);
+
+  // Followers put the score screen up off the room's own state rather than
+  // deciding for themselves. current_time on a finished turn is the number the
+  // leader ended it with, so every screen scores the same songs.
+  useEffect(() => {
+    if (playState !== "finished" || !currentItemId) return;
+    if (scoring || scoredItem.current === currentItemId) return;
+
+    const current = playerStateRef.current;
+    if (!current || (current.current_time ?? 0) < MIN_SCORED_SECONDS) return;
+
+    beginScoring(currentItemId, false);
+  }, [playState, currentItemId, scoring, beginScoring]);
 
   // A remote asked to play or pause. The leader reports the change and every
   // screen follows the room, rather than each guessing at it separately.
@@ -1229,6 +1248,7 @@ function PlayerStateProviderInternal({ children }: { children: React.ReactNode }
   useEffect(() => {
     scoringRef.current = null;
     advancing.current = false;
+    scoredItem.current = null;
     setScoring(null);
     clearScoreTimer();
     judged.current = null;

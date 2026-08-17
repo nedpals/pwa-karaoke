@@ -48,12 +48,19 @@ interface OSDState {
   visible: boolean;
 }
 
+interface ScoringSession {
+  entryId: string;
+  quick: boolean;
+  /** Anything published before this belongs to an earlier run of the song. */
+  startedAt: number;
+}
+
 interface PlayerContextType {
   appState: AppState;
   hasInteracted: boolean;
   setHasInteracted: (value: boolean) => void;
   playerState: DisplayPlayerState | null;
-  scoring: { entryId: string; quick: boolean } | null;
+  scoring: ScoringSession | null;
   scoreRevealed: () => void;
   finishSong: (entryId: string, playedSeconds: number) => void;
   osd: OSDState;
@@ -95,49 +102,86 @@ function VideoPlayerComponent({
   const isBufferingRef = useRef(false);
   const hasNearingEndFiredRef = useRef(false);
 
+  // Media events and interval ticks fire long after the render that made them,
+  // so they read the room through a ref rather than a stale closure
+  const playerStateRef = useRef(playerState);
+
+  useEffect(() => {
+    playerStateRef.current = playerState;
+  }, [playerState]);
+
   const updateVersionedPlayerState = useCallback((partialState: Partial<DisplayPlayerState>) => {
-    const versionedState = {
-      entry: playerState?.entry || null,
+    const current = playerStateRef.current;
+    const entry = "entry" in partialState ? partialState.entry ?? null : current?.entry ?? null;
+
+    // Reporting a song the room has left behind would put it back on air
+    if (entry && current?.entry && entry.id !== current.entry.id) return;
+
+    // Finished is the room's call: end of song, a skip, or an autoplay hold
+    if (current?.play_state === "finished" && partialState.play_state !== "finished") return;
+
+    updatePlayerState({
       play_state: "paused" as const,
       current_time: 0,
       duration: 0,
-      volume: playerState?.volume ?? 0.5,
+      volume: current?.volume ?? 0.5,
       version: Date.now(),
       timestamp: Date.now(),
       ...partialState,
-    };
+      entry,
+    });
+  }, [updatePlayerState]);
 
-    updatePlayerState(versionedState);
-  }, [playerState?.entry, playerState?.volume, updatePlayerState]);
+  // One place decides whether the element runs, so a fresh mount, a buffer
+  // recovery and a controller command cannot disagree about it
+  const applyPlaybackState = useCallback((video: HTMLVideoElement) => {
+    const current = playerStateRef.current;
+    if (!current) return;
 
-  // Handle play/pause state changes from controller commands
-  useEffect(() => {
-    if (!videoRef.current || !playerState) return;
-
-    const video = videoRef.current;
-    const shouldPlay = playerState.play_state === "playing";
-    const shouldPause = playerState.play_state === "paused";
-
-    // Set video time to match playerState (for reload/sync)
-    // Only sync forward to prevent regression loops on reconnection
-    if (
-      playerState.current_time &&
-      playerState.current_time > video.currentTime &&
-      Math.abs(video.currentTime - playerState.current_time) > 2
-    ) {
-      video.currentTime = playerState.current_time;
+    // Held on its last frame. Starting it again replayed the skipped song
+    // instead of handing over to the next one.
+    if (current.play_state === "finished") {
+      if (!video.paused) video.pause();
+      return;
     }
 
-    if (shouldPlay && video.paused) {
+    // Only sync forward to prevent regression loops on reconnection
+    if (
+      current.current_time &&
+      current.current_time > video.currentTime &&
+      Math.abs(video.currentTime - current.current_time) > 2
+    ) {
+      video.currentTime = current.current_time;
+    }
+
+    if (current.play_state === "paused") {
+      if (!video.paused) video.pause();
+      return;
+    }
+
+    // "playing" and "buffering" both mean the room is expecting sound
+    if (video.paused) {
       video.play().catch((error) => {
         if (error.name !== "AbortError") {
           console.error("Video play failed:", error);
         }
       });
-    } else if (shouldPause && !video.paused) {
-      video.pause();
     }
-  }, [playerState?.play_state, playerState?.current_time]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Handle play/pause state changes from controller commands. videoUrl is in
+  // here because the element only mounts once a URL resolves, which can be long
+  // after the song changed.
+  useEffect(() => {
+    if (!videoRef.current) return;
+    applyPlaybackState(videoRef.current);
+  }, [
+    videoUrl,
+    playerState?.entry?.id,
+    playerState?.play_state,
+    playerState?.current_time,
+    applyPlaybackState,
+  ]);
 
   // Handle volume changes from controller
   useEffect(() => {
@@ -147,11 +191,12 @@ function VideoPlayerComponent({
     video.volume = playerState.volume ?? 0.5;
   }, [playerState?.volume]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Send periodic updates while playing
+  // Send periodic updates while playing. Keyed on the song rather than the
+  // whole state, which changes every second and kept restarting the timer.
   useEffect(() => {
     if (
       !videoRef.current ||
-      !playerState?.entry ||
+      !playerState?.entry?.id ||
       playerState.play_state !== "playing"
     ) {
       return;
@@ -160,12 +205,13 @@ function VideoPlayerComponent({
     const video = videoRef.current;
 
     const interval = setInterval(() => {
-      if (!video || video.paused || video.ended || !playerState?.entry) {
+      const current = playerStateRef.current;
+      if (video.paused || video.ended || !current?.entry) {
         return;
       }
 
       updateVersionedPlayerState({
-        entry: playerState.entry,
+        entry: current.entry,
         play_state: "playing",
         current_time: video.currentTime,
         duration: video.duration || 0,
@@ -173,7 +219,7 @@ function VideoPlayerComponent({
       });
     }, 1000);
     return () => clearInterval(interval);
-  }, [playerState]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [playerState?.entry?.id, playerState?.play_state, updateVersionedPlayerState]);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -203,10 +249,11 @@ function VideoPlayerComponent({
   // Handle page unload/reload - save current video state
   useEffect(() => {
     const handleBeforeUnload = () => {
-      if (videoRef.current && playerState?.entry) {
+      const current = playerStateRef.current;
+      if (videoRef.current && current?.entry) {
         const video = videoRef.current;
         updateVersionedPlayerState({
-          entry: playerState.entry,
+          entry: current.entry,
           play_state: video.paused ? "paused" : "playing",
           current_time: video.currentTime,
           duration: video.duration || 0,
@@ -287,16 +334,19 @@ function VideoPlayerComponent({
         </OSD>
       )}
 
+      {/* No autoPlay: a remount that started itself brought back the song the
+          room had just finished with. applyPlaybackState decides instead. */}
       <video
         key={playerState?.entry?.id}
         ref={videoRef}
         className="w-full h-full object-contain"
-        autoPlay
+        preload="auto"
         onPlay={(ev) => {
-          if (playerState?.entry) {
+          const current = playerStateRef.current;
+          if (current?.entry) {
             const video = ev.currentTarget;
             updateVersionedPlayerState({
-              entry: playerState.entry,
+              entry: current.entry,
               play_state: "playing",
               current_time: video.currentTime,
               duration: video.duration || 0,
@@ -305,10 +355,11 @@ function VideoPlayerComponent({
           }
         }}
         onPause={(ev) => {
-          if (playerState?.entry) {
+          const current = playerStateRef.current;
+          if (current?.entry) {
             const video = ev.currentTarget;
             updateVersionedPlayerState({
-              entry: playerState.entry,
+              entry: current.entry,
               play_state: "paused",
               current_time: video.currentTime,
               duration: video.duration || 0,
@@ -319,9 +370,12 @@ function VideoPlayerComponent({
         onWaiting={(ev) => {
           if (isBufferingRef.current) return;
 
+          const current = playerStateRef.current;
+          if (!current?.entry) return;
+
           const video = ev.currentTarget;
           updateVersionedPlayerState({
-            entry: playerState?.entry ?? null,
+            entry: current.entry,
             play_state: "buffering",
             current_time: video.currentTime || 0,
             duration: video.duration || 0,
@@ -333,48 +387,31 @@ function VideoPlayerComponent({
         onCanPlay={(ev) => {
           isBufferingRef.current = false;
 
-          if (playerState?.entry && playerState.play_state !== "playing") {
-            const video = ev.currentTarget;
+          const current = playerStateRef.current;
+          const video = ev.currentTarget;
+
+          // Only clears the buffering report. A paused or finished song is
+          // left where the room put it.
+          if (current?.entry && current.play_state === "buffering") {
             updateVersionedPlayerState({
-              entry: playerState.entry,
+              entry: current.entry,
               play_state: "playing",
               current_time: video.currentTime || 0,
               duration: video.duration || 0,
               volume: video.volume,
             });
           }
-        }}
-        onCanPlayThrough={(ev) => {
-          if (!playerState) return;
-          const video = ev.currentTarget;
-          const shouldPlay = playerState.play_state === "playing";
-          const shouldPause = playerState.play_state === "paused";
 
-          // Set video time to match playerState (for reload/sync)
-          // Only sync forward to prevent regression loops on reconnection
-          if (
-            playerState.current_time &&
-            playerState.current_time > video.currentTime &&
-            Math.abs(video.currentTime - playerState.current_time) > 2
-          ) {
-            video.currentTime = playerState.current_time - 1;
-          }
-
-          if (shouldPlay && video.paused) {
-            video.play().catch((error) => {
-              if (error.name !== "AbortError") {
-                console.error("Video play failed:", error);
-              }
-            });
-          } else if (shouldPause && !video.paused) {
-            video.pause();
-          }
+          applyPlaybackState(video);
         }}
+        onCanPlayThrough={(ev) => applyPlaybackState(ev.currentTarget)}
         onEnded={(ev) => {
-          if (!playerState?.entry) return;
+          const current = playerStateRef.current;
+          if (!current?.entry || current.play_state === "finished") return;
+
           const video = ev.currentTarget;
           updateVersionedPlayerState({
-            entry: playerState.entry,
+            entry: current.entry,
             play_state: "finished" as const,
             current_time: video.currentTime || 0,
             duration: video.duration || 0,
@@ -653,8 +690,14 @@ function ScoringStateScreen() {
   const { score } = useRoomContext();
   const { scoring, scoreRevealed } = usePlayerState();
 
-  // A leftover score is ignored rather than shown against the wrong song
-  const shownScore = score && scoring && score.entry_id === scoring.entryId ? score.score : null;
+  // A leftover score is ignored rather than shown against the wrong song, or
+  // against the same song reserved a second time
+  const isCurrentScore =
+    score &&
+    scoring &&
+    score.entry_id === scoring.entryId &&
+    (score.receivedAt ?? 0) >= scoring.startedAt;
+  const shownScore = isCurrentScore ? score.score : null;
 
   return (
     <div className="relative h-screen w-screen">
@@ -736,7 +779,7 @@ function AwaitingInteractionStateScreen() {
 
 function PlayerStateProviderInternal({ children }: { children: React.ReactNode }) {
   const [hasInteracted, setHasInteracted] = useState(false);
-  const [scoring, setScoring] = useState<{ entryId: string; quick: boolean } | null>(null);
+  const [scoring, setScoring] = useState<ScoringSession | null>(null);
   const scoreTimer = useRef<number | null>(null);
 
   const {
@@ -770,23 +813,29 @@ function PlayerStateProviderInternal({ children }: { children: React.ReactNode }
     return clientCount > 1 ? "ready" : "connected";
   }, [hasInteracted, connected, scoring, playerState?.entry, clientCount]);
 
-  const scoringRef = useRef<{ entryId: string; quick: boolean } | null>(null);
+  const scoringRef = useRef<ScoringSession | null>(null);
   const juryTimer = useRef<number | null>(null);
   const readingRef = useRef<{ entryId: string; performance: number } | null>(null);
   const judged = useRef<string | null>(null);
+  const advancing = useRef(false);
+  const currentEntryId = playerState?.entry?.id ?? null;
+  const currentEntryIdRef = useRef(currentEntryId);
 
   // Read when the timer fires, so a display promoted mid-grace still judges
   const isLeaderRef = useRef(isLeader);
   const publishScoreRef = useRef(publishScore);
   const announceScoringRef = useRef(announceScoring);
+  const playNextRef = useRef(playNext);
   const announced = useRef<boolean | null>(null);
 
   useEffect(() => {
     isLeaderRef.current = isLeader;
     publishScoreRef.current = publishScore;
     announceScoringRef.current = announceScoring;
+    playNextRef.current = playNext;
     scoringRef.current = scoring;
-  }, [isLeader, publishScore, announceScoring, scoring]);
+    currentEntryIdRef.current = currentEntryId;
+  }, [isLeader, publishScore, announceScoring, playNext, scoring, currentEntryId]);
 
   // The remotes cannot see the scoring screen, so the leader says when it is up
   useEffect(() => {
@@ -832,19 +881,38 @@ function PlayerStateProviderInternal({ children }: { children: React.ReactNode }
     scoreTimer.current = null;
   }, []);
 
+  // Held until the room has actually moved on. Dropping the screen first put
+  // the finished song back on air for the length of the round trip.
   const finishScoring = useCallback((quick: boolean, delay: number) => {
+    if (advancing.current) return;
+
     clearScoreTimer();
 
     scoreTimer.current = window.setTimeout(() => {
       scoreTimer.current = null;
-      setScoring(null);
+
+      const session = scoringRef.current;
+      if (!session || advancing.current) return;
+
+      advancing.current = true;
       // A skip advances whatever autoplay says, since someone asked for it
-      playNext({ auto: !quick });
+      Promise.resolve(playNextRef.current({ auto: !quick, fromEntryId: session.entryId }))
+        .catch((error: unknown) => {
+          console.error("[Player] Could not advance after scoring:", error);
+        })
+        .finally(() => {
+          advancing.current = false;
+          setScoring(null);
+        });
     }, delay);
-  }, [clearScoreTimer, playNext]);
+  }, [clearScoreTimer]);
 
   const beginScoring = useCallback((entryId: string, quick: boolean) => {
-    setScoring({ entryId, quick });
+    if (scoringRef.current?.entryId === entryId || advancing.current) return;
+
+    const session: ScoringSession = { entryId, quick, startedAt: Date.now() };
+    scoringRef.current = session;
+    setScoring(session);
     clearJuryTimer();
 
     // Judged at once when a reading is already in hand
@@ -864,13 +932,15 @@ function PlayerStateProviderInternal({ children }: { children: React.ReactNode }
   }, [finishScoring]);
 
   const finishSong = useCallback((entryId: string, playedSeconds: number) => {
+    if (entryId !== currentEntryIdRef.current) return;
+
     if (playedSeconds < MIN_SCORED_SECONDS) {
-      playNext({ auto: true });
+      playNextRef.current({ auto: true, fromEntryId: entryId });
       return;
     }
 
     beginScoring(entryId, false);
-  }, [beginScoring, playNext]);
+  }, [beginScoring]);
 
   // Keyed on the cue, so a re-render cannot restart a hold already running
   const handledCue = useRef<number | null>(null);
@@ -884,16 +954,23 @@ function PlayerStateProviderInternal({ children }: { children: React.ReactNode }
     if (!scoringCue || handledCue.current === scoringCue.at) return;
 
     handledCue.current = scoringCue.at;
+
+    // A cue for a song the room has already advanced past would strand the
+    // display on a score screen nothing is going to close
+    if (scoringCue.entryId !== currentEntryId) return;
+
     beginScoring(scoringCue.entryId, scoringCue.quick);
-  }, [scoringCue, beginScoring]);
+  }, [scoringCue, currentEntryId, beginScoring]);
 
   useEffect(() => {
+    scoringRef.current = null;
+    advancing.current = false;
     setScoring(null);
     clearScoreTimer();
     clearJuryTimer();
     readingRef.current = null;
     judged.current = null;
-  }, [playerState?.entry?.id, clearScoreTimer, clearJuryTimer]);
+  }, [currentEntryId, clearScoreTimer, clearJuryTimer]);
 
   useEffect(() => {
     return () => {
@@ -917,6 +994,9 @@ function PlayerStateProviderInternal({ children }: { children: React.ReactNode }
     } else if (playerState.play_state === "buffering") {
       // No duration - shows until buffering ends
       setOSD({ label: "Buffering", visible: true });
+    } else {
+      // Nothing is running, so a sticky Pause or Buffering has nothing to say
+      setOSD({ label: "", visible: false }, { clearTemporary: true });
     }
   }, [playerState?.play_state, playerState?.entry, setOSD]);
 

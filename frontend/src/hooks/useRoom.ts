@@ -54,7 +54,7 @@ export interface RoomActions {
   removeSong: (id: string) => Promise<unknown>;
   playSong: () => Promise<unknown>;
   pauseSong: () => Promise<unknown>;
-  playNext: (options?: { auto?: boolean }) => Promise<unknown>;
+  playNext: (options?: { auto?: boolean; fromEntryId?: string | null }) => Promise<unknown>;
   queueNextSong: (entryId: string) => void;
   clearQueue: () => Promise<unknown>;
   setVolume: (volume: number) => Promise<unknown>;
@@ -241,14 +241,20 @@ export function useRoom(clientType: ClientType, nickname?: string | null): UseRo
         });
         break;
       }
+      // A finished song is not resumable, so these are ignored rather than
+      // allowed to restart it out from under the score screen
       case "play_song":
         setPlayerState((prev) =>
-          prev ? { ...prev, play_state: "playing" } : null,
+          prev && prev.entry && prev.play_state !== "finished"
+            ? { ...prev, play_state: "playing" }
+            : prev,
         );
         break;
       case "pause_song":
         setPlayerState((prev) =>
-          prev ? { ...prev, play_state: "paused" } : null,
+          prev && prev.entry && prev.play_state !== "finished"
+            ? { ...prev, play_state: "paused" }
+            : prev,
         );
         break;
       case "leader_status":
@@ -262,7 +268,9 @@ export function useRoom(clientType: ClientType, nickname?: string | null): UseRo
         }
         break;
       case "score":
-        setScore(data as SongScore);
+        // Stamped on arrival so a screen can tell this score from the one the
+        // same song was given the last time it was reserved
+        setScore({ ...(data as SongScore), receivedAt: Date.now() });
         break;
       case "score_reading":
         if (clientType === "display") {
@@ -359,13 +367,18 @@ export function useRoom(clientType: ClientType, nickname?: string | null): UseRo
     removeSong: (id: string) => ws.sendCommandWithAck("remove_song", { entry_id: id }),
     playSong: () => ws.sendCommandWithAck("play_song"),
     pauseSong: () => ws.sendCommandWithAck("pause_song"),
-    playNext: (options?: { auto?: boolean }) => {
+    playNext: (options?: { auto?: boolean; fromEntryId?: string | null }) => {
       // Only leader displays should trigger next song
       if (clientType === "display" && !isLeader) {
         console.log(`[${clientType}] Non-leader display ignoring playNext request`);
         return Promise.resolve({});
       }
-      return ws.sendCommandWithAck("play_next", { auto: options?.auto ?? false });
+      return ws.sendCommandWithAck("play_next", {
+        auto: options?.auto ?? false,
+        // Names the song this advance was decided for. A timer that fires after
+        // a remote already skipped would otherwise eat the song after it too.
+        from_entry_id: options?.fromEntryId ?? null,
+      });
     },
     queueNextSong: (entryId: string) => ws.sendCommand("queue_next_song", { entry_id: entryId }),
     clearQueue: () => ws.sendCommandWithAck("clear_queue"),

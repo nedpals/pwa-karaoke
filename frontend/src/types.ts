@@ -45,6 +45,8 @@ export interface SongScore {
   source: ScoreSource;
   version: number;
   timestamp: number;
+  /** Client clock, stamped on arrival. `timestamp` is the server's. */
+  receivedAt?: number;
 }
 
 export interface KaraokeQueueItem {

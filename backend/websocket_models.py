@@ -42,6 +42,9 @@ class SetAutoplayPayload(BaseModel):
 class PlayNextPayload(BaseModel):
     """Play next command payload. `auto` marks an end-of-song rollover."""
     auto: bool = False
+    # The song the caller decided to advance from. Set by a display, whose
+    # timers can fire after a remote has already moved the room on.
+    from_entry_id: Optional[str] = None
 
 class PlayerStatePayload(DisplayPlayerState):
     """Player state update payload - inherits from DisplayPlayerState"""

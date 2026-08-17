@@ -152,6 +152,16 @@ class ClientCommands:
         # Only a display rolling over at the end of a song is gated by autoplay.
         # Manual skips from a remote always advance.
         is_auto = bool(payload.get("auto")) if isinstance(payload, dict) else False
+        from_entry_id = payload.get("from_entry_id") if isinstance(payload, dict) else None
+
+        current_entry = self.room.player_state.entry if self.room.player_state else None
+        current_entry_id = current_entry.id if current_entry else None
+
+        # The caller was deciding about a song the room has already left, so
+        # honouring it would swallow whatever is playing now
+        if from_entry_id and from_entry_id != current_entry_id:
+            print(f"[DEBUG] Ignoring stale play_next for {from_entry_id} in room {self.client.room_id}")
+            return {"advanced": False, "stale": True}
 
         # Nothing reserved means nothing is being held back, so let it fall
         # through and clear the room the same way an autoplaying one does.
@@ -320,7 +330,25 @@ class DisplayCommands(ClientCommands):
             print(f"[DEBUG] Non-leader display {self.client.id} attempted to update player state - ignoring")
             return
 
-        await self._update_player_state(_state)
+        state = _state if isinstance(_state, DisplayPlayerState) else DisplayPlayerState.parse_obj(_state)
+        current = self.room.player_state
+
+        # What is on air is decided here, never by a display. A report about
+        # some other song is a video element that has not caught up yet, and
+        # accepting it would drag the room back to the song before this one.
+        current_entry_id = current.entry.id if current and current.entry else None
+        incoming_entry_id = state.entry.id if state.entry else None
+        if current and incoming_entry_id != current_entry_id:
+            print(f"[DEBUG] Ignoring player state for {incoming_entry_id} while {current_entry_id} is on air")
+            return
+
+        # Finished covers the end of a song, a skip and an autoplay hold. A
+        # video element that remounts and starts itself must not reopen it.
+        if current and current.play_state == "finished" and state.play_state != "finished":
+            print(f"[DEBUG] Ignoring {state.play_state} report for finished entry {current_entry_id}")
+            return
+
+        await self._update_player_state(state)
 
     async def queue_update(self, queue_data):
         await self.session_manager.broadcast_to_room_controllers(self.client.room_id, "queue_update", queue_data)

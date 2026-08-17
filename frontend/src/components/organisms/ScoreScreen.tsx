@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Text } from "../atoms/Text";
 import { cn } from "../../lib/utils";
-import { ratingFor } from "../../lib/scoring";
+import { landingMs, ratingFor } from "../../lib/scoring";
 import { playLand, startRoll, stopRoll } from "../../lib/scoreSound";
 
 // Applied inline rather than through the text-stencil utility, which
@@ -14,9 +14,6 @@ const RATING_SLOT = "h-[3.75rem]";
 
 const ROLL_TICK_MIN_MS = 55;
 const ROLL_TICK_MAX_MS = 320;
-const LANDING_MS = 1500;
-const QUICK_LANDING_MS = 600;
-
 // Cut short on the reveal; long enough to cover a score arriving late
 const ROLL_SECONDS = 6;
 const MAX_SPREAD = 45;
@@ -31,7 +28,7 @@ function randomBetween(low: number, high: number) {
 
 export type RevealPhase = "processing" | "revealing" | "revealed";
 
-function useScoreReveal(target: number | null, landingMs: number) {
+function useScoreReveal(target: number | null, settleMs: number) {
   const [value, setValue] = useState(0);
   const [phase, setPhase] = useState<RevealPhase>("processing");
 
@@ -53,7 +50,7 @@ function useScoreReveal(target: number | null, landingMs: number) {
         landingStart = now;
       }
 
-      const progress = landingStart === null ? 0 : Math.min((now - landingStart) / landingMs, 1);
+      const progress = landingStart === null ? 0 : Math.min((now - landingStart) / settleMs, 1);
       const eased = 1 - Math.pow(1 - progress, 3);
 
       if (target !== null && progress >= 1) {
@@ -78,7 +75,7 @@ function useScoreReveal(target: number | null, landingMs: number) {
 
     frame = requestAnimationFrame(step);
     return () => cancelAnimationFrame(frame);
-  }, [target, landingMs]);
+  }, [target, settleMs]);
 
   return { value, phase };
 }
@@ -98,7 +95,7 @@ export function ScoreScreen({
   onRevealed,
   className,
 }: ScoreScreenProps) {
-  const { value, phase } = useScoreReveal(score, quick ? QUICK_LANDING_MS : LANDING_MS);
+  const { value, phase } = useScoreReveal(score, landingMs(quick));
   const rating = score === null ? null : ratingFor(score);
   const revealed = phase === "revealed" && rating !== null;
 

@@ -22,7 +22,7 @@ import { useVideoUrlWithRetry } from "../hooks/useVideoUrlWithRetry";
 import { getDisplayNickname } from "../lib/nicknameStorage";
 import type { DisplayPlayerState } from "../types";
 import useSmartSync from "../hooks/useSmartSync";
-import { performanceIdOf, rollScore, scoreFromPerformance } from "../lib/scoring";
+import { landingMs, performanceIdOf, rollScore, scoreFromPerformance } from "../lib/scoring";
 
 type AppState = "awaiting-interaction" | "connecting" | "connected" | "ready" | "scoring" | "playing";
 
@@ -30,6 +30,8 @@ type AppState = "awaiting-interaction" | "connecting" | "connected" | "ready" | 
 const REVEAL_HOLD_MS = 4000;
 const SKIP_REVEAL_HOLD_MS = 2000;
 
+// The wait for a score that never arrives. Once one does the reveal takes over,
+// so this never has to allow for the animation on top of itself.
 const SCORE_WAIT_MAX_MS = 6000;
 
 const JURY_GRACE_MS = 1000;
@@ -67,7 +69,6 @@ interface PlayerContextType {
   setHasInteracted: (value: boolean) => void;
   playerState: DisplayPlayerState | null;
   scoring: ScoringSession | null;
-  scoreRevealed: () => void;
   finishSong: (itemId: string, playedSeconds: number) => void;
   osd: OSDState;
   setOSD: (osd: OSDState, options?: TempStateSetterOptions<OSDState>) => void;
@@ -780,7 +781,7 @@ function ConnectedStateScreen() {
 
 function ScoringStateScreen() {
   const { score } = useRoomContext();
-  const { scoring, scoreRevealed } = usePlayerState();
+  const { scoring } = usePlayerState();
 
   // A leftover score is ignored rather than shown against the wrong turn
   const shownScore = score && scoring && score.item_id === scoring.itemId ? score.score : null;
@@ -794,7 +795,6 @@ function ScoringStateScreen() {
           score={shownScore}
           quick={scoring?.quick ?? false}
           sound={!scoring?.quick}
-          onRevealed={scoreRevealed}
         />
       </div>
     </div>
@@ -886,6 +886,7 @@ function PlayerStateProviderInternal({ children }: { children: React.ReactNode }
     isLeader,
     playNext,
     removeSong,
+    score,
     skipRequest,
     playbackRequest,
     scoreReading,
@@ -1126,10 +1127,15 @@ function PlayerStateProviderInternal({ children }: { children: React.ReactNode }
     finishScoring(quick, SCORE_WAIT_MAX_MS);
   }, [finishScoring]);
 
-  const scoreRevealed = useCallback(() => {
-    const quick = scoringRef.current?.quick ?? false;
-    finishScoring(quick, quick ? SKIP_REVEAL_HOLD_MS : REVEAL_HOLD_MS);
-  }, [finishScoring]);
+  // A score arriving supersedes the fallback there and then. Timing the hold
+  // from the arrival rather than from the reveal lands on the same moment, and
+  // does not depend on an animation callback that reduced motion skips.
+  useEffect(() => {
+    if (!scoring || !score || score.item_id !== scoring.itemId) return;
+
+    const hold = scoring.quick ? SKIP_REVEAL_HOLD_MS : REVEAL_HOLD_MS;
+    finishScoring(scoring.quick, landingMs(scoring.quick) + hold);
+  }, [scoring, score, finishScoring]);
 
   // A song reaching its own end, and a song ended early by a remote, are the
   // same event from here on
@@ -1315,7 +1321,6 @@ function PlayerStateProviderInternal({ children }: { children: React.ReactNode }
     setHasInteracted,
     playerState,
     scoring,
-    scoreRevealed,
     finishSong,
     osd,
     setOSD,

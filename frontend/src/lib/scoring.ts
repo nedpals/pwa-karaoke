@@ -14,6 +14,15 @@ export function performanceIdOf(state: DisplayPlayerState | null | undefined): s
   return state.item_id ?? state.entry.id;
 }
 
+// How long the digits take to settle once a score is in hand. Shared, because
+// the hold that follows the reveal is timed from when the score arrived.
+const LANDING_MS = 1500;
+const QUICK_LANDING_MS = 600;
+
+export function landingMs(quick: boolean): number {
+  return quick ? QUICK_LANDING_MS : LANDING_MS;
+}
+
 const SCORE_FLOOR = 60;
 const SCORE_CEILING = 100;
 

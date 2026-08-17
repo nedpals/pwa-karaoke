@@ -149,8 +149,12 @@ class ClientCommands:
         return {"room_id": room_id, "nickname": nickname, "success": True}
     
     async def play_next(self, payload=None):
-        # Only a display rolling over at the end of a song is gated by autoplay.
-        # Manual skips from a remote always advance.
+        # Asking advances the room. Autoplay is a setting the display enforces
+        # when a song ends, so nothing here reads it: a display that is holding
+        # the queue simply does not ask.
+        #
+        # `auto` marks an end-of-song rollover, which the display has already
+        # scored. A skip has not been scored yet.
         is_auto = bool(payload.get("auto")) if isinstance(payload, dict) else False
         from_entry_id = payload.get("from_entry_id") if isinstance(payload, dict) else None
 
@@ -162,13 +166,6 @@ class ClientCommands:
         if from_entry_id and from_entry_id != current_entry_id:
             print(f"[DEBUG] Ignoring stale play_next for {from_entry_id} in room {self.client.room_id}")
             return {"advanced": False, "stale": True}
-
-        # Nothing reserved means nothing is being held back, so let it fall
-        # through and clear the room the same way an autoplaying one does.
-        if is_auto and not self.room.autoplay and self.room.queue.items:
-            print(f"[DEBUG] Autoplay is off for room {self.client.room_id} - holding the queue")
-            await self._hold_at_end_of_song()
-            return {"advanced": False, "autoplay": False}
 
         if not is_auto and await self._score_skipped_song():
             return {"advanced": False, "scoring": True}
@@ -187,7 +184,7 @@ class ClientCommands:
         ))
 
         await self._broadcast_room_state()
-        return {"advanced": next_song is not None, "autoplay": self.room.autoplay}
+        return {"advanced": next_song is not None}
 
     async def _score_skipped_song(self) -> bool:
         """Hold a skipped song on screen for its score. True when it did."""

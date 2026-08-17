@@ -794,6 +794,8 @@ function PlayerStateProviderInternal({ children }: { children: React.ReactNode }
     scoreReading,
     publishScore,
     announceScoring,
+    autoplay,
+    upNextQueue,
   } = useRoomContext();
 
   // Use smart sync for non-leader displays
@@ -828,6 +830,10 @@ function PlayerStateProviderInternal({ children }: { children: React.ReactNode }
   const playNextRef = useRef(playNext);
   const announced = useRef<boolean | null>(null);
 
+  const reservedCount = upNextQueue?.items.length ?? 0;
+  const autoplayRef = useRef(autoplay);
+  const reservedCountRef = useRef(reservedCount);
+
   useEffect(() => {
     isLeaderRef.current = isLeader;
     publishScoreRef.current = publishScore;
@@ -835,7 +841,30 @@ function PlayerStateProviderInternal({ children }: { children: React.ReactNode }
     playNextRef.current = playNext;
     scoringRef.current = scoring;
     currentEntryIdRef.current = currentEntryId;
-  }, [isLeader, publishScore, announceScoring, playNext, scoring, currentEntryId]);
+    autoplayRef.current = autoplay;
+    reservedCountRef.current = reservedCount;
+  }, [
+    isLeader,
+    publishScore,
+    announceScoring,
+    playNext,
+    scoring,
+    currentEntryId,
+    autoplay,
+    reservedCount,
+  ]);
+
+  // Autoplay is a room setting the player enforces, not something the server
+  // weighs up: asking it to advance always advances. With autoplay off the room
+  // is simply left sitting on the song it already reported as finished, which
+  // is what the held screen is showing. Null means it was held.
+  const rollOver = useCallback((entryId: string): Promise<unknown> | null => {
+    // Nothing reserved means nothing is being held back, so let it roll and
+    // clear the room the same way an autoplaying one does
+    if (!autoplayRef.current && reservedCountRef.current > 0) return null;
+
+    return Promise.resolve(playNextRef.current({ auto: true, fromEntryId: entryId }));
+  }, []);
 
   // The remotes cannot see the scoring screen, so the leader says when it is up
   useEffect(() => {
@@ -894,9 +923,19 @@ function PlayerStateProviderInternal({ children }: { children: React.ReactNode }
       const session = scoringRef.current;
       if (!session || advancing.current) return;
 
+      // A skip advances whatever autoplay says, since someone asked for it.
+      // The end of a song is the rollover autoplay governs.
+      const advance = quick
+        ? Promise.resolve(playNextRef.current({ auto: false, fromEntryId: session.entryId }))
+        : rollOver(session.entryId);
+
+      if (!advance) {
+        setScoring(null);
+        return;
+      }
+
       advancing.current = true;
-      // A skip advances whatever autoplay says, since someone asked for it
-      Promise.resolve(playNextRef.current({ auto: !quick, fromEntryId: session.entryId }))
+      advance
         .catch((error: unknown) => {
           console.error("[Player] Could not advance after scoring:", error);
         })
@@ -905,7 +944,7 @@ function PlayerStateProviderInternal({ children }: { children: React.ReactNode }
           setScoring(null);
         });
     }, delay);
-  }, [clearScoreTimer]);
+  }, [clearScoreTimer, rollOver]);
 
   const beginScoring = useCallback((entryId: string, quick: boolean) => {
     if (scoringRef.current?.entryId === entryId || advancing.current) return;
@@ -934,13 +973,14 @@ function PlayerStateProviderInternal({ children }: { children: React.ReactNode }
   const finishSong = useCallback((entryId: string, playedSeconds: number) => {
     if (entryId !== currentEntryIdRef.current) return;
 
+    // Too short to be worth a score, but the end of a song all the same
     if (playedSeconds < MIN_SCORED_SECONDS) {
-      playNextRef.current({ auto: true, fromEntryId: entryId });
+      rollOver(entryId);
       return;
     }
 
     beginScoring(entryId, false);
-  }, [beginScoring]);
+  }, [beginScoring, rollOver]);
 
   // Keyed on the cue, so a re-render cannot restart a hold already running
   const handledCue = useRef<number | null>(null);

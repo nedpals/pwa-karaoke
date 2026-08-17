@@ -7,6 +7,9 @@ import type { DisplayPlayerState, KaraokeQueue, KaraokeEntry, ReactionEvent, Rea
 
 type ClientType = "controller" | "display";
 
+// Stands in until room_settings lands, which is within a beat of joining
+const DEFAULT_MIN_SCORED_SECONDS = 5;
+
 // Commands a screen carries out report how many heard them, so a remote can
 // say nothing happened rather than look like it worked
 async function screensAck(pending: Promise<unknown>): Promise<{ screens: number }> {
@@ -33,6 +36,8 @@ export interface RoomState {
   upNextQueue: KaraokeQueue | null;
   playerState: DisplayPlayerState | null;
   autoplay: boolean;
+  /** How much of a song has to have played before it is worth a score. */
+  minScoredSeconds: number;
   isLeader: boolean;
   lastReaction: ReactionEvent | null;
   score: SongScore | null;
@@ -353,6 +358,7 @@ export function useRoom(clientType: ClientType, nickname?: string | null): UseRo
     upNextQueue,
     playerState,
     autoplay: settings?.autoplay ?? true,
+    minScoredSeconds: settings?.min_scored_seconds ?? DEFAULT_MIN_SCORED_SECONDS,
     isLeader,
     lastReaction,
     score,
@@ -413,7 +419,12 @@ export function useRoom(clientType: ClientType, nickname?: string | null): UseRo
       setSettings((prev) =>
         prev
           ? { ...prev, autoplay: enabled }
-          : { autoplay: enabled, version: 1, timestamp: Date.now() },
+          : {
+              autoplay: enabled,
+              min_scored_seconds: DEFAULT_MIN_SCORED_SECONDS,
+              version: 1,
+              timestamp: Date.now(),
+            },
       );
 
       try {

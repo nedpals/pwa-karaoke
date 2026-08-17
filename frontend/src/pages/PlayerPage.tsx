@@ -34,8 +34,6 @@ const SCORE_WAIT_MAX_MS = 6000;
 
 const JURY_GRACE_MS = 1000;
 
-const MIN_SCORED_SECONDS = 5;
-
 // Longer than any score screen can run, so the watchdog only ever sees a
 // rollover that was genuinely dropped
 const ROLLOVER_WATCHDOG_MS = 12000;
@@ -894,6 +892,7 @@ function PlayerStateProviderInternal({ children }: { children: React.ReactNode }
     publishScore,
     announceScoring,
     autoplay,
+    minScoredSeconds,
     upNextQueue,
   } = useRoomContext();
 
@@ -939,6 +938,7 @@ function PlayerStateProviderInternal({ children }: { children: React.ReactNode }
   // What the Up Next card is showing, and so what a Next in the hold acts on
   const cuedItem = upNextQueue?.items[0] ?? null;
   const autoplayRef = useRef(autoplay);
+  const minScoredRef = useRef(minScoredSeconds);
   const reservedCountRef = useRef(reservedCount);
   const cuedItemRef = useRef(cuedItem);
 
@@ -951,6 +951,7 @@ function PlayerStateProviderInternal({ children }: { children: React.ReactNode }
     playerStateRef.current = playerState;
     scoringRef.current = scoring;
     autoplayRef.current = autoplay;
+    minScoredRef.current = minScoredSeconds;
     reservedCountRef.current = reservedCount;
     cuedItemRef.current = cuedItem;
   }, [
@@ -962,6 +963,7 @@ function PlayerStateProviderInternal({ children }: { children: React.ReactNode }
     playerState,
     scoring,
     autoplay,
+    minScoredSeconds,
     reservedCount,
     cuedItem,
   ]);
@@ -1135,7 +1137,7 @@ function PlayerStateProviderInternal({ children }: { children: React.ReactNode }
     if (performanceIdOf(playerStateRef.current) !== itemId) return;
 
     // Too short to be worth a score, but the end of a song all the same
-    if (playedSeconds < MIN_SCORED_SECONDS) {
+    if (playedSeconds < minScoredRef.current) {
       if (quick) {
         playNextRef.current({ fromItemId: itemId });
       } else {
@@ -1205,10 +1207,10 @@ function PlayerStateProviderInternal({ children }: { children: React.ReactNode }
     if (scoring || scoredItem.current === currentItemId) return;
 
     const current = playerStateRef.current;
-    if (!current || (current.current_time ?? 0) < MIN_SCORED_SECONDS) return;
+    if (!current || (current.current_time ?? 0) < minScoredSeconds) return;
 
     beginScoring(currentItemId, false);
-  }, [playState, currentItemId, scoring, beginScoring]);
+  }, [playState, currentItemId, scoring, minScoredSeconds, beginScoring]);
 
   // A remote asked to play or pause. The leader reports the change and every
   // screen follows the room, rather than each guessing at it separately.

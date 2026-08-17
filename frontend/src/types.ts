@@ -63,6 +63,7 @@ export interface KaraokeQueue {
 
 export interface RoomSettings {
   autoplay: boolean;
+  min_scored_seconds: number;
   version: number;
   timestamp: number;
 }

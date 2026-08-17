@@ -9,6 +9,11 @@ from core.player import DisplayPlayerState
 from core.queue import KaraokeQueue, KaraokeQueueItem
 from rate_limit import SlidingWindowLimiter
 
+# How much of a song has to have played before it is worth a score. The room
+# owns it: the screen reads it to decide whether to put a score screen up, and
+# the server reads it to bound a mic reading a remote claims to have taken.
+MIN_SCORED_SECONDS = 5.0
+
 class Room(BaseModel):
     id: str
     queue: KaraokeQueue = KaraokeQueue(items=[])
@@ -129,6 +134,7 @@ class Room(BaseModel):
     def get_settings_payload(self) -> Dict[str, Any]:
         return {
             "autoplay": self.autoplay,
+            "min_scored_seconds": MIN_SCORED_SECONDS,
             "version": self.settings_version,
             "timestamp": time.time()
         }

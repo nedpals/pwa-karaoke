@@ -6,6 +6,7 @@ from nanoid import generate as generate_nanoid
 
 from core.search import KaraokeEntry
 from core.player import DisplayPlayerState
+from core.room import MIN_SCORED_SECONDS
 from services.karaoke_service import KaraokeService
 from client_manager import ConnectionClient
 from session_manager import SessionManager
@@ -20,8 +21,6 @@ ROOM_REACTION_RATE_WINDOW = 3.0
 
 SCORE_RATE_LIMIT = 4
 SCORE_RATE_WINDOW = 10.0
-
-MIN_SCORED_SECONDS = 5.0
 
 class ClientCommands:
     def __init__(self, client: ConnectionClient, session_manager: SessionManager, service: KaraokeService) -> None:
@@ -284,6 +283,8 @@ class ControllerCommands(ClientCommands):
         if not state or not state.entry or state.item_id != item_id:
             return
 
+        # Bounds what a remote can claim to have measured, using the same rule
+        # the screen used to decide the turn was worth scoring
         if state.current_time < MIN_SCORED_SECONDS:
             return
 

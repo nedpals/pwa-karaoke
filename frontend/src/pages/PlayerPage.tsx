@@ -150,7 +150,11 @@ function VideoPlayerComponent({
 
     // Held on its last frame, and left there. Starting it again is how a
     // skipped song replays itself instead of handing over.
-    if (current.play_state === "finished" || current.play_state === "error") {
+    if (
+      current.play_state === "finished" ||
+      current.play_state === "error" ||
+      current.play_state === "idle"
+    ) {
       if (!video.paused) video.pause();
       return;
     }

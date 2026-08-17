@@ -11,7 +11,10 @@ class DisplayPlayerState(BaseModel):
     # tell them apart. Stamped by the room, never taken from a client.
     item_id: str | None = None
     singer: str | None = None
-    play_state: Literal["playing", "paused", "finished", "buffering", "error"]
+    # "finished" always means a song just ended and is still on the screen.
+    # An empty room is "idle", which used to be written as finished with no
+    # entry, so the name said a song had ended when none was ever loaded.
+    play_state: Literal["playing", "paused", "finished", "buffering", "error", "idle"]
     current_time: float = Field(0.0, ge=0.0)
     duration: float = Field(0.0, ge=0.0) 
     volume: float = Field(1.0, ge=0.0, le=1.0)

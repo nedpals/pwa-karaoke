@@ -182,7 +182,7 @@ class ClientCommands:
 
         await self._update_player_state(DisplayPlayerState(
             entry=next_song.entry if next_song else None,
-            play_state="playing" if next_song else "finished",
+            play_state="playing" if next_song else "idle",
             current_time=0.0,
             duration=0.0,
             volume=self.room.player_state.volume if self.room.player_state else 0.5,

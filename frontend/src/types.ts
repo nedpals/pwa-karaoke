@@ -23,7 +23,7 @@ export interface DisplayPlayerState {
   /** The reservation on air. See performanceIdOf in lib/scoring. */
   item_id?: string | null;
   singer?: string | null;
-  play_state: "playing" | "paused" | "finished" | "buffering" | "error";
+  play_state: "playing" | "paused" | "finished" | "buffering" | "error" | "idle";
   current_time: number;
   duration: number;
   volume: number;

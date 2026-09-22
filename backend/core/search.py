@@ -1,5 +1,6 @@
 import time
 
+from pathlib import Path
 from pydantic import BaseModel, Field
 from typing import Optional
 
@@ -151,6 +152,17 @@ class KaraokeSourceProvider:
     async def get_video_url(self, entry: KaraokeEntry) -> VideoURLResult:
         """Build the result with resolved(), unavailable() or failed()."""
         return VideoURLResult.failed()
+
+    async def download_video(self, entry: KaraokeEntry, work_dir: Path) -> Optional[Path]:
+        """
+        Download the entry into work_dir and return the file, for the archive to
+        keep. None means this source has no copy to give, which is the right
+        answer for one that only ever hands out a URL it does not own.
+
+        Never called on the playback path, so it may take as long as a download
+        takes. Anything left in work_dir is deleted afterwards.
+        """
+        return None
 
     async def close(self):
         pass

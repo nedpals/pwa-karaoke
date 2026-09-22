@@ -1,5 +1,7 @@
 import asyncio
 
+from pathlib import Path
+
 from pydantic import BaseModel, ValidationError
 from typing_extensions import Annotated
 from fastapi import Depends
@@ -13,6 +15,7 @@ from core.search import (
 )
 from source_providers.registry import build_registry
 from cache_store import get_cache_store, CacheStore
+from media_archive import archive_key, get_media_archive, get_media_archiver
 from config import config
 
 # Built once and shared. KaraokeService is constructed through Depends on every
@@ -148,36 +151,63 @@ class KaraokeService:
 
     async def get_video_url(self, entry: KaraokeEntry, refresh: bool = False) -> VideoURLResponse:
         """
-        Resolve a playable URL through the provider that owns the entry.
+        Resolve a playable URL for an entry.
 
-        `refresh` re-resolves even when a URL is already in hand, for the case
-        where the one we have has stopped playing. Provider URLs expire, so a
-        cached copy of a dead link is worse than none.
+        An archived copy wins over everything else, including a URL the caller
+        arrived with: it is the one URL that cannot have gone stale between
+        being handed out and being played.
+
+        `refresh` re-resolves for the case where what we gave out has stopped
+        playing. Provider URLs expire, so a cached copy of a dead link is worse
+        than none, and an archived copy that would not play is worse still, so
+        both are dropped before trying again.
         """
+        archive = get_media_archive()
+        key = archive_key(entry.source, entry.id)
+
         if refresh:
+            if key:
+                await archive.discard(key)
             if self.cache:
                 self.cache.invalidate_video_url(entry.id, entry.source)
             entry = entry.model_copy(update={"video_url": None})
 
+        elif key:
+            media = await archive.locate(key)
+            if media is not None:
+                print(f"[SERVICE] Serving {entry.id} from the archive")
+                return VideoURLResponse(video_url=archive.url_for(media))
+
+        video_url = await self._resolve_live_url(entry)
+
+        # Only ever from a URL that worked: archiving a song nobody can resolve
+        # is a download that was never going to start.
+        if video_url and key:
+            self._schedule_archive(entry, key)
+
+        return VideoURLResponse(video_url=video_url)
+
+    async def _resolve_live_url(self, entry: KaraokeEntry) -> str | None:
+        """Ask the source for a URL, through the caller's copy and the cache first."""
         if entry.video_url:
-            return VideoURLResponse(video_url=entry.video_url)
+            return entry.video_url
 
         if self.cache:
             cached_url = self.cache.get_video_url(entry.id, entry.source)
             if cached_url is not None:
-                return VideoURLResponse(video_url=cached_url or None)
+                return cached_url or None
 
         provider = self.providers.get(entry.source)
         if provider is None:
             print(f"[SERVICE] No provider registered for source {entry.source!r}")
-            return VideoURLResponse(video_url=None)
+            return None
 
         try:
             result = await provider.get_video_url(entry)
         except Exception as e:
             print(f"[SERVICE] Provider {provider.provider_id} failed for {entry.id}: {e}")
             provider.health.record_failure(str(e))
-            return VideoURLResponse(video_url=None)
+            return None
 
         if self.cache and result.cacheable:
             self.cache.cache_video_url(
@@ -187,4 +217,25 @@ class KaraokeService:
                 result.cache_ttl_seconds
             )
 
-        return VideoURLResponse(video_url=result.video_url)
+        return result.video_url
+
+    def _schedule_archive(self, entry: KaraokeEntry, key: str):
+        """
+        Queue a background copy of an entry. Returns as soon as it is queued,
+        and does nothing at all when the archive is off or already holds this
+        key from an earlier round.
+        """
+        archiver = get_media_archiver()
+        if archiver is None:
+            return
+
+        provider = self.providers.get(entry.source)
+        if provider is None:
+            return
+
+        async def download(work_dir: Path):
+            if await get_media_archive().locate(key) is not None:
+                return None
+            return await provider.download_video(entry, work_dir)
+
+        archiver.schedule(key, download)

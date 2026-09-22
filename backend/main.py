@@ -26,6 +26,12 @@ from websocket_errors import WebSocketErrorType, create_error_response
 from websocket_models import validate_websocket_message, QUIET_COMMANDS
 from session_manager import SessionManager
 from cache_store import get_cache_store, set_cache_store, clear_cache_store, CacheStore
+from media_archive import (
+    MEDIA_URL_PREFIX,
+    close_media_archive,
+    get_media_archive,
+    init_media_archive,
+)
 
 # Request/Response models
 class CreateRoomRequest(BaseModel):
@@ -57,6 +63,12 @@ async def lifespan(app: FastAPI):
     set_cache_store(cache)
     print(f"[STARTUP] Cache initialized: {cache.get_stats()}")
 
+    archive = init_media_archive()
+    if archive.enabled:
+        print(f"[STARTUP] Media archive: {archive.stats()}")
+    else:
+        print("[STARTUP] Media archive disabled")
+
     print(f"[STARTUP] Sources enabled: {', '.join(SOURCE_REGISTRY.ids)}")
     sources = await KaraokeService().get_health()
     for provider_id, state in sources["providers"].items():
@@ -69,6 +81,7 @@ async def lifespan(app: FastAPI):
 
     # Shutdown
     print("[SHUTDOWN] Karaoke server shutting down...")
+    await close_media_archive()
     await SOURCE_REGISTRY.close()
     cache = get_cache_store()
     cache.cleanup()
@@ -209,6 +222,7 @@ async def get_health(
     return {
         **health_metrics,
         "cache": cache_stats,
+        "archive": get_media_archive().stats(),
         "sources": sources
     }
 
@@ -339,6 +353,25 @@ async def websocket_endpoint(websocket: WebSocket, service: Annotated[KaraokeSer
         print(f"[ERROR] {e}")
         # Handle all disconnection scenarios
         await session_manager.disconnect_client(client)
+
+@app.get(MEDIA_URL_PREFIX + "/{key:path}")
+async def serve_archived_media(key: str, expires: int = Query(...), signature: str = Query(...)):
+    """
+    Serve an archived video against a signed URL.
+
+    Unauthenticated, like the source URLs it replaces, because a <video> element
+    sends no credentials. The signature is what stands in for them: without one
+    the archive would be an open media host addressed by video ID. Everything a
+    request may not have looks the same from outside, hence one 404 for a bad
+    signature, an expired URL and a missing file alike.
+    """
+    path = get_media_archive().verify(key, expires, signature)
+    if path is None:
+        raise HTTPException(status_code=404, detail="Not found")
+
+    # Private: the URL is per request and dies with its signature, so a shared
+    # cache holding it would outlive the permission to serve it.
+    return FileResponse(path, headers={"Cache-Control": "private, max-age=3600"})
 
 # Static files + SPA fallback, must stay after all API routes
 @app.get("/{full_path:path}")

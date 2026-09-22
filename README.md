@@ -44,6 +44,23 @@ This will start the backend and [Caddy](https://caddyserver.com/) web server.
 
 Visit `http://localhost` or `http://$DOMAIN` (where `$DOMAIN` is your configured domain) to access the application.
 
+#### Keeping Copies of What Plays
+
+A song is normally fetched from its source every time it is played, which means
+a night can be interrupted by the source refusing the server rather than by
+anything on your end. Setting `ARCHIVE_ENABLED=1` keeps a copy of each video
+after it plays once, and plays that copy from then on, so an outage costs you
+new songs rather than every song.
+
+Copies are kept on the server, capped by `ARCHIVE_MAX_BYTES` (20 GB by default,
+roughly a thousand songs), and the oldest are dropped to stay under the cap.
+Docker Compose mounts a volume for them; without one they are lost whenever the
+container is replaced.
+
+It is off by default because it stores copies of what you play, and whether that
+suits your setup is your call. See the
+[backend README](./backend/README.md#media-archive) for the full set of options.
+
 ### Docker
 
 If you have a custom setup that doesn't use Docker Compose, you can run the backend and frontend services separately using Docker.

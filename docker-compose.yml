@@ -12,6 +12,17 @@ services:
       - YTDLP_AUTO_UPDATE=${YTDLP_AUTO_UPDATE:-1}
       - YTDLP_TIMEOUT_SECONDS=${YTDLP_TIMEOUT_SECONDS:-45}
       - YTDLP_EXTRA_ARGS=${YTDLP_EXTRA_ARGS:-}
+      # Keep a copy of each video that plays, so a song that has played once
+      # keeps playing when YouTube stops answering. Off by default: it stores
+      # copies of what you play, which is your call rather than a default.
+      - ARCHIVE_ENABLED=${ARCHIVE_ENABLED:-0}
+      - ARCHIVE_MAX_BYTES=${ARCHIVE_MAX_BYTES:-21474836480}
+      # Set this to keep already-issued media URLs valid across a restart.
+      - ARCHIVE_URL_SECRET=${ARCHIVE_URL_SECRET:-}
+    volumes:
+      # The archive is only as durable as what it is written to. Without this
+      # the copies die with the container.
+      - karaoke_media:/app/media_archive
     # Port 8000 is internal only - accessed via Caddy reverse proxy
     # Uncomment the ports section below for development/debugging
     # ports:
@@ -45,3 +56,4 @@ networks:
 volumes:
   caddy_data:
   caddy_config:
+  karaoke_media:

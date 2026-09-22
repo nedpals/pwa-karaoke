@@ -17,6 +17,13 @@ A FastAPI-based WebSocket server for managing karaoke rooms, song queues, and pl
   - [Registration](#registration)
   - [Health](#health)
   - [Built-in Providers](#built-in-providers)
+- [Media Archive](#media-archive)
+  - [What It Does and Does Not Fix](#what-it-does-and-does-not-fix)
+  - [How a Song Gets There](#how-a-song-gets-there)
+  - [Serving](#serving)
+  - [Storage](#storage)
+  - [Configuration](#configuration-1)
+  - [Adding Another Backend](#adding-another-backend)
 - [HTTP API Endpoints](#http-api-endpoints)
 - [WebSocket Protocol](#websocket-protocol)
   - [Connection Flow](#connection-flow)
@@ -148,6 +155,7 @@ class KaraokeSourceProvider:
     async def check_health(self) -> dict: ...
     async def search(self, query: str) -> list[SearchCandidate]: ...
     async def get_video_url(self, entry: KaraokeEntry) -> VideoURLResult: ...
+    async def download_video(self, entry: KaraokeEntry, work_dir: Path) -> Path | None: ...
     async def close(self): ...
 ```
 
@@ -158,6 +166,7 @@ class KaraokeSourceProvider:
 | `min_duration_seconds` / `max_duration_seconds` | What counts as one singable track. Defaults suit a general video platform; lower the floor for a source of anime openings. |
 | `search` | Return candidates unranked and untrimmed. Raise on failure rather than returning `[]`. |
 | `get_video_url` | Build the result with `resolved()`, `unavailable()` or `failed()`. |
+| `download_video` | Optional. Return the downloaded file for the [media archive](#media-archive) to keep, or `None`. Default returns `None`, which is right for a source that only hands out a URL it does not own. |
 | `close` | Called on every provider at shutdown. Implement if yours holds an HTTP session. |
 
 ### Creating a New Source Provider
@@ -269,6 +278,126 @@ Every provider's state is reported under `sources` on `/health`, which returns
 | `youtube` | YouTube, via yt-dlp | Searches through the library, extracts through the CLI binary |
 
 
+## Media Archive
+
+A resolved source URL is signed, short lived, and only as good as the extractor
+that produced it. A song that played last week can be unplayable tonight because
+the source started refusing the server, and a restart makes it worse: the URL
+cache lives in a temp directory that is deleted on shutdown, so every song has
+to be re-extracted at exactly the moment extraction is most likely to be what
+broke.
+
+The archive keeps the file instead. Once a song is in it, playing that song
+involves the source not at all.
+
+### What It Does and Does Not Fix
+
+| | Archived |
+| --- | --- |
+| Source URL expiring mid-song | Fixed |
+| Cache lost on restart | Fixed |
+| Extractor broken, or the server being bot-blocked | Only for songs already archived |
+| Searching for a song nobody has played yet | Not fixed; search never touches the archive |
+
+The archive is a playback measure. A source that stops answering still takes
+discovery with it, so this narrows an outage to "nothing new plays" rather than
+ending it.
+
+### How a Song Gets There
+
+Nothing is on the playback path. The first play of a song resolves and plays
+exactly as it did before, and a background download starts alongside it:
+
+```
+get_video_url(entry)
+  └─ archived?  ── yes ─→ signed /media URL, source never asked
+                  no  ─→ entry's own URL, else the URL cache, else the provider
+                         └─ resolved → queue a background download
+```
+
+Songs are archived only from a URL that resolved, one download per key at a
+time, and at most `ARCHIVE_MAX_CONCURRENT_DOWNLOADS` at once: the box serving the
+room is the one doing the fetching. A download is queued on every resolution of
+an unarchived song, which for a song sitting in a queue is often, so a key whose
+download fails or is skipped goes quiet for `ARCHIVE_RETRY_AFTER_SECONDS` rather
+than retrying once per broadcast. Because `commands.py` already prefetches
+URLs for the next two queued songs, a song usually starts downloading while
+something else is still being sung.
+
+`refresh=True` means the browser could not play what it was given. An archived
+copy that would not play is worse than none, so refresh drops the copy along
+with the cached URL and resolves live again, which puts a fresh copy back.
+
+### Serving
+
+Archived media is served from `/media/{key}` against a signed URL:
+
+```
+/media/youtube/dQw4w9WgXcQ.mp4?expires=1764000000&signature=...
+```
+
+The route is unauthenticated, like the source URLs it replaces, because a
+`<video>` element sends no credentials. The signature stands in for them:
+without one the archive would be an open media host addressed by video ID. Range
+requests work, which is what seeking needs.
+
+A key is built from `(source, entry id)`, both of which arrive from the client
+on `/get_video_url`. Anything outside `[A-Za-z0-9_-]` is refused rather than
+escaped, since a key is also a path, and the resolved path is confirmed to sit
+under the archive root regardless.
+
+`ARCHIVE_URL_SECRET` is generated per process when unset, so URLs issued before
+a restart stop working after it. The player re-resolves when a stream dies, so
+this costs a round trip rather than a song. Set it to avoid even that.
+
+### Storage
+
+Copies land under `ARCHIVE_DIR`, which **must be a mounted volume** or the
+archive dies with the container. `docker-compose.yml` mounts one at
+`/app/media_archive`.
+
+Size is modest. The format selector resolves to a progressive stream, which is
+one already-muxed file at 360p for most videos, so a five minute song is roughly
+15-25 MB and a thousand songs is around 20 GB. `ARCHIVE_MAX_BYTES` caps the
+whole archive and least recently played copies are evicted to stay under it;
+`ARCHIVE_MAX_FILE_BYTES` refuses any single file larger than the cap, which
+yt-dlp skips rather than downloads.
+
+Archive counts and bytes are reported under `archive` on `/health`.
+
+### Configuration
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `ARCHIVE_ENABLED` | `0` | Off unless set. It keeps durable copies of what plays, which is a decision for whoever runs the server. |
+| `ARCHIVE_DIR` | `media_archive` | Where copies live. Mount a volume here. |
+| `ARCHIVE_MAX_BYTES` | 20 GiB | Cap on the archive; least recently played copies are evicted past it. |
+| `ARCHIVE_MAX_FILE_BYTES` | 300 MiB | Any single file larger than this is skipped. |
+| `ARCHIVE_URL_TTL_SECONDS` | `21600` | Lifetime of a signed media URL. Must comfortably exceed one song. |
+| `ARCHIVE_URL_SECRET` | random per process | Set to keep issued URLs valid across a restart. |
+| `ARCHIVE_DOWNLOAD_TIMEOUT_SECONDS` | `600` | Hard limit on one archive download. |
+| `ARCHIVE_MAX_CONCURRENT_DOWNLOADS` | `2` | Downloads running at once. |
+| `ARCHIVE_RETRY_AFTER_SECONDS` | `1800` | How long a key stays quiet after a failed or skipped download. |
+
+Leaving it off changes nothing: every path behaves exactly as it did before.
+
+### A Note on What This Stores
+
+Enabling the archive turns the server from something that resolves a transient
+URL into something that keeps copies of the videos it plays. That is a different
+activity from the one the rest of this project does, and whether it is
+appropriate depends on what you are playing and where you are. It is off by
+default, the bucket is never public, and copies are served only against a signed
+URL, but the decision to turn it on is yours.
+
+### Adding Another Backend
+
+`MediaArchive` in `media_archive.py` is the interface, and `LocalDiskArchive` is
+the only implementation today. An S3-compatible one implements the same five
+methods and returns a presigned URL from `url_for` instead of a signed local
+path. Prefer a provider with no egress charge (R2, B2): a song is streamed far
+more often than it is stored, so egress, not storage, is what a bill is made of.
+
 ## HTTP Server
 
 The backend provides a FastAPI-based HTTP server alongside the WebSocket functionality. HTTP endpoints are defined in `main.py` and handle search operations and health monitoring.
@@ -280,6 +409,13 @@ The server runs on `0.0.0.0:8000` (accessible from all interfaces) and is curren
 ### CORS
 
 Cross-origin requests are currently allowed from all origins (`["*"]`) for production hosting. To modify CORS settings, update the `CORSMiddleware` configuration in `main.py`.
+
+### Media Route
+
+`GET /media/{key}?expires={unix}&signature={hmac}` serves an archived video.
+Present only when the archive is enabled, and every reason a request may not be
+served (bad signature, expired URL, missing file, a key pointing outside the
+archive) answers 404 alike. See [Media Archive](#media-archive).
 
 ### API Documentation
 
@@ -500,6 +636,16 @@ Performance problems can be diagnosed through the health endpoint at `/health`, 
 - Check password requirements via room verification endpoint
 - Monitor room leadership status in logs
 - Ensure client joins room before sending room-scoped commands
+
+### Archive Issues
+
+- Check `archive` on `/health` for whether it is enabled, and its file and byte counts
+- Songs are archived in the background after they first resolve, so the first play of a song is never served from the archive
+- Nothing is archived while the source cannot resolve the song at all; look at `sources` on `/health` first
+- An archive that empties on restart means `ARCHIVE_DIR` is not on a mounted volume
+- A file count that stops growing usually means `ARCHIVE_MAX_BYTES` is reached and copies are being evicted as fast as they arrive
+- A song that failed to download is not retried for `ARCHIVE_RETRY_AFTER_SECONDS`, so a fix to the extractor is not picked up instantly
+- `[ARCHIVE]` lines in the server log cover every download, store, eviction and refusal
 
 ### Caching Issues
 

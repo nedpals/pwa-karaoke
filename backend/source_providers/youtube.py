@@ -4,6 +4,7 @@ import os
 import random
 import shlex
 import time
+from pathlib import Path
 from typing import NamedTuple, Optional
 from urllib.parse import urlparse, urlunparse
 
@@ -384,6 +385,46 @@ class YTKaraokeSourceProvider(KaraokeSourceProvider):
             return VideoURLResult.resolved(outcome.url, cache_ttl_seconds=4 * 3600)
 
         return VideoURLResult.failed() if outcome.environmental_failure else VideoURLResult.unavailable()
+
+    async def download_video(self, entry: KaraokeEntry, work_dir: Path) -> Optional[Path]:
+        """
+        Fetch the file itself rather than a URL to it, for the archive.
+
+        Same format selector as playback, which under this player client is a
+        progressive stream: one file, already muxed, so nothing has to be
+        remuxed afterwards. --max-filesize makes yt-dlp skip a video that is
+        larger than the cap instead of filling the disk to find out.
+        """
+        if not entry.id:
+            return None
+
+        youtube_url = f"https://www.youtube.com/watch?v={entry.id}"
+
+        stdout = await run_ytdlp([
+            "--format", FORMAT_SELECTOR,
+            "--socket-timeout", "15",
+            "--retries", "2",
+            "--extractor-args", f"youtube:player_client={PLAYER_CLIENT}",
+            "--max-filesize", str(config.ARCHIVE_MAX_FILE_BYTES),
+            "--no-part",
+            "--no-simulate",
+            "--print", "after_move:filepath",
+            "--output", str(work_dir / "%(id)s.%(ext)s"),
+            youtube_url,
+        ], timeout=config.ARCHIVE_DOWNLOAD_TIMEOUT_SECONDS)
+
+        # Nothing printed means the download was skipped, which --max-filesize
+        # does without failing.
+        lines = [line.strip() for line in stdout.splitlines() if line.strip()]
+        if not lines:
+            return None
+
+        downloaded = Path(lines[-1])
+        if downloaded.parent != work_dir or not downloaded.is_file():
+            print(f"[YTDLP] Unexpected download path for {entry.id}: {downloaded}")
+            return None
+
+        return downloaded
 
     @staticmethod
     def _is_environmental(error: Exception) -> bool:

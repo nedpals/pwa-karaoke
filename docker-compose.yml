@@ -12,6 +12,13 @@ services:
       - YTDLP_AUTO_UPDATE=${YTDLP_AUTO_UPDATE:-1}
       - YTDLP_TIMEOUT_SECONDS=${YTDLP_TIMEOUT_SECONDS:-45}
       - YTDLP_EXTRA_ARGS=${YTDLP_EXTRA_ARGS:-}
+      # Decides which formats YouTube returns. Playback needs a progressive one
+      # and most clients no longer offer any; an unknown name here is skipped
+      # silently rather than refused. See the backend README before changing it.
+      - YTDLP_PLAYER_CLIENT=${YTDLP_PLAYER_CLIENT:-android}
+      # The JS runtime the image installs. yt-dlp enables only deno by default,
+      # so without naming it here Bun sits unused and formats go missing.
+      - YTDLP_RUNTIME=${YTDLP_RUNTIME:-bun}
       # Keep a copy of each video that plays, so a song that has played once
       # keeps playing when YouTube stops answering. Off by default: it stores
       # copies of what you play, which is your call rather than a default.

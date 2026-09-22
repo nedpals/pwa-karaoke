@@ -17,6 +17,8 @@ A FastAPI-based WebSocket server for managing karaoke rooms, song queues, and pl
   - [Registration](#registration)
   - [Health](#health)
   - [Built-in Providers](#built-in-providers)
+    - [YouTube: Player Client and Formats](#youtube-player-client-and-formats)
+    - [YouTube: JavaScript Runtime](#youtube-javascript-runtime)
 - [Media Archive](#media-archive)
   - [What It Does and Does Not Fix](#what-it-does-and-does-not-fix)
   - [How a Song Gets There](#how-a-song-gets-there)
@@ -276,6 +278,59 @@ Every provider's state is reported under `sources` on `/health`, which returns
 | ID | Source | Notes |
 | --- | --- | --- |
 | `youtube` | YouTube, via yt-dlp | Searches through the library, extracts through the CLI binary |
+
+#### YouTube: Player Client and Formats
+
+Playback hands one URL to a `<video>` element, so the only format this provider
+can use is a **progressive** one: a single file carrying both video and audio.
+DASH needs the two streams muxed, and HLS only plays in Safari.
+
+Which formats YouTube offers depends entirely on the player client asked for,
+and most clients no longer offer a progressive one at all. `android` still does
+(format 18, 360p mp4), which is why it is the default.
+
+Three things make a wrong setting here hard to spot, so they are worth knowing:
+
+- yt-dlp does not fail on an unknown client name. It prints
+  `Skipping unsupported client "..."` and carries on with its own defaults,
+  which are clients that offer no progressive format. The visible symptom is
+  `Requested format is not available` on most videos, which reads like a problem
+  with the video.
+- Warnings are therefore left **on** for the CLI. They are the only sign of this
+  and of a missing JS runtime. `[YTDLP] WARNING: ...` lines in the log are
+  yt-dlp's own.
+- `/health` reports `player_client` and `player_client_supported` under the
+  `youtube` provider, the latter checked against yt-dlp's own client table.
+  `null` there means the table could not be read, not that the client is bad.
+
+`YTDLP_PLAYER_CLIENT` changes it, and takes a comma separated list. After
+changing it, confirm a song still resolves rather than trusting that it started.
+
+One warning worth watching for, because it is the ground moving rather than a
+misconfiguration:
+
+```
+Some android client https formats have been skipped as they are missing a URL.
+YouTube may have enabled the SABR-only streaming experiment for the current session.
+```
+
+SABR is YouTube serving video through a protocol that yields no plain URL at
+all. Where it is in force, progressive formats thin out and eventually vanish,
+and no choice of client brings them back. Nothing here can work around that: a
+`<video>` element given one URL is the assumption underneath it. The [media
+archive](#media-archive) is the hedge, since a song copied while it was still
+resolvable keeps playing afterwards.
+
+#### YouTube: JavaScript Runtime
+
+yt-dlp needs a JS runtime to work out some formats, and enables only `deno` by
+default. The image installs Bun, so `YTDLP_RUNTIME` (default `bun`) is passed as
+`--js-runtimes`. Without it yt-dlp warns that
+`No supported JavaScript runtime could be found` and some formats go missing.
+
+The flag is recent, so support is confirmed against the binary once at startup
+and dropped if absent, since an unknown option would otherwise fail every
+invocation. Set `YTDLP_RUNTIME=` (empty) to skip the flag entirely.
 
 
 ## Media Archive
@@ -617,6 +672,25 @@ The server processes incoming WebSocket messages by extracting the command name 
 ```
 
 ## Troubleshooting
+
+### Songs Queue but Never Play
+
+Playback resolution and search are different code paths, so search working says
+nothing about this. Check, in order:
+
+- `sources.youtube` on `/health`: `consecutive_failures` and `last_error` name
+  the cause
+- `Requested format is not available` in the log means no progressive format
+  came back. Check `player_client_supported` on `/health` and look for
+  `Skipping unsupported client` in the log
+- `Sign in to confirm you're not a bot` means the source is refusing this
+  server, not that the video is gone. It is treated as environmental, so it is
+  retried and never cached; a proxy is the usual answer
+- `No supported JavaScript runtime could be found` means `YTDLP_RUNTIME` is not
+  reaching yt-dlp or names a runtime that is not installed
+- A song that resolves but then fails to play, with `HTTP Error 403` when the
+  server fetches the same URL, is the source refusing the network rather than
+  anything about the setup. A proxy is the usual answer
 
 ### Search Not Working
 

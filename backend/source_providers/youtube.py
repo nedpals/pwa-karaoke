@@ -21,8 +21,24 @@ from core.search import (
 )
 from config import config
 
-PLAYER_CLIENT = "android_sdkless"
-FORMAT_SELECTOR = "best[ext=mp4]/best[ext=webm]/best"
+# The player client decides which formats YouTube returns at all. Playback hands
+# a single URL to a <video> element, so the only useful format is a progressive
+# one: one file carrying both video and audio. Most clients no longer offer any,
+# and yt-dlp does not treat an unknown client name as an error, it skips it with
+# a warning and carries on with its own defaults. Changing this means reading
+# the log for "Skipping unsupported client" and confirming a progressive format
+# still comes back.
+PLAYER_CLIENT = config.YTDLP_PLAYER_CLIENT
+
+# Progressive, over plain HTTP. `best` alone already means muxed, but naming the
+# constraint keeps the failure legible: when no progressive format exists the
+# error is about this selector rather than about the video. HLS is excluded
+# because a <video> element only plays it on Safari.
+FORMAT_SELECTOR = (
+    "best[protocol^=http][vcodec!=none][acodec!=none][ext=mp4]/"
+    "best[protocol^=http][vcodec!=none][acodec!=none][ext=webm]/"
+    "best[protocol^=http][vcodec!=none][acodec!=none]"
+)
 
 # Sixty results cost about half a second more than thirty, and they are what
 # the ranking, and the pages after the first, have to work with.
@@ -31,20 +47,24 @@ SEARCH_FETCH_LIMIT = 60
 SEARCH_SOCKET_TIMEOUT_SECONDS = 15
 
 # Applied to every CLI invocation. --ignore-config keeps a stray user or system
-# config file from changing behaviour under us.
+# config file from changing behaviour under us. Warnings are deliberately left
+# on: a skipped player client and a missing JS runtime both report themselves
+# that way and are otherwise indistinguishable from a working extraction.
 YTDLP_BASE_ARGS = [
     "--ignore-config",
     "--quiet",
-    "--no-warnings",
     "--no-progress",
     "--no-playlist",
 ]
 
 RETRYABLE_ERROR_MARKERS = (
-    "proxy", "407", "429", "rate limit",
+    "proxy", "407", "429", "rate limit", "too many requests",
     "connection", "timeout", "timed out", "network",
     "dns", "name resolution", "unreachable", "reset by peer", "temporary failure",
     "400", "401", "403", "404", "408",
+    # The source refusing this server, not a verdict on the video. Matched on
+    # "not a bot" rather than "sign in", which a private video also says.
+    "not a bot", "failed to extract any player response",
 )
 
 KILL_GRACE_SECONDS = 5.0
@@ -61,7 +81,24 @@ class YtdlpError(Exception):
 
     @property
     def details(self) -> str:
+        """Everything yt-dlp said, for the log."""
         return f"{self} {self.stderr}".strip()
+
+    @property
+    def failure_details(self) -> str:
+        """
+        What the run actually failed on, with the warnings dropped.
+
+        Warnings are kept on for diagnosis, but they describe things yt-dlp
+        recovered from, and they routinely name a 429 or a timeout. Reading
+        them as the cause would make a private video look like a network blip
+        and stop a permanent answer from ever being cached.
+        """
+        lines = [
+            line.strip() for line in self.stderr.splitlines()
+            if line.strip() and not line.strip().startswith("WARNING:")
+        ]
+        return f"{self} {' '.join(lines)}".strip()
 
 
 class YtdlpTimeout(YtdlpError):
@@ -79,6 +116,22 @@ class ExtractionOutcome(NamedTuple):
     environmental_failure: bool
 
 
+def supported_player_client(client: str) -> Optional[bool]:
+    """
+    Whether yt-dlp recognises a player client, or None when it cannot be asked.
+
+    Reads a private table, so a yt-dlp that moves it answers None rather than
+    raising: the warnings from a real extraction remain the reliable signal, and
+    this only exists to put the same news in /health and the startup log.
+    """
+    try:
+        from yt_dlp.extractor.youtube._base import INNERTUBE_CLIENTS
+    except Exception:
+        return None
+
+    return all(name.strip() in INNERTUBE_CLIENTS for name in client.split(",") if name.strip())
+
+
 class YtdlpHealth(ProviderHealth):
     """
     Provider health backed by a version probe of the yt-dlp binary.
@@ -91,6 +144,34 @@ class YtdlpHealth(ProviderHealth):
         super().__init__(available=False)
         self.last_probe_at: float = 0.0
         self._lock = asyncio.Lock()
+        self._warned_about_client = False
+
+    def warn_if_client_unsupported(self):
+        """
+        Say so once when yt-dlp will not recognise the configured client.
+
+        It would otherwise be skipped in silence and extraction would fall back
+        to clients that offer no progressive format, which surfaces much later
+        as songs that queue and never play.
+        """
+        if self._warned_about_client or supported_player_client(PLAYER_CLIENT) is not False:
+            return
+
+        self._warned_about_client = True
+        print(
+            f"[YTDLP] Player client {PLAYER_CLIENT!r} is not one yt-dlp knows. It will be "
+            f"skipped and extraction will fall back to clients that may offer no playable "
+            f"format. Set YTDLP_PLAYER_CLIENT to a supported client."
+        )
+
+    def snapshot(self) -> dict:
+        # The client is the single setting most likely to be quietly wrong, and
+        # the one that decides whether anything is playable at all.
+        return {
+            **super().snapshot(),
+            "player_client": PLAYER_CLIENT,
+            "player_client_supported": supported_player_client(PLAYER_CLIENT),
+        }
 
     async def probe(self, force: bool = False) -> dict:
         """
@@ -112,6 +193,7 @@ class YtdlpHealth(ProviderHealth):
 
             try:
                 self.record_ok(version=await ytdlp_version())
+                self.warn_if_client_unsupported()
             except YtdlpError as e:
                 self.record_failure(e.details, fatal=True)
 
@@ -159,6 +241,62 @@ async def _terminate(proc: asyncio.subprocess.Process):
         print(f"[YTDLP] Process {proc.pid} did not exit after kill")
 
 
+def log_ytdlp_warnings(stderr: str):
+    """
+    Print yt-dlp's warnings from a run that otherwise succeeded.
+
+    Several misconfigurations are visible nowhere else: an unsupported player
+    client is skipped with a warning and the extraction then proceeds on
+    whichever client yt-dlp would have chosen anyway, which looks like success
+    until a video turns out to have no playable format.
+    """
+    seen = set()
+    for line in stderr.splitlines():
+        line = line.strip()
+        if line.startswith("WARNING:") and line not in seen:
+            seen.add(line)
+            print(f"[YTDLP] {line}")
+
+
+_js_runtime_flag: Optional[list[str]] = None
+_js_runtime_lock = asyncio.Lock()
+
+
+async def js_runtime_args() -> list[str]:
+    """
+    The --js-runtimes flag for the configured runtime, or nothing.
+
+    yt-dlp enables only deno by default, so the Bun the image installs for this
+    purpose goes unused unless it is named, and extraction quietly loses formats
+    without it. The flag is recent and an unknown option fails every invocation,
+    so it is confirmed against the binary once. Support for the flag is all this
+    establishes; a runtime that is named but not installed reports itself in the
+    warnings of the first real extraction.
+    """
+    global _js_runtime_flag
+
+    if not config.YTDLP_RUNTIME:
+        return []
+
+    if _js_runtime_flag is None:
+        async with _js_runtime_lock:
+            if _js_runtime_flag is None:
+                _js_runtime_flag = await _detect_js_runtime_flag()
+
+    return _js_runtime_flag
+
+
+async def _detect_js_runtime_flag() -> list[str]:
+    flag = ["--js-runtimes", config.YTDLP_RUNTIME]
+    try:
+        await run_ytdlp([*flag, "--version"], timeout=15.0)
+        print(f"[YTDLP] JavaScript runtime enabled: {config.YTDLP_RUNTIME}")
+        return flag
+    except YtdlpError as e:
+        print(f"[YTDLP] This yt-dlp will not take --js-runtimes, continuing without it: {e.details}")
+        return []
+
+
 async def run_ytdlp(args: list[str], timeout: Optional[float] = None) -> str:
     """
     Run the yt-dlp CLI and return its stdout, raising YtdlpError on any failure.
@@ -196,13 +334,16 @@ async def run_ytdlp(args: list[str], timeout: Optional[float] = None) -> str:
         await _terminate(proc)
         raise
 
+    decoded_stderr = stderr.decode("utf-8", errors="replace").strip()
+
     if proc.returncode != 0:
         raise YtdlpError(
             f"yt-dlp exited with code {proc.returncode}",
             returncode=proc.returncode,
-            stderr=stderr.decode("utf-8", errors="replace").strip(),
+            stderr=decoded_stderr,
         )
 
+    log_ytdlp_warnings(decoded_stderr)
     return stdout.decode("utf-8", errors="replace")
 
 
@@ -276,6 +417,8 @@ class YTKaraokeSourceProvider(KaraokeSourceProvider):
         where a process spawn per keystroke would be felt, and because a flat
         search returns a far more stable shape than a full extraction.
         """
+        # No JS runtime is named here: a flat search never calls the player API,
+        # which is the only thing that needs one.
         opts = {
             'quiet': True,
             'no_warnings': True,
@@ -405,6 +548,7 @@ class YTKaraokeSourceProvider(KaraokeSourceProvider):
             "--socket-timeout", "15",
             "--retries", "2",
             "--extractor-args", f"youtube:player_client={PLAYER_CLIENT}",
+            *await js_runtime_args(),
             "--max-filesize", str(config.ARCHIVE_MAX_FILE_BYTES),
             "--no-part",
             "--no-simulate",
@@ -440,7 +584,7 @@ class YTKaraokeSourceProvider(KaraokeSourceProvider):
             # No exit code means yt-dlp never ran or never produced usable output.
             if error.returncode is None:
                 return True
-            details = error.details
+            details = error.failure_details
         else:
             details = str(error)
 
@@ -466,6 +610,7 @@ class YTKaraokeSourceProvider(KaraokeSourceProvider):
                     "--socket-timeout", "15",
                     "--retries", "1",
                     "--extractor-args", f"youtube:player_client={PLAYER_CLIENT}",
+                    *await js_runtime_args(),
                     youtube_url,
                 ])
                 self.health.record_ok()

@@ -21,6 +21,7 @@ A FastAPI-based WebSocket server for managing karaoke rooms, song queues, and pl
     - [YouTube: JavaScript Runtime](#youtube-javascript-runtime)
 - [Media Archive](#media-archive)
   - [What It Does and Does Not Fix](#what-it-does-and-does-not-fix)
+  - [Proxy Playback](#proxy-playback)
   - [How a Song Gets There](#how-a-song-gets-there)
   - [Serving](#serving)
   - [Storage](#storage)
@@ -358,24 +359,52 @@ The archive is a playback measure. A source that stops answering still takes
 discovery with it, so this narrows an outage to "nothing new plays" rather than
 ending it.
 
-### How a Song Gets There
+### Proxy Playback
 
-Nothing is on the playback path. The first play of a song resolves and plays
-exactly as it did before, and a background download starts alongside it:
+A source URL is tied to the address that asked for it closely enough that
+handing it to a display on a different address earns a 429. The server resolves
+it, possibly through `PROXY_SERVER`, and the display then fetches it from its
+own address, which is a different one. This is the reason the archive exists:
+the fetch has to happen where the URL was resolved.
+
+So with the archive on, `ARCHIVE_PROXY_PLAYBACK` (default on) means a display is
+never handed a source URL. Every answer is a `/media` URL, and only this server
+ever talks to the source.
+
+The cost is that a song with no copy yet has to be fetched before it can be
+answered, and that request waits up to `ARCHIVE_PLAYBACK_WAIT_SECONDS`. In
+practice the queue absorbs it: reserving a song prefetches it while something
+else is still being sung, so by the time it plays the copy is already there.
+
+When the copy cannot be fetched at all, the source URL is handed over as a last
+resort, with `No copy of ... to serve` in the log. It may well 429, but it is
+better than answering with nothing.
+
+Turning `ARCHIVE_PROXY_PLAYBACK` off restores the older behaviour: the first
+play of a song goes straight to the source and the archive only serves the plays
+after it. That is the faster arrangement wherever the display can reach the
+source itself.
+
+### How a Song Gets There
 
 ```
 get_video_url(entry)
   └─ archived?  ── yes ─→ signed /media URL, source never asked
-                  no  ─→ entry's own URL, else the URL cache, else the provider
-                         └─ resolved → queue a background download
+                  no, and proxy playback on ─→ fetch it now, wait, then serve
+                     └─ could not fetch ─→ source URL, as a last resort
+                  no, and proxy playback off ─→ entry's own URL, else the URL
+                     cache, else the provider, and queue a background download
 ```
 
-Songs are archived only from a URL that resolved, one download per key at a
-time, and at most `ARCHIVE_MAX_CONCURRENT_DOWNLOADS` at once: the box serving the
-room is the one doing the fetching. A download is queued on every resolution of
-an unarchived song, which for a song sitting in a queue is often, so a key whose
-download fails or is skipped goes quiet for `ARCHIVE_RETRY_AFTER_SECONDS` rather
-than retrying once per broadcast. Because `commands.py` already prefetches
+One download per key at a time, and at most `ARCHIVE_MAX_CONCURRENT_DOWNLOADS`
+at once: the box serving the room is the one doing the fetching.
+
+A download is attempted on every resolution of an unarchived song, which for a
+song sitting in a queue is often, so a key whose download fails goes quiet
+rather than retrying once per broadcast. There are two windows, because the two
+callers differ in whether anyone is waiting:
+`ARCHIVE_RETRY_AFTER_SECONDS` for a speculative fill, and the much shorter
+`ARCHIVE_FORCED_RETRY_AFTER_SECONDS` when a play is blocked on the copy. Because `commands.py` already prefetches
 URLs for the next two queued songs, a song usually starts downloading while
 something else is still being sung.
 
@@ -432,7 +461,10 @@ Archive counts and bytes are reported under `archive` on `/health`.
 | `ARCHIVE_URL_SECRET` | random per process | Set to keep issued URLs valid across a restart. |
 | `ARCHIVE_DOWNLOAD_TIMEOUT_SECONDS` | `600` | Hard limit on one archive download. |
 | `ARCHIVE_MAX_CONCURRENT_DOWNLOADS` | `2` | Downloads running at once. |
-| `ARCHIVE_RETRY_AFTER_SECONDS` | `1800` | How long a key stays quiet after a failed or skipped download. |
+| `ARCHIVE_PROXY_PLAYBACK` | on | Never hand a display a source URL; fetch the copy first and serve that. |
+| `ARCHIVE_PLAYBACK_WAIT_SECONDS` | `120` | How long a play waits for its copy before falling back. |
+| `ARCHIVE_RETRY_AFTER_SECONDS` | `1800` | Quiet period after a failed download, for a speculative fill. |
+| `ARCHIVE_FORCED_RETRY_AFTER_SECONDS` | `30` | The same, when a play is waiting on it. |
 
 Leaving it off changes nothing: every path behaves exactly as it did before.
 
@@ -719,6 +751,7 @@ Performance problems can be diagnosed through the health endpoint at `/health`, 
 - An archive that empties on restart means `ARCHIVE_DIR` is not on a mounted volume
 - A file count that stops growing usually means `ARCHIVE_MAX_BYTES` is reached and copies are being evicted as fast as they arrive
 - A song that failed to download is not retried for `ARCHIVE_RETRY_AFTER_SECONDS`, so a fix to the extractor is not picked up instantly
+- `No copy of ... to serve` means proxy playback could not fetch a copy and fell back to the source URL, which is the request that may 429
 - `[ARCHIVE]` lines in the server log cover every download, store, eviction and refusal
 
 ### Caching Issues

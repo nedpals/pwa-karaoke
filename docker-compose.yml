@@ -24,6 +24,10 @@ services:
       # copies of what you play, which is your call rather than a default.
       - ARCHIVE_ENABLED=${ARCHIVE_ENABLED:-0}
       - ARCHIVE_MAX_BYTES=${ARCHIVE_MAX_BYTES:-21474836480}
+      # On by default with the archive: a source URL resolved here 429s when a
+      # display fetches it from its own address, so the display is only ever
+      # given a URL to this server. Set to 0 to hand out source URLs again.
+      - ARCHIVE_PROXY_PLAYBACK=${ARCHIVE_PROXY_PLAYBACK:-1}
       # Set this to keep already-issued media URLs valid across a restart.
       - ARCHIVE_URL_SECRET=${ARCHIVE_URL_SECRET:-}
     volumes:

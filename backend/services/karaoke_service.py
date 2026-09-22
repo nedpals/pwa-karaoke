@@ -178,6 +178,14 @@ class KaraokeService:
                 print(f"[SERVICE] Serving {entry.id} from the archive")
                 return VideoURLResponse(video_url=archive.url_for(media))
 
+        # Under proxy playback the copy has to exist before we can answer, so
+        # this waits for it rather than handing out a source URL meanwhile.
+        if key and config.ARCHIVE_PROXY_PLAYBACK and archive.enabled:
+            media = await self._archive_now(entry, key)
+            if media is not None:
+                return VideoURLResponse(video_url=archive.url_for(media))
+            print(f"[SERVICE] No copy of {entry.id} to serve, falling back to the source URL")
+
         video_url = await self._resolve_live_url(entry)
 
         # Only ever from a URL that worked: archiving a song nobody can resolve
@@ -186,6 +194,37 @@ class KaraokeService:
             self._schedule_archive(entry, key)
 
         return VideoURLResponse(video_url=video_url)
+
+    async def _archive_now(self, entry: KaraokeEntry, key: str):
+        """
+        Fetch the copy and wait for it, returning the archived media or None.
+
+        A source URL is bound to the address that asked for it closely enough
+        that handing it to a display on a different address earns a 429, which
+        is the whole reason the copy exists. So the wait is the point: the
+        download happens where the URL was resolved, and only this server's own
+        address ever touches the source.
+
+        The queue usually removes the wait entirely, since reserving a song
+        prefetches it while something else is still being sung.
+        """
+        archiver = get_media_archiver()
+        provider = self.providers.get(entry.source)
+        if archiver is None or provider is None:
+            return None
+
+        task = archiver.schedule(key, self._downloader(entry, provider, key), force=True)
+        if task is None:
+            return None
+
+        if not await archiver.wait_for(task, config.ARCHIVE_PLAYBACK_WAIT_SECONDS):
+            # Left running: a slow download still lands, and the next ask for
+            # this song is served from the archive rather than starting over.
+            print(f"[SERVICE] Still fetching {entry.id} after "
+                  f"{config.ARCHIVE_PLAYBACK_WAIT_SECONDS:g}s")
+            return None
+
+        return await get_media_archive().locate(key)
 
     async def _resolve_live_url(self, entry: KaraokeEntry) -> str | None:
         """Ask the source for a URL, through the caller's copy and the cache first."""
@@ -233,9 +272,14 @@ class KaraokeService:
         if provider is None:
             return
 
+        archiver.schedule(key, self._downloader(entry, provider, key))
+
+    @staticmethod
+    def _downloader(entry: KaraokeEntry, provider: KaraokeSourceProvider, key: str):
+        """Fetch the entry, unless something archived it while this was queued."""
         async def download(work_dir: Path):
             if await get_media_archive().locate(key) is not None:
                 return None
             return await provider.download_video(entry, work_dir)
 
-        archiver.schedule(key, download)
+        return download

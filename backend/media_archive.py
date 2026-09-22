@@ -307,37 +307,60 @@ class MediaArchiver:
     the room is the same one doing the fetching.
     """
 
-    def __init__(self, archive: MediaArchive, max_concurrent: int, retry_after: float):
+    def __init__(self, archive: MediaArchive, max_concurrent: int,
+                 retry_after: float, forced_retry_after: float):
         self.archive = archive
         self.retry_after = retry_after
+        self.forced_retry_after = forced_retry_after
         self._semaphore = asyncio.Semaphore(max(1, max_concurrent))
         self._in_flight: dict[str, asyncio.Task] = {}
-        self._failed_until: dict[str, float] = {}
+        self._failed_at: dict[str, float] = {}
 
-    def schedule(self, key: str, download: Downloader):
+    def schedule(self, key: str, download: Downloader, force: bool = False) -> Optional[asyncio.Task]:
         """
-        Queue a download unless one is already running for this key or the last
-        attempt failed recently. Scheduling happens on every resolution of an
-        unarchived song, which for a song sitting in a queue is often, so a key
-        that cannot be downloaded has to stop asking rather than retry per
-        broadcast.
+        Queue a download, or return the one already running for this key.
+
+        Scheduling happens on every resolution of an unarchived song, which for
+        a song sitting in a queue is often, so a key that cannot be downloaded
+        has to stop asking rather than retry per broadcast. `force` shortens that
+        quiet period for a play that is waiting on the copy rather than a
+        speculative fill, since someone is looking at the screen. It does not
+        remove it: a download that failed a moment ago fails again, and those
+        same broadcasts would otherwise retry it on every one.
         """
-        if not self.archive.enabled or key in self._in_flight:
-            return
+        if not self.archive.enabled:
+            return None
+
+        existing = self._in_flight.get(key)
+        if existing is not None:
+            return existing
 
         now = time.time()
-        if self._failed_until.get(key, 0.0) > now:
-            return
+        quiet = self.forced_retry_after if force else self.retry_after
+        if now - self._failed_at.get(key, 0.0) < quiet:
+            return None
 
         self._forget_expired_failures(now)
 
         task = asyncio.create_task(self._archive(key, download))
         self._in_flight[key] = task
         task.add_done_callback(lambda _: self._in_flight.pop(key, None))
+        return task
+
+    async def wait_for(self, task: asyncio.Task, timeout: float) -> bool:
+        """
+        Wait for a download without owning it.
+
+        asyncio.wait_for would cancel the task on timeout, which would abandon a
+        download that other callers are also waiting on and that would have
+        finished on its own. This leaves it running and just stops waiting.
+        """
+        done, _ = await asyncio.wait({task}, timeout=timeout)
+        return bool(done)
 
     def _forget_expired_failures(self, now: float):
-        for key in [k for k, until in self._failed_until.items() if until <= now]:
-            self._failed_until.pop(key, None)
+        for key in [k for k, at in self._failed_at.items() if now - at >= self.retry_after]:
+            self._failed_at.pop(key, None)
 
     async def _archive(self, key: str, download: Downloader):
         async with self._semaphore:
@@ -348,7 +371,7 @@ class MediaArchiver:
                 if downloaded is None:
                     # Skipped or refused rather than broken, but either way
                     # asking again straight away would get the same answer.
-                    self._failed_until[key] = time.time() + self.retry_after
+                    self._failed_at[key] = time.time()
                     print(f"[ARCHIVE] Nothing to store for {key}")
                     return
 
@@ -356,12 +379,12 @@ class MediaArchiver:
                 if media is not None:
                     print(f"[ARCHIVE] Stored {media.key} ({media.size_bytes} bytes)")
                 else:
-                    self._failed_until[key] = time.time() + self.retry_after
+                    self._failed_at[key] = time.time()
 
             except asyncio.CancelledError:
                 raise
             except Exception as e:
-                self._failed_until[key] = time.time() + self.retry_after
+                self._failed_at[key] = time.time()
                 print(f"[ARCHIVE] Failed to archive {key}: {e}")
             finally:
                 shutil.rmtree(work_dir, ignore_errors=True)
@@ -410,6 +433,7 @@ def init_media_archive() -> MediaArchive:
         _archive,
         config.ARCHIVE_MAX_CONCURRENT_DOWNLOADS,
         config.ARCHIVE_RETRY_AFTER_SECONDS,
+        config.ARCHIVE_FORCED_RETRY_AFTER_SECONDS,
     )
     return _archive
 

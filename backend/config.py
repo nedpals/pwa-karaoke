@@ -53,6 +53,10 @@ class Config:
     ARCHIVE_DOWNLOAD_TIMEOUT_SECONDS: float = _float_env("ARCHIVE_DOWNLOAD_TIMEOUT_SECONDS", 600.0)
     ARCHIVE_MAX_CONCURRENT_DOWNLOADS: int = _int_env("ARCHIVE_MAX_CONCURRENT_DOWNLOADS", 2)
     ARCHIVE_RETRY_AFTER_SECONDS: float = _float_env("ARCHIVE_RETRY_AFTER_SECONDS", 1800.0)  # Quiet period after a failed download
+    # Never hand a source URL to the display: fetch the copy first and serve that.
+    ARCHIVE_PROXY_PLAYBACK: bool = _bool_env("ARCHIVE_PROXY_PLAYBACK", True)
+    ARCHIVE_PLAYBACK_WAIT_SECONDS: float = _float_env("ARCHIVE_PLAYBACK_WAIT_SECONDS", 120.0)  # How long a play waits for its copy
+    ARCHIVE_FORCED_RETRY_AFTER_SECONDS: float = _float_env("ARCHIVE_FORCED_RETRY_AFTER_SECONDS", 30.0)  # Floor between retries for a waiting play
 
 
 # Global configuration instance

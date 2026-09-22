@@ -50,6 +50,11 @@ INCOMING_DIRNAME = ".incoming"
 # Long enough that a download in progress is not mistaken for abandoned work.
 STALE_INCOMING_SECONDS = 24 * 3600
 
+# How often a reader looks for bytes the writer has added. The writer is a
+# subprocess, so there is nothing to be woken by.
+TAIL_POLL_SECONDS = 0.05
+TAIL_CHUNK_BYTES = 256 * 1024
+
 
 class ArchivedMedia(NamedTuple):
     key: str  # Carries the extension, unlike the key passed to locate()
@@ -75,6 +80,101 @@ def archive_key(source: str, entry_id: str) -> Optional[str]:
     return "/".join(parts)
 
 
+class PendingMedia:
+    """
+    A download that can be read while it is still arriving.
+
+    Serving one needs its size up front: without a Content-Length a <video>
+    element will not seek, and the display sets currentTime to keep screens in
+    step. A source that cannot say how big the file will be is therefore not
+    streamable, and the copy is served once it is complete instead.
+    """
+
+    def __init__(self, key: str):
+        self.key = key
+        self.path: Optional[Path] = None
+        self.total_bytes: Optional[int] = None
+        self.done = False
+        self.failed = False
+        # Set once there is news either way, so a caller waiting to answer a
+        # play request does not wait out the whole download to learn there is
+        # nothing to wait for.
+        self._settled = asyncio.Event()
+
+    def begin(self, path: Path, total_bytes: Optional[int]):
+        self.path = path
+        self.total_bytes = total_bytes
+        self._settled.set()
+
+    def finish(self, failed: bool = False):
+        self.done = True
+        self.failed = failed
+        self._settled.set()
+
+    @property
+    def extension(self) -> Optional[str]:
+        return self.path.suffix.lower() if self.path else None
+
+    @property
+    def media_key(self) -> Optional[str]:
+        return f"{self.key}{self.extension}" if self.path else None
+
+    @property
+    def content_type(self) -> Optional[str]:
+        return CONTENT_TYPES.get(self.extension) if self.path else None
+
+    @property
+    def streamable(self) -> bool:
+        return (
+            not self.done
+            and self.path is not None
+            and self.total_bytes is not None
+            and self.content_type is not None
+            and self.path.is_file()
+        )
+
+    async def settled(self, timeout: float) -> bool:
+        """Wait until the download has started or ended, whichever comes first."""
+        try:
+            await asyncio.wait_for(self._settled.wait(), timeout)
+        except asyncio.TimeoutError:
+            return False
+        return True
+
+    async def read_range(self, start: int, end: int):
+        """
+        Yield bytes start..end inclusive, waiting on the writer where needed.
+
+        Reads go through the open handle rather than the path, because the
+        finished download is renamed into the archive underneath us and the
+        handle survives that while the path does not.
+        """
+        handle = await asyncio.to_thread(open, self.path, "rb")
+        try:
+            await asyncio.to_thread(handle.seek, start)
+            position = start
+
+            while position <= end:
+                want = min(TAIL_CHUNK_BYTES, end - position + 1)
+                chunk = await asyncio.to_thread(handle.read, want)
+
+                if chunk:
+                    position += len(chunk)
+                    yield chunk
+                    continue
+
+                # Nothing there yet. Either the writer has not caught up, or
+                # this is the end of a download that stopped early.
+                if self.done:
+                    if self.failed:
+                        print(f"[ARCHIVE] Stream of {self.key} cut short: the download failed")
+                    return
+
+                await asyncio.sleep(TAIL_POLL_SECONDS)
+        finally:
+            await asyncio.to_thread(handle.close)
+
+
 class MediaArchive:
     """
     No archive at all. Every call is the answer a miss would give, so callers
@@ -90,9 +190,16 @@ class MediaArchive:
     def url_for(self, media: ArchivedMedia) -> str:
         raise NotImplementedError
 
-    def verify(self, key: str, expires: int, signature: str) -> Optional[Path]:
-        """The file a signed request is asking for, or None if it may not have it."""
+    def verify_signature(self, key: str, expires: int, signature: str) -> bool:
+        """Whether this server issued this URL and it has not expired."""
+        return False
+
+    def path_for(self, key: str) -> Optional[Path]:
+        """Where a media key lives, whether or not anything is there yet."""
         return None
+
+    def signed_url(self, media_key: str) -> str:
+        raise NotImplementedError
 
     async def store(self, key: str, source_path: Path) -> Optional[ArchivedMedia]:
         return None
@@ -181,22 +288,23 @@ class LocalDiskArchive(MediaArchive):
         return hmac.new(self._secret, payload, hashlib.sha256).hexdigest()
 
     def url_for(self, media: ArchivedMedia) -> str:
+        return self.signed_url(media.key)
+
+    def signed_url(self, media_key: str) -> str:
         expires = int(time.time()) + self.url_ttl_seconds
-        signature = self._sign(media.key, expires)
-        return f"{MEDIA_URL_PREFIX}/{quote(media.key)}?expires={expires}&signature={signature}"
+        signature = self._sign(media_key, expires)
+        return f"{MEDIA_URL_PREFIX}/{quote(media_key)}?expires={expires}&signature={signature}"
 
-    def verify(self, key: str, expires: int, signature: str) -> Optional[Path]:
+    def verify_signature(self, key: str, expires: int, signature: str) -> bool:
         if expires < time.time():
-            return None
+            return False
+        return hmac.compare_digest(self._sign(key, expires), signature or "")
 
-        if not hmac.compare_digest(self._sign(key, expires), signature or ""):
-            return None
-
-        # The signature already establishes that we minted this key, but the
-        # containment check stays: it is the part that does not depend on the
-        # secret having stayed secret.
-        path = self._path_for(key)
-        return path if path is not None and path.is_file() else None
+    def path_for(self, key: str) -> Optional[Path]:
+        # The signature establishes that we minted the key, but the containment
+        # check stays: it is the part that does not depend on the secret having
+        # stayed secret.
+        return self._path_for(key)
 
     async def store(self, key: str, source_path: Path) -> Optional[ArchivedMedia]:
         return await asyncio.to_thread(self._store, key, source_path)
@@ -292,9 +400,11 @@ class LocalDiskArchive(MediaArchive):
             return {"enabled": True, "backend": "local_disk", "error": str(e)}
 
 
-# Given a working directory, produces the downloaded file, or None when the
-# source cannot supply one.
-Downloader = Callable[[Path], Awaitable[Optional[Path]]]
+# Given a working directory and a callback to report the destination and size
+# once they are known, produces the downloaded file, or None when the source
+# cannot supply one.
+OnStart = Callable[[Path, Optional[int]], None]
+Downloader = Callable[[Path, OnStart], Awaitable[Optional[Path]]]
 
 
 class MediaArchiver:
@@ -314,6 +424,7 @@ class MediaArchiver:
         self.forced_retry_after = forced_retry_after
         self._semaphore = asyncio.Semaphore(max(1, max_concurrent))
         self._in_flight: dict[str, asyncio.Task] = {}
+        self._pending: dict[str, PendingMedia] = {}
         self._failed_at: dict[str, float] = {}
 
     def schedule(self, key: str, download: Downloader, force: bool = False) -> Optional[asyncio.Task]:
@@ -342,10 +453,20 @@ class MediaArchiver:
 
         self._forget_expired_failures(now)
 
+        self._pending[key] = PendingMedia(key)
         task = asyncio.create_task(self._archive(key, download))
         self._in_flight[key] = task
         task.add_done_callback(lambda _: self._in_flight.pop(key, None))
         return task
+
+    def pending(self, key: str) -> Optional[PendingMedia]:
+        return self._pending.get(key)
+
+    def pending_for_media(self, media_key: str) -> Optional[PendingMedia]:
+        """Find a download in progress by the key its URL carries."""
+        base, _, _ = media_key.rpartition(".")
+        found = self._pending.get(base)
+        return found if found is not None and found.media_key == media_key else None
 
     async def wait_for(self, task: asyncio.Task, timeout: float) -> bool:
         """
@@ -363,11 +484,14 @@ class MediaArchiver:
             self._failed_at.pop(key, None)
 
     async def _archive(self, key: str, download: Downloader):
+        pending = self._pending[key]
+        failed = True
+
         async with self._semaphore:
             work_dir = Path(tempfile.mkdtemp(dir=self.archive.staging_dir))
             try:
                 print(f"[ARCHIVE] Downloading {key}")
-                downloaded = await download(work_dir)
+                downloaded = await download(work_dir, pending.begin)
                 if downloaded is None:
                     # Skipped or refused rather than broken, but either way
                     # asking again straight away would get the same answer.
@@ -377,6 +501,7 @@ class MediaArchiver:
 
                 media = await self.archive.store(key, downloaded)
                 if media is not None:
+                    failed = False
                     print(f"[ARCHIVE] Stored {media.key} ({media.size_bytes} bytes)")
                 else:
                     self._failed_at[key] = time.time()
@@ -387,6 +512,11 @@ class MediaArchiver:
                 self._failed_at[key] = time.time()
                 print(f"[ARCHIVE] Failed to archive {key}: {e}")
             finally:
+                # Readers still streaming hold their own handle, which the move
+                # into the archive does not disturb, but they need telling that
+                # no more bytes are coming.
+                pending.finish(failed=failed)
+                self._pending.pop(key, None)
                 shutil.rmtree(work_dir, ignore_errors=True)
 
     async def close(self, timeout: float = 5.0):

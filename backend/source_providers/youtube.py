@@ -5,7 +5,7 @@ import random
 import shlex
 import time
 from pathlib import Path
-from typing import NamedTuple, Optional
+from typing import Callable, NamedTuple, Optional
 from urllib.parse import urlparse, urlunparse
 
 import yt_dlp
@@ -66,6 +66,11 @@ RETRYABLE_ERROR_MARKERS = (
     # "not a bot" rather than "sign in", which a private video also says.
     "not a bot", "failed to extract any player response",
 )
+
+# Tags on the --print lines, so each can be told apart as it arrives.
+DEST_PREFIX = "DEST "
+SIZE_PREFIX = "SIZE "
+DONE_PREFIX = "DONE "
 
 KILL_GRACE_SECONDS = 5.0
 
@@ -297,24 +302,14 @@ async def _detect_js_runtime_flag() -> list[str]:
         return []
 
 
-async def run_ytdlp(args: list[str], timeout: Optional[float] = None) -> str:
-    """
-    Run the yt-dlp CLI and return its stdout, raising YtdlpError on any failure.
-
-    Shelling out keeps this on yt-dlp's documented command line contract rather
-    than its Python internals, which matters because the package is upgraded
-    often. It also allows the hard timeout below, which the in-process API has
-    no equivalent for, and keeps extractor crashes out of the server.
-    """
+async def _spawn_ytdlp(args: list[str]) -> asyncio.subprocess.Process:
     argv = [config.YTDLP_BINARY, *YTDLP_BASE_ARGS]
     if config.YTDLP_EXTRA_ARGS:
         argv.extend(shlex.split(config.YTDLP_EXTRA_ARGS))
     argv.extend(args)
 
-    limit = timeout if timeout is not None else config.YTDLP_TIMEOUT_SECONDS
-
     try:
-        proc = await asyncio.create_subprocess_exec(
+        return await asyncio.create_subprocess_exec(
             *argv,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
@@ -324,6 +319,87 @@ async def run_ytdlp(args: list[str], timeout: Optional[float] = None) -> str:
         raise YtdlpMissing(f"yt-dlp binary not found at {config.YTDLP_BINARY!r}") from e
     except OSError as e:
         raise YtdlpError(f"Failed to start yt-dlp: {e}") from e
+
+
+async def run_ytdlp_streaming(
+    args: list[str],
+    on_line: Callable[[str], None],
+    timeout: Optional[float] = None,
+) -> list[str]:
+    """
+    Run yt-dlp, handing each stdout line to on_line as it arrives.
+
+    run_ytdlp only sees output once the process has exited, which is no use for
+    a download: what --print before_dl reports is worth having while the bytes
+    are still arriving, not afterwards. yt-dlp does flush those lines
+    immediately, so reading them live is enough to learn where a download is
+    going and how big it will be.
+
+    stderr is drained alongside rather than after, or a chatty run fills its
+    pipe and the process blocks forever with neither side reading.
+    """
+    proc = await _spawn_ytdlp(args)
+    limit = timeout if timeout is not None else config.YTDLP_TIMEOUT_SECONDS
+
+    lines: list[str] = []
+    errors: list[str] = []
+
+    async def pump_stdout():
+        while True:
+            raw = await proc.stdout.readline()
+            if not raw:
+                return
+            line = raw.decode("utf-8", errors="replace").strip()
+            if not line:
+                continue
+            lines.append(line)
+            try:
+                on_line(line)
+            except Exception as e:
+                print(f"[YTDLP] Output handler failed on {line!r}: {e}")
+
+    async def pump_stderr():
+        while True:
+            raw = await proc.stderr.readline()
+            if not raw:
+                return
+            errors.append(raw.decode("utf-8", errors="replace").rstrip())
+
+    try:
+        await asyncio.wait_for(
+            asyncio.gather(pump_stdout(), pump_stderr(), proc.wait()),
+            timeout=limit,
+        )
+    except asyncio.TimeoutError:
+        await _terminate(proc)
+        raise YtdlpTimeout(f"yt-dlp timed out after {limit:g}s")
+    except asyncio.CancelledError:
+        await _terminate(proc)
+        raise
+
+    stderr = "\n".join(errors).strip()
+    if proc.returncode != 0:
+        raise YtdlpError(
+            f"yt-dlp exited with code {proc.returncode}",
+            returncode=proc.returncode,
+            stderr=stderr,
+        )
+
+    log_ytdlp_warnings(stderr)
+    return lines
+
+
+async def run_ytdlp(args: list[str], timeout: Optional[float] = None) -> str:
+    """
+    Run the yt-dlp CLI and return its stdout, raising YtdlpError on any failure.
+
+    Shelling out keeps this on yt-dlp's documented command line contract rather
+    than its Python internals, which matters because the package is upgraded
+    often. It also allows the hard timeout below, which the in-process API has
+    no equivalent for, and keeps extractor crashes out of the server.
+    """
+    limit = timeout if timeout is not None else config.YTDLP_TIMEOUT_SECONDS
+    proc = await _spawn_ytdlp(args)
 
     try:
         stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=limit)
@@ -529,7 +605,12 @@ class YTKaraokeSourceProvider(KaraokeSourceProvider):
 
         return VideoURLResult.failed() if outcome.environmental_failure else VideoURLResult.unavailable()
 
-    async def download_video(self, entry: KaraokeEntry, work_dir: Path) -> Optional[Path]:
+    async def download_video(
+        self,
+        entry: KaraokeEntry,
+        work_dir: Path,
+        on_start: Optional[Callable[[Path, Optional[int]], None]] = None,
+    ) -> Optional[Path]:
         """
         Fetch the file itself rather than a URL to it, for the archive.
 
@@ -542,8 +623,27 @@ class YTKaraokeSourceProvider(KaraokeSourceProvider):
             return None
 
         youtube_url = f"https://www.youtube.com/watch?v={entry.id}"
+        started = False
+        destination: Optional[Path] = None
+        finished: Optional[Path] = None
 
-        stdout = await run_ytdlp([
+        def handle(line: str):
+            # --no-part means the destination is written in place, so the path
+            # reported here is the one that grows as the download runs.
+            nonlocal started, destination, finished
+
+            if line.startswith(DEST_PREFIX):
+                destination = Path(line[len(DEST_PREFIX):].strip())
+            elif line.startswith(SIZE_PREFIX):
+                raw = line[len(SIZE_PREFIX):].strip()
+                total = int(raw) if raw.isdigit() else None
+                if on_start and not started and destination is not None:
+                    started = True
+                    on_start(destination, total)
+            elif line.startswith(DONE_PREFIX):
+                finished = Path(line[len(DONE_PREFIX):].strip())
+
+        await run_ytdlp_streaming([
             "--format", FORMAT_SELECTOR,
             "--socket-timeout", "15",
             "--retries", "2",
@@ -552,23 +652,24 @@ class YTKaraokeSourceProvider(KaraokeSourceProvider):
             "--max-filesize", str(config.ARCHIVE_MAX_FILE_BYTES),
             "--no-part",
             "--no-simulate",
-            "--print", "after_move:filepath",
+            # filepath is not populated this early; filename is.
+            "--print", f"before_dl:{DEST_PREFIX}%(filename)s",
+            "--print", f"before_dl:{SIZE_PREFIX}%(filesize,filesize_approx)s",
+            "--print", f"after_move:{DONE_PREFIX}%(filepath)s",
             "--output", str(work_dir / "%(id)s.%(ext)s"),
             youtube_url,
-        ], timeout=config.ARCHIVE_DOWNLOAD_TIMEOUT_SECONDS)
+        ], handle, timeout=config.ARCHIVE_DOWNLOAD_TIMEOUT_SECONDS)
 
-        # Nothing printed means the download was skipped, which --max-filesize
-        # does without failing.
-        lines = [line.strip() for line in stdout.splitlines() if line.strip()]
-        if not lines:
+        # No completion line means the download was skipped, which
+        # --max-filesize does without failing.
+        if finished is None:
             return None
 
-        downloaded = Path(lines[-1])
-        if downloaded.parent != work_dir or not downloaded.is_file():
-            print(f"[YTDLP] Unexpected download path for {entry.id}: {downloaded}")
+        if finished.parent != work_dir or not finished.is_file():
+            print(f"[YTDLP] Unexpected download path for {entry.id}: {finished}")
             return None
 
-        return downloaded
+        return finished
 
     @staticmethod
     def _is_environmental(error: Exception) -> bool:

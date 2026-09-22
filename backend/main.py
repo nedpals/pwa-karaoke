@@ -28,10 +28,13 @@ from session_manager import SessionManager
 from cache_store import get_cache_store, set_cache_store, clear_cache_store, CacheStore
 from media_archive import (
     MEDIA_URL_PREFIX,
+    PendingMedia,
     close_media_archive,
     get_media_archive,
+    get_media_archiver,
     init_media_archive,
 )
+from fastapi.responses import StreamingResponse
 
 # Request/Response models
 class CreateRoomRequest(BaseModel):
@@ -354,8 +357,80 @@ async def websocket_endpoint(websocket: WebSocket, service: Annotated[KaraokeSer
         # Handle all disconnection scenarios
         await session_manager.disconnect_client(client)
 
+def parse_byte_range(header: str | None, size: int) -> tuple[int, int] | None:
+    """
+    The single byte range a request asks for, or None for the whole file.
+
+    Only one range is honoured. A <video> element asks for one at a time, and a
+    multipart answer would need a different body format for no gain here.
+    """
+    if not header or not header.startswith("bytes="):
+        return None
+
+    first = header[len("bytes="):].split(",")[0].strip()
+    start_text, _, end_text = first.partition("-")
+
+    try:
+        if not start_text:
+            # A suffix range: the last N bytes.
+            length = int(end_text)
+            if length <= 0:
+                return None
+            return max(0, size - length), size - 1
+
+        start = int(start_text)
+        end = int(end_text) if end_text else size - 1
+    except ValueError:
+        return None
+
+    end = min(end, size - 1)
+    if start > end or start >= size:
+        return None
+
+    return start, end
+
+
+def stream_pending_media(pending: PendingMedia, request: Request) -> StreamingResponse:
+    """
+    Serve a copy that is still downloading.
+
+    This is what keeps a song from waiting on its whole file: the display starts
+    playing while the rest arrives. The size is known up front, so ranges and
+    seeking work exactly as they do for a finished file; the only difference is
+    that a read may have to wait for the writer to catch up.
+    """
+    size = pending.total_bytes
+    span = parse_byte_range(request.headers.get("range"), size)
+
+    headers = {
+        "Cache-Control": "no-store",  # Incomplete: nothing may keep a copy of this
+        "Accept-Ranges": "bytes",
+    }
+
+    if span is None:
+        start, end, status_code = 0, size - 1, 200
+    else:
+        start, end = span
+        status_code = 206
+        headers["Content-Range"] = f"bytes {start}-{end}/{size}"
+
+    headers["Content-Length"] = str(end - start + 1)
+
+    return StreamingResponse(
+        pending.read_range(start, end),
+        status_code=status_code,
+        media_type=pending.content_type,
+        headers=headers,
+    )
+
+
 @app.get(MEDIA_URL_PREFIX + "/{key:path}")
-async def serve_archived_media(key: str, expires: int = Query(...), signature: str = Query(...)):
+async def serve_archived_media(
+    key: str,
+    request: Request,
+    expires: int = Query(...),
+    signature: str = Query(...),
+):
     """
     Serve an archived video against a signed URL.
 
@@ -365,13 +440,22 @@ async def serve_archived_media(key: str, expires: int = Query(...), signature: s
     request may not have looks the same from outside, hence one 404 for a bad
     signature, an expired URL and a missing file alike.
     """
-    path = get_media_archive().verify(key, expires, signature)
-    if path is None:
+    archive = get_media_archive()
+    if not archive.verify_signature(key, expires, signature):
         raise HTTPException(status_code=404, detail="Not found")
 
-    # Private: the URL is per request and dies with its signature, so a shared
-    # cache holding it would outlive the permission to serve it.
-    return FileResponse(path, headers={"Cache-Control": "private, max-age=3600"})
+    path = archive.path_for(key)
+    if path is not None and path.is_file():
+        # Private: the URL is per request and dies with its signature, so a
+        # shared cache holding it would outlive the permission to serve it.
+        return FileResponse(path, headers={"Cache-Control": "private, max-age=3600"})
+
+    archiver = get_media_archiver()
+    pending = archiver.pending_for_media(key) if archiver else None
+    if pending is not None and pending.streamable:
+        return stream_pending_media(pending, request)
+
+    raise HTTPException(status_code=404, detail="Not found")
 
 # Static files + SPA fallback, must stay after all API routes
 @app.get("/{full_path:path}")

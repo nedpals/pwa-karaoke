@@ -23,6 +23,7 @@ A FastAPI-based WebSocket server for managing karaoke rooms, song queues, and pl
   - [What It Does and Does Not Fix](#what-it-does-and-does-not-fix)
   - [Proxy Playback](#proxy-playback)
   - [How a Song Gets There](#how-a-song-gets-there)
+  - [Serving a Copy That Is Still Arriving](#serving-a-copy-that-is-still-arriving)
   - [Serving](#serving)
   - [Storage](#storage)
   - [Configuration](#configuration-1)
@@ -158,7 +159,8 @@ class KaraokeSourceProvider:
     async def check_health(self) -> dict: ...
     async def search(self, query: str) -> list[SearchCandidate]: ...
     async def get_video_url(self, entry: KaraokeEntry) -> VideoURLResult: ...
-    async def download_video(self, entry: KaraokeEntry, work_dir: Path) -> Path | None: ...
+    async def download_video(self, entry: KaraokeEntry, work_dir: Path,
+                             on_start: OnStart | None = None) -> Path | None: ...
     async def close(self): ...
 ```
 
@@ -169,7 +171,7 @@ class KaraokeSourceProvider:
 | `min_duration_seconds` / `max_duration_seconds` | What counts as one singable track. Defaults suit a general video platform; lower the floor for a source of anime openings. |
 | `search` | Return candidates unranked and untrimmed. Raise on failure rather than returning `[]`. |
 | `get_video_url` | Build the result with `resolved()`, `unavailable()` or `failed()`. |
-| `download_video` | Optional. Return the downloaded file for the [media archive](#media-archive) to keep, or `None`. Default returns `None`, which is right for a source that only hands out a URL it does not own. |
+| `download_video` | Optional. Return the downloaded file for the [media archive](#media-archive) to keep, or `None`. Default returns `None`, which is right for a source that only hands out a URL it does not own. Call `on_start(path, total_bytes)` once both are known and the copy can be served while it is still arriving; skip it and the copy is served once complete. |
 | `close` | Called on every provider at shutdown. Implement if yours holds an HTTP session. |
 
 ### Creating a New Source Provider
@@ -390,7 +392,9 @@ source itself.
 ```
 get_video_url(entry)
   └─ archived?  ── yes ─→ signed /media URL, source never asked
-                  no, and proxy playback on ─→ fetch it now, wait, then serve
+                  no, and proxy playback on ─→ start fetching it
+                     ├─ size known ─→ answer at once, stream as it downloads
+                     ├─ size unknown ─→ wait for the file, then serve
                      └─ could not fetch ─→ source URL, as a last resort
                   no, and proxy playback off ─→ entry's own URL, else the URL
                      cache, else the provider, and queue a background download
@@ -411,6 +415,33 @@ something else is still being sung.
 `refresh=True` means the browser could not play what it was given. An archived
 copy that would not play is worse than none, so refresh drops the copy along
 with the cached URL and resolves live again, which puts a fresh copy back.
+
+### Serving a Copy That Is Still Arriving
+
+A download is readable before it is finished, so the display is not kept waiting
+for the whole file. yt-dlp reports the destination and the size as soon as it
+begins, and `/media` serves the growing file from there: reads that reach the
+end of what has been written wait for the writer instead of returning short.
+
+The size is what makes this possible. With it the response carries a real
+`Content-Length`, so ranges and seeking behave exactly as they do for a finished
+file, which the display depends on to keep screens in step. A source that cannot
+say how large the file will be is not streamed; the copy is served once it is
+complete, which is the slower but always correct path.
+
+A few consequences worth knowing:
+
+- A range beyond what has been written blocks until those bytes arrive rather
+  than failing, so seeking ahead into a song that is still downloading is slow
+  rather than broken.
+- A download that dies part way ends the response rather than hanging. The
+  display sees a truncated stream and re-resolves, which is the same path it
+  already uses for a stream that stops.
+- An in-progress response is sent `Cache-Control: no-store`, since nothing
+  should keep a copy of a partial file. Once complete it is served as an
+  ordinary file again.
+- Readers hold an open handle, so moving the finished download into the archive
+  does not disturb a stream in flight.
 
 ### Serving
 
@@ -462,7 +493,7 @@ Archive counts and bytes are reported under `archive` on `/health`.
 | `ARCHIVE_DOWNLOAD_TIMEOUT_SECONDS` | `600` | Hard limit on one archive download. |
 | `ARCHIVE_MAX_CONCURRENT_DOWNLOADS` | `2` | Downloads running at once. |
 | `ARCHIVE_PROXY_PLAYBACK` | on | Never hand a display a source URL; fetch the copy first and serve that. |
-| `ARCHIVE_PLAYBACK_WAIT_SECONDS` | `120` | How long a play waits for its copy before falling back. |
+| `ARCHIVE_PLAYBACK_WAIT_SECONDS` | `120` | How long a play waits for its copy to become servable before falling back. |
 | `ARCHIVE_RETRY_AFTER_SECONDS` | `1800` | Quiet period after a failed download, for a speculative fill. |
 | `ARCHIVE_FORCED_RETRY_AFTER_SECONDS` | `30` | The same, when a play is waiting on it. |
 
@@ -751,7 +782,8 @@ Performance problems can be diagnosed through the health endpoint at `/health`, 
 - An archive that empties on restart means `ARCHIVE_DIR` is not on a mounted volume
 - A file count that stops growing usually means `ARCHIVE_MAX_BYTES` is reached and copies are being evicted as fast as they arrive
 - A song that failed to download is not retried for `ARCHIVE_RETRY_AFTER_SECONDS`, so a fix to the extractor is not picked up instantly
-- `No copy of ... to serve` means proxy playback could not fetch a copy and fell back to the source URL, which is the request that may 429
+- `Streaming ... as it downloads` means playback started before the copy finished; `No copy of ... to serve` means proxy playback could not fetch one at all and fell back to the source URL, which is the request that may 429
+- A song that always waits for its whole file means the source is not reporting a size, so it cannot be streamed while arriving
 - `[ARCHIVE]` lines in the server log cover every download, store, eviction and refusal
 
 ### Caching Issues

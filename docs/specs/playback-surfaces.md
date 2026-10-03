@@ -146,7 +146,7 @@ until ready.
 | Adapter | File | Notes |
 | --- | --- | --- |
 | Native | `src/players/NativeVideoPlayer.tsx` | Wraps `<video>`. Reloads when `src` changes. Media errors are `stream`. |
-| YouTube | `src/players/YouTubeEmbedPlayer.tsx` | IFrame Player API, loaded once by `src/players/youtubeIframeApi.ts`. No controls, keyboard, fullscreen button or annotations; `rel=0`, `playsinline=1`, `origin` set, `allow="autoplay"`. Polls time every 250 ms while playing. API load failures and player errors are `embed`. |
+| YouTube | `src/players/YouTubeEmbedPlayer.tsx` | IFrame Player API, loaded once by `src/players/youtubeIframeApi.ts`. No controls, keyboard, fullscreen button or annotations; `rel=0`, `playsinline=1`, `origin` set. Polls time every 250 ms while playing. API load failures, a player that is not ready within 20 s, and player errors are `embed`. |
 
 `src/players/registry.ts` maps `embed.player` to an adapter:
 

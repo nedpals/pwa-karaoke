@@ -127,6 +127,12 @@ A controller opens with a **Mic Check**, the same way a display opens with a Sou
 
 Declining, denying the browser, or reaching the app over plain `http`, where microphones are unavailable, leaves the machine to invent the score instead. Both land in the same range.
 
+### Playback
+
+YouTube songs play through YouTube's own embedded player, so they load straight from YouTube on the display. When a video does not allow embedding, or the embed fails to start, the room switches that song to a stream resolved by the server with yt-dlp and remembers to start it that way next time. Embedded videos can show YouTube ads.
+
+Set `EMBED_PLAYBACK=0` to always use the server resolved stream instead.
+
 ### Development
 
 To contribute to PWA Karaoke, fork the repository and create a new branch for your changes. See the individual README files in the `backend/` and `frontend/` directories for setup instructions. After making your changes, submit a pull request with a clear description of what you've modified.

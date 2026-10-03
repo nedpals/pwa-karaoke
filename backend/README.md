@@ -227,6 +227,28 @@ Which constructor you use decides whether the answer is cached:
 | `VideoURLResult.unavailable()` | The source answered no, and a deleted or private track stays deleted | Yes |
 | `VideoURLResult.failed()` | The attempt broke down (timeout, proxy, missing binary) | No |
 
+### Embeds
+
+A source with its own embeddable player can return it from `embed_source`. The
+display then plays the song through that player and only falls back to
+`get_video_url` when the embed refuses it.
+
+```python
+class BasicVideoProvider(KaraokeSourceProvider):
+    def embed_source(self, entry: KaraokeEntry) -> Optional[EmbedSource]:
+        return EmbedSource(player="basic", id=entry.id)
+```
+
+`player` names an adapter in the display's registry
+(`frontend/src/players/registry.ts`), which implements `PlayerHandle` from
+`frontend/src/players/types.ts`. An embed the display has no adapter for plays as
+media.
+
+The server decides the embed when a song is queued. A failed embed is reported
+with the `embed_failed` display command: the server remembers the refusal for a
+week, resolves the stream and moves the song on air to it. `EMBED_PLAYBACK=0`
+turns embeds off for every source.
+
 ### Registration
 
 Add a factory to `source_providers/registry.py`:
@@ -271,7 +293,7 @@ Every provider's state is reported under `sources` on `/health`, which returns
 
 | ID | Source | Notes |
 | --- | --- | --- |
-| `youtube` | YouTube, via yt-dlp | Searches through the library, extracts through the CLI binary |
+| `youtube` | YouTube, via yt-dlp | Plays through the YouTube embed. Searches through the library, extracts the fallback stream through the CLI binary |
 
 
 ## HTTP Server

@@ -10,6 +10,9 @@ services:
       # Refresh yt-dlp on every start so a restart is enough to pick up a new
       # release. Set to 0 to stay on whatever the image was built with.
       - YTDLP_AUTO_UPDATE=${YTDLP_AUTO_UPDATE:-1}
+      # Set to 0 to play every song through the yt-dlp stream instead of the
+      # source's embed player.
+      - EMBED_PLAYBACK=${EMBED_PLAYBACK:-1}
       - YTDLP_TIMEOUT_SECONDS=${YTDLP_TIMEOUT_SECONDS:-45}
       - YTDLP_EXTRA_ARGS=${YTDLP_EXTRA_ARGS:-}
       - YTDLP_RUNTIME=${YTDLP_RUNTIME:-deno}

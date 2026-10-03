@@ -113,7 +113,12 @@ Frontend implements intelligent synchronization for non-leader displays:
 3. **Install dependencies**:
    ```bash
    pip install -r requirements.txt
+   pip install --upgrade "yt-dlp[default,deno]"
    ```
+
+   The `deno` extra installs the JavaScript runtime yt-dlp needs for YouTube.
+   To use another runtime, set `YTDLP_RUNTIME` (for example `node` or
+   `node:/usr/bin/node`).
 
 4. **Run the server**:
    ```bash

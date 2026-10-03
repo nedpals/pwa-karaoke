@@ -57,5 +57,5 @@ watchfiles==1.1.0
 websockets==15.0.1
 yarl==1.20.1
 
-# yt-dlp and yt-dlp-ejs are installed unpinned, and together, in their own
+# yt-dlp is installed unpinned with its default and deno extras, in its own
 # layer. See the Dockerfile.

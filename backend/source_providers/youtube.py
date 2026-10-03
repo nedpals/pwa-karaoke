@@ -20,7 +20,6 @@ from core.search import (
 )
 from config import config
 
-PLAYER_CLIENT = "android_sdkless"
 FORMAT_SELECTOR = "best[ext=mp4]/best[ext=webm]/best"
 
 # Sixty results cost about half a second more than thirty, and they are what
@@ -44,9 +43,16 @@ RETRYABLE_ERROR_MARKERS = (
     "connection", "timeout", "timed out", "network",
     "dns", "name resolution", "unreachable", "reset by peer", "temporary failure",
     "400", "401", "403", "404", "408",
+    # YouTube's bot check is about the requesting IP, not the video.
+    "not a bot",
 )
 
 KILL_GRACE_SECONDS = 5.0
+
+# YouTube can hold a stream back until a preroll ad would have finished, and
+# requests before then are refused. Waits longer than this are not worth
+# blocking playback on.
+MAX_AVAILABILITY_WAIT_SECONDS = 30.0
 
 # How long a failed probe is trusted before /health tries again.
 PROBE_INTERVAL_SECONDS = 60.0
@@ -133,6 +139,27 @@ def proxy_url() -> Optional[str]:
     return urlunparse((parsed.scheme, netloc, parsed.path, parsed.params, parsed.query, parsed.fragment))
 
 
+def player_client_args() -> list[str]:
+    """
+    Empty unless overridden, so yt-dlp's own client choice applies. Its
+    maintainers retire clients as YouTube breaks them, and a pinned one that
+    disappears is skipped silently under --no-warnings.
+    """
+    if not config.YTDLP_PLAYER_CLIENT:
+        return []
+    return ["--extractor-args", f"youtube:player_client={config.YTDLP_PLAYER_CLIENT}"]
+
+
+def js_runtime_args() -> list[str]:
+    """
+    YouTube extraction needs a JavaScript runtime to solve its challenges.
+    yt-dlp only enables deno by default, so any other runtime has to be named.
+    """
+    if not config.YTDLP_RUNTIME:
+        return []
+    return ["--js-runtimes", config.YTDLP_RUNTIME]
+
+
 def _subprocess_env() -> dict:
     """Pass the proxy through the environment so credentials stay out of the host process list."""
     env = os.environ.copy()
@@ -167,7 +194,7 @@ async def run_ytdlp(args: list[str], timeout: Optional[float] = None) -> str:
     often. It also allows the hard timeout below, which the in-process API has
     no equivalent for, and keeps extractor crashes out of the server.
     """
-    argv = [config.YTDLP_BINARY, *YTDLP_BASE_ARGS]
+    argv = [config.YTDLP_BINARY, *YTDLP_BASE_ARGS, *js_runtime_args()]
     if config.YTDLP_EXTRA_ARGS:
         argv.extend(shlex.split(config.YTDLP_EXTRA_ARGS))
     argv.extend(args)
@@ -234,6 +261,19 @@ def select_stream_url(info: dict) -> Optional[str]:
     return info.get("url")
 
 
+def stream_available_at(info: dict) -> Optional[float]:
+    if not isinstance(info, dict):
+        return None
+
+    timestamps = [
+        download.get("available_at")
+        for download in info.get("requested_downloads") or []
+        if isinstance(download, dict)
+    ]
+    timestamps.append(info.get("available_at"))
+    return max((t for t in timestamps if isinstance(t, (int, float))), default=None)
+
+
 def channel_name(info: dict) -> str:
     return info.get("channel") or info.get("uploader") or ""
 
@@ -281,11 +321,6 @@ class YTKaraokeSourceProvider(KaraokeSourceProvider):
             'extract_flat': True,
             'noplaylist': True,
             'socket_timeout': SEARCH_SOCKET_TIMEOUT_SECONDS,
-            'extractor_args': {
-                'youtube': {
-                    'player_client': [PLAYER_CLIENT]
-                }
-            },
         }
 
         proxy = proxy_url()
@@ -412,6 +447,17 @@ class YTKaraokeSourceProvider(KaraokeSourceProvider):
             return False
         return cls._is_environmental(error)
 
+    @staticmethod
+    async def _wait_until_available(info: dict):
+        available_at = stream_available_at(info)
+        if available_at is None:
+            return
+
+        wait = available_at - time.time()
+        if 0 < wait <= MAX_AVAILABILITY_WAIT_SECONDS:
+            print(f"[YTDLP] Stream available in {wait:.1f}s, waiting")
+            await asyncio.sleep(wait)
+
     async def _get_raw_video_url(self, youtube_url: str, max_retries: int = 3, base_delay: float = 1.0) -> ExtractionOutcome:
         """
         Every attempt is bounded by the wrapper's timeout, so a hung extraction
@@ -424,10 +470,11 @@ class YTKaraokeSourceProvider(KaraokeSourceProvider):
                     "--format", FORMAT_SELECTOR,
                     "--socket-timeout", "15",
                     "--retries", "1",
-                    "--extractor-args", f"youtube:player_client={PLAYER_CLIENT}",
+                    *player_client_args(),
                     youtube_url,
                 ])
                 self.health.record_ok()
+                await self._wait_until_available(info)
                 return ExtractionOutcome(select_stream_url(info), False)
 
             except YtdlpMissing as e:

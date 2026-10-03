@@ -20,15 +20,6 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-# Install Bun (required by yt-dlp for JS runtime)
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl \
-    unzip \
-    && curl -fsSL https://bun.sh/install | bash \
-    && apt-get clean && rm -rf /var/lib/apt/lists/*
-
-ENV PATH="/root/.bun/bin:$PATH"
-
 # Copy backend requirements and install Python dependencies
 COPY backend/requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
@@ -43,14 +34,17 @@ COPY --from=frontend-build /app/frontend/dist ./static
 # often than the rest of the stack, so every rebuild picks up the current
 # version instead of whatever was pinned months ago. Pass an exact version to
 # reproduce an old build:
-#   docker build --build-arg YTDLP_VERSION=2025.12.8 .
+#   docker build --build-arg YTDLP_VERSION=2026.8.19 .
+# The default extra pins the yt-dlp-ejs release that matches yt-dlp, and the
+# deno extra installs Deno, the JavaScript runtime yt-dlp enables by default.
 ARG YTDLP_VERSION=latest
 RUN if [ "$YTDLP_VERSION" = "latest" ]; then \
-        pip install --no-cache-dir --upgrade yt-dlp yt-dlp-ejs; \
+        pip install --no-cache-dir --upgrade "yt-dlp[default,deno]"; \
     else \
-        pip install --no-cache-dir "yt-dlp==$YTDLP_VERSION" yt-dlp-ejs; \
+        pip install --no-cache-dir "yt-dlp[default,deno]==$YTDLP_VERSION"; \
     fi \
-    && yt-dlp --version
+    && yt-dlp --version \
+    && deno --version
 
 # Set YTDLP_AUTO_UPDATE=1 to also refresh yt-dlp on every container start,
 # which keeps a long-lived deployment current without an image rebuild.

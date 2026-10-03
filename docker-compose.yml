@@ -12,6 +12,9 @@ services:
       - YTDLP_AUTO_UPDATE=${YTDLP_AUTO_UPDATE:-1}
       - YTDLP_TIMEOUT_SECONDS=${YTDLP_TIMEOUT_SECONDS:-45}
       - YTDLP_EXTRA_ARGS=${YTDLP_EXTRA_ARGS:-}
+      - YTDLP_RUNTIME=${YTDLP_RUNTIME:-deno}
+      # Empty leaves the choice of YouTube player clients to yt-dlp.
+      - YTDLP_PLAYER_CLIENT=${YTDLP_PLAYER_CLIENT:-}
     # Port 8000 is internal only - accessed via Caddy reverse proxy
     # Uncomment the ports section below for development/debugging
     # ports:

@@ -1,3 +1,8 @@
+export interface EmbedSource {
+  player: string;
+  id: string;
+}
+
 export interface KaraokeEntry {
   id: string;  // Unique only within its source
   title: string;
@@ -7,6 +12,8 @@ export interface KaraokeEntry {
   uploader: string;
   duration: number | null;
   thumbnail_url?: string | null;
+  // Set by the server. Plays before video_url when the display has the player.
+  embed?: EmbedSource | null;
 }
 
 export interface KaraokeSearchResult {

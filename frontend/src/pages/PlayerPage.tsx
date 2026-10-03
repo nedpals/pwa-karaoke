@@ -24,6 +24,7 @@ import type { DisplayPlayerState } from "../types";
 import useSmartSync from "../hooks/useSmartSync";
 import { landingMs, performanceIdOf, rollScore, scoreFromPerformance } from "../lib/scoring";
 import { NativeVideoPlayer } from "../players/NativeVideoPlayer";
+import { embedPlayerFor } from "../players/registry";
 import type { PlayerEvents, PlayerHandle } from "../players/types";
 
 type AppState = "awaiting-interaction" | "connecting" | "connected" | "ready" | "scoring" | "playing";
@@ -45,6 +46,8 @@ const ROLLOVER_WATCHDOG_MS = 12000;
 const RECOVERY_ATTEMPTS = 2;
 // Generous, so a slow connection is never mistaken for a dead one
 const STALL_TIMEOUT_MS = 25000;
+// Embeds hold the player through ads, so they get far longer before falling back
+const EMBED_STALL_TIMEOUT_MS = 90000;
 
 interface Announcement {
   title: string;
@@ -104,8 +107,13 @@ function VideoPlayerComponent({
   onSongEnded: (playedSeconds: number) => void;
 }) {
   const playerRef = useRef<PlayerHandle>(null);
-  const { updatePlayerState, refreshVideoUrl, isLeader } = useRoomContext();
+  const { updatePlayerState, refreshVideoUrl, reportEmbedFailure, isLeader } = useRoomContext();
   const { osd, playerState } = usePlayerState();
+  const performanceId = performanceIdOf(playerState);
+  const EmbedPlayer = embedPlayerFor(playerState?.entry?.embed);
+  // The turn whose embed failed, held until the room hands over its stream
+  const [fallbackFor, setFallbackFor] = useState<string | null>(null);
+  const fallbackForRef = useRef<string | null>(null);
   const isBufferingRef = useRef(false);
   const hasNearingEndFiredRef = useRef(false);
   const attemptsRef = useRef<{ entryId: string | null; count: number }>({ entryId: null, count: 0 });
@@ -254,14 +262,39 @@ function VideoPlayerComponent({
       });
   }, [isLeader, refreshVideoUrl, updateVersionedPlayerState]);
 
+  const fallBackToStream = useCallback((reason: string) => {
+    const entry = playerStateRef.current?.entry;
+    const turn = performanceIdOf(playerStateRef.current);
+    if (!entry?.embed || !turn || !isLeader || fallbackForRef.current === turn) return;
+
+    const settle = (pending: string | null) => {
+      fallbackForRef.current = pending;
+      setFallbackFor(pending);
+    };
+
+    console.log(`[Player] ${entry.embed.player} embed refused ${entry.title} (${reason}), falling back to the stream`);
+    settle(turn);
+    reportEmbedFailure(entry.id, reason)
+      .then(({ fallback }) => {
+        if (!fallback) settle(null);
+      })
+      .catch((error: unknown) => {
+        console.error("[Player] Could not fall back to the stream:", error);
+        settle(null);
+      });
+  }, [isLeader, reportEmbedFailure]);
+
   // Buffering has no natural end when the far side has stopped answering, so
   // sitting in it past any plausible wait counts as the stream being gone
+  const isEmbedded = Boolean(EmbedPlayer);
   useEffect(() => {
     if (playerState?.play_state !== "buffering") return;
 
-    const timer = window.setTimeout(() => recoverPlayback(), STALL_TIMEOUT_MS);
+    const timer = isEmbedded
+      ? window.setTimeout(() => fallBackToStream("stall"), EMBED_STALL_TIMEOUT_MS)
+      : window.setTimeout(() => recoverPlayback(), STALL_TIMEOUT_MS);
     return () => window.clearTimeout(timer);
-  }, [playerState?.play_state, playerState?.entry?.id, recoverPlayback]);
+  }, [playerState?.play_state, playerState?.entry?.id, isEmbedded, fallBackToStream, recoverPlayback]);
 
   // Handle volume changes from controller
   useEffect(() => {
@@ -346,17 +379,22 @@ function VideoPlayerComponent({
       reportFromPlayer("finished");
       onSongEnded(playedSeconds);
     },
-    onError: () => {
+    onError: (error) => {
       isBufferingRef.current = false;
-      recoverPlayback();
+      if (error.kind === "embed") {
+        fallBackToStream(error.code);
+      } else {
+        recoverPlayback();
+      }
     },
-  }), [applyPlaybackState, onNearingEnd, onSongEnded, recoverPlayback, reportFromPlayer]);
+  }), [applyPlaybackState, fallBackToStream, onNearingEnd, onSongEnded, recoverPlayback, reportFromPlayer]);
 
   // A stream that died after it started reads differently from one that never
   // resolved
   const streamFailed = playerState?.play_state === "error";
+  const awaitingFallback = isEmbedded && fallbackFor !== null && fallbackFor === performanceId;
 
-  if (isLoadingVideoUrl && !streamFailed) {
+  if ((isLoadingVideoUrl || awaitingFallback) && !streamFailed) {
     return (
       <div className="h-full w-full flex items-center justify-center">
         <Panel className="px-10 py-8 flex flex-col items-center gap-4 max-w-3xl">
@@ -372,7 +410,7 @@ function VideoPlayerComponent({
     );
   }
 
-  if (!videoUrl || streamFailed) {
+  if ((!EmbedPlayer && !videoUrl) || streamFailed) {
     if (!playerState?.entry) return null;
 
     return (
@@ -432,13 +470,23 @@ function VideoPlayerComponent({
         </OSD>
       )}
 
-      <NativeVideoPlayer
-        key={performanceIdOf(playerState) ?? undefined}
-        ref={playerRef}
-        src={videoUrl}
-        events={playerEvents}
-        className="w-full h-full object-contain"
-      />
+      {EmbedPlayer && playerState?.entry?.embed ? (
+        <EmbedPlayer
+          key={performanceId ?? undefined}
+          ref={playerRef}
+          id={playerState.entry.embed.id}
+          events={playerEvents}
+          className="w-full h-full"
+        />
+      ) : videoUrl && (
+        <NativeVideoPlayer
+          key={performanceId ?? undefined}
+          ref={playerRef}
+          src={videoUrl}
+          events={playerEvents}
+          className="w-full h-full object-contain"
+        />
+      )}
     </div>
   );
 }
@@ -523,7 +571,7 @@ function PlayingStateContent() {
     retry,
     retryCount
   } = useVideoUrlWithRetry(
-    playerState?.entry && !playerState.entry.video_url
+    playerState?.entry && !playerState.entry.video_url && !embedPlayerFor(playerState.entry.embed)
       ? playerState.entry
       : null,
   );
@@ -589,8 +637,8 @@ function PlayingStateContent() {
       );
     }
 
-    if (nextSong.entry.video_url) {
-      // Skip prefetching if we already have the URL
+    if (nextSong.entry.video_url || embedPlayerFor(nextSong.entry.embed)) {
+      // Already playable without resolving a stream
       return;
     }
 

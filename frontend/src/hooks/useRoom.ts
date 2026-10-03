@@ -5,6 +5,10 @@ import { getRoomPassword, storeRoomPassword } from '../lib/roomStorage';
 import { apiClient } from '../api/client';
 import type { DisplayPlayerState, KaraokeQueue, KaraokeEntry, ReactionEvent, ReactionType, RoomSettings, ScoreSource, SongScore } from '../types';
 
+// The server resolves the stream before it answers, which can take several
+// extraction attempts
+const EMBED_FALLBACK_TIMEOUT_MS = 120000;
+
 type ClientType = "controller" | "display";
 
 const DEFAULT_MIN_SCORED_SECONDS = 5;
@@ -73,6 +77,7 @@ export interface RoomActions {
   skipSong: () => Promise<{ screens: number }>;
   queueNextSong: (entryId: string) => void;
   refreshVideoUrl: (entryId: string) => Promise<{ refreshed: boolean }>;
+  reportEmbedFailure: (entryId: string, reason: string) => Promise<{ fallback: boolean }>;
   clearQueue: () => Promise<unknown>;
   setVolume: (volume: number) => Promise<unknown>;
   sendReaction: (reaction: ReactionType) => void;
@@ -405,6 +410,16 @@ export function useRoom(clientType: ClientType, nickname?: string | null): UseRo
         entry_id: entryId,
       })) as { result?: { refreshed?: boolean } };
       return { refreshed: Boolean(ack?.result?.refreshed) };
+    },
+    // The room moves the song to its stream for every screen, and remembers
+    // that the embed refused it
+    reportEmbedFailure: async (entryId: string, reason: string) => {
+      const ack = (await ws.sendCommandWithAck(
+        "embed_failed",
+        { entry_id: entryId, reason },
+        EMBED_FALLBACK_TIMEOUT_MS,
+      )) as { result?: { fallback?: boolean } };
+      return { fallback: Boolean(ack?.result?.fallback) };
     },
     clearQueue: () => ws.sendCommandWithAck("clear_queue"),
     setVolume: (volume: number) => ws.sendCommandWithAck("set_volume", { volume }),

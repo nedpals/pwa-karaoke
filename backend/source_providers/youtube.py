@@ -11,6 +11,7 @@ import yt_dlp
 
 from core.ranking import KARAOKE_QUERY_KEYWORDS, enhance_query_with_keywords
 from core.search import (
+    EmbedSource,
     KaraokeSourceProvider,
     KaraokeEntry,
     RankingSignals,
@@ -406,6 +407,9 @@ class YTKaraokeSourceProvider(KaraokeSourceProvider):
         if not self.allowed_channels:
             return True
         return any(allowed.lower() in channel_name.lower() for allowed in self.allowed_channels)
+
+    def embed_source(self, entry: KaraokeEntry) -> Optional[EmbedSource]:
+        return EmbedSource(player="youtube", id=entry.id) if entry.id else None
 
     async def get_video_url(self, entry: KaraokeEntry) -> VideoURLResult:
         if not entry.id:

@@ -8,6 +8,13 @@ def _list_env(name: str) -> list[str]:
     return [part.strip() for part in os.getenv(name, "").split(",") if part.strip()]
 
 
+def _bool_env(name: str, default: bool) -> bool:
+    value = os.getenv(name, "").strip().lower()
+    if not value:
+        return default
+    return value not in ("0", "false", "no", "off")
+
+
 def _float_env(name: str, default: float) -> float:
     try:
         return float(os.getenv(name, ""))
@@ -27,6 +34,7 @@ class Config:
     YTDLP_EXTRA_ARGS: str = os.getenv("YTDLP_EXTRA_ARGS", "")  # Extra CLI flags, shell quoted
     SEARCH_TIMEOUT_SECONDS: float = _float_env("SEARCH_TIMEOUT_SECONDS", 20.0)  # Hard limit per search
     KARAOKE_SOURCES: list[str] = _list_env("KARAOKE_SOURCES")  # Provider IDs to enable; empty enables all
+    EMBED_PLAYBACK: bool = _bool_env("EMBED_PLAYBACK", True)  # Play through a source's embed player before its stream
 
 
 # Global configuration instance

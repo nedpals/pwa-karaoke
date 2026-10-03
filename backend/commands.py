@@ -114,7 +114,7 @@ class ClientCommands:
         # Get first 2 songs that don't already have video URLs
         songs_to_prefetch = []
         for item in self.room.queue.items[:2]:
-            if not item.entry.video_url:
+            if not item.entry.video_url and not item.entry.embed:
                 songs_to_prefetch.append(item)
 
         if not songs_to_prefetch:
@@ -209,7 +209,7 @@ class ControllerCommands(ClientCommands):
         return {"screens": len(displays)}
 
     async def queue_song(self, payload):
-        entry = KaraokeEntry.parse_obj(payload)
+        entry = self.service.with_playback(KaraokeEntry.parse_obj(payload))
         print(f"[DEBUG] Controller queue_song received: {entry.title} by {entry.artist}")
 
         self.room.add_song(entry, self.client.nickname, self.client.device_id)
@@ -334,6 +334,11 @@ class DisplayCommands(ClientCommands):
             print(f"[DEBUG] Ignoring {state.play_state} report for finished turn {current_item_id}")
             return
 
+        # What plays is the room's to say. An echo sent before a fallback
+        # landed would otherwise bring the refused embed back.
+        if current and current.entry and state.entry:
+            state.entry = current.entry
+
         await self._update_player_state(state)
 
     async def queue_update(self, queue_data):
@@ -369,6 +374,42 @@ class DisplayCommands(ClientCommands):
             timestamp=time.time()
         ))
         return {"refreshed": True}
+
+    async def embed_failed(self, payload):
+        """Fall back to the stream for the song on air, because its embed player refused it."""
+        if not self.session_manager.is_display_leader(self.client):
+            return {"fallback": False}
+
+        state = self.room.player_state
+        entry = state.entry if state else None
+        if not entry or entry.id != payload["entry_id"] or not entry.embed:
+            return {"fallback": False}
+
+        print(f"[DEBUG] {entry.embed.player} embed refused {entry.id} ({payload['reason']}), falling back to the stream")
+        self.service.block_embed(entry)
+
+        for item in self.room.queue.items:
+            if item.entry.source == entry.source and item.entry.id == entry.id:
+                item.entry.embed = None
+
+        stream = entry.model_copy(update={"embed": None, "video_url": None})
+        stream.video_url = (await self.service.get_video_url(stream)).video_url
+
+        current = self.room.player_state
+        if not current or current.item_id != state.item_id or current.play_state == "finished":
+            return {"fallback": False}
+
+        await self._update_player_state(DisplayPlayerState(
+            entry=stream,
+            play_state="buffering" if stream.video_url else "error",
+            current_time=current.current_time,
+            duration=current.duration,
+            volume=current.volume,
+            version=int(time.time() * 1000),
+            timestamp=time.time()
+        ))
+        await self._broadcast_room_state()
+        return {"fallback": bool(stream.video_url)}
 
     async def scoring_state(self, payload):
         if not self.session_manager.is_display_leader(self.client):

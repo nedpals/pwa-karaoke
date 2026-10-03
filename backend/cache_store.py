@@ -49,6 +49,14 @@ class CacheStore:
                 expires_at REAL
             );
 
+            -- Entries whose embed player refused them, so they start on the stream
+            CREATE TABLE IF NOT EXISTS embed_blocklist (
+                entry_id TEXT NOT NULL,
+                source TEXT NOT NULL,
+                expires_at REAL NOT NULL,
+                PRIMARY KEY (entry_id, source)
+            );
+
             -- Create indexes for performance
             CREATE INDEX IF NOT EXISTS idx_video_url_source ON video_url_cache(source);
             CREATE INDEX IF NOT EXISTS idx_video_url_expires ON video_url_cache(expires_at);
@@ -111,6 +119,30 @@ class CacheStore:
         except sqlite3.Error as e:
             print(f"[CACHE] Error retrieving video URL for {entry_id}: {e}")
             return None
+
+    def block_embed(self, entry_id: str, source: str, ttl_seconds: int):
+        try:
+            self.connection.execute("""
+                INSERT OR REPLACE INTO embed_blocklist (entry_id, source, expires_at)
+                VALUES (?, ?, ?)
+            """, (entry_id, source, time.time() + ttl_seconds))
+            self.connection.commit()
+            print(f"[CACHE] Blocked embed for {entry_id} (expires in {ttl_seconds}s)")
+
+        except sqlite3.Error as e:
+            print(f"[CACHE] Error blocking embed for {entry_id}: {e}")
+
+    def is_embed_blocked(self, entry_id: str, source: str) -> bool:
+        try:
+            cursor = self.connection.execute("""
+                SELECT 1 FROM embed_blocklist
+                WHERE entry_id = ? AND source = ? AND expires_at > ?
+            """, (entry_id, source, time.time()))
+            return cursor.fetchone() is not None
+
+        except sqlite3.Error as e:
+            print(f"[CACHE] Error reading embed blocklist for {entry_id}: {e}")
+            return False
 
     def cache_search_results(self, query: str, results: Dict[str, Any], ttl_seconds: int = 1800, scope: str = ""):
         """
@@ -188,6 +220,10 @@ class CacheStore:
                 DELETE FROM search_cache WHERE expires_at <= ?
             """, (now,))
             search_deleted = cursor.rowcount
+
+            self.connection.execute("""
+                DELETE FROM embed_blocklist WHERE expires_at <= ?
+            """, (now,))
 
             self.connection.commit()
 

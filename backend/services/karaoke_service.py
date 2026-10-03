@@ -1,4 +1,5 @@
 import asyncio
+from typing import Optional
 
 from pydantic import BaseModel, ValidationError
 from typing_extensions import Annotated
@@ -6,6 +7,7 @@ from fastapi import Depends
 
 from core.ranking import is_singable, query_tokens, score_candidate
 from core.search import (
+    EmbedSource,
     KaraokeSearchResult,
     KaraokeEntry,
     KaraokeSourceProvider,
@@ -21,6 +23,9 @@ from config import config
 SOURCE_REGISTRY = build_registry(config.KARAOKE_SOURCES)
 
 SEARCH_CACHE_TTL_SECONDS = 30 * 60
+
+# Long enough to cover a party. An uploader rarely re-enables embedding.
+EMBED_BLOCK_TTL_SECONDS = 7 * 24 * 3600
 
 DEFAULT_SEARCH_LIMIT = 12
 MAX_SEARCH_LIMIT = 50
@@ -145,6 +150,27 @@ class KaraokeService:
     def _cache_scope(self) -> str:
         """Without this, a page built while a source was down outlives its recovery."""
         return ",".join(sorted(self.providers.ids))
+
+    def with_playback(self, entry: KaraokeEntry) -> KaraokeEntry:
+        """A copy of the entry carrying the embed the server chose for it."""
+        return entry.model_copy(update={"embed": self._embed_for(entry)})
+
+    def _embed_for(self, entry: KaraokeEntry) -> Optional[EmbedSource]:
+        if not config.EMBED_PLAYBACK:
+            return None
+
+        provider = self.providers.get(entry.source)
+        if provider is None:
+            return None
+
+        if self.cache and self.cache.is_embed_blocked(entry.id, entry.source):
+            return None
+
+        return provider.embed_source(entry)
+
+    def block_embed(self, entry: KaraokeEntry):
+        if self.cache:
+            self.cache.block_embed(entry.id, entry.source, EMBED_BLOCK_TTL_SECONDS)
 
     async def get_video_url(self, entry: KaraokeEntry, refresh: bool = False) -> VideoURLResponse:
         """

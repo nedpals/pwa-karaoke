@@ -8,6 +8,11 @@ DEFAULT_MIN_DURATION_SECONDS = 90.0
 DEFAULT_MAX_DURATION_SECONDS = 15 * 60.0
 
 
+class EmbedSource(BaseModel):
+    player: str  # Key into the display's embed player registry
+    id: str
+
+
 class KaraokeEntry(BaseModel):
     id: str  # Unique only within its source
     title: str
@@ -17,6 +22,8 @@ class KaraokeEntry(BaseModel):
     uploader: str
     duration: Optional[float]
     thumbnail_url: Optional[str] = None
+    # Decided by the server when the song is queued. A client copy is ignored.
+    embed: Optional[EmbedSource] = None
 
 
 class RankingSignals(BaseModel):
@@ -151,6 +158,13 @@ class KaraokeSourceProvider:
     async def get_video_url(self, entry: KaraokeEntry) -> VideoURLResult:
         """Build the result with resolved(), unavailable() or failed()."""
         return VideoURLResult.failed()
+
+    def embed_source(self, entry: KaraokeEntry) -> Optional[EmbedSource]:
+        """
+        The source's own player for this entry, tried before the resolved
+        stream. None plays the stream from the start.
+        """
+        return None
 
     async def close(self):
         pass

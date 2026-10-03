@@ -31,6 +31,10 @@ class EntryIDPayload(BaseModel):
     """Payload with entry_id field"""
     entry_id: str = Field(..., min_length=1)
 
+class EmbedFailedPayload(BaseModel):
+    entry_id: str = Field(..., min_length=1)
+    reason: str = Field(..., min_length=1, max_length=64)
+
 class SetVolumePayload(BaseModel):
     """Set volume command payload"""
     volume: float = Field(..., ge=0.0, le=1.0)
@@ -107,6 +111,7 @@ COMMAND_PAYLOAD_MAP = {
     "remove_song": EntryIDPayload,
     "queue_next_song": EntryIDPayload,
     "refresh_video_url": EntryIDPayload,
+    "embed_failed": EmbedFailedPayload,
     "set_volume": SetVolumePayload,
     "set_autoplay": SetAutoplayPayload,
     "play_next": PlayNextPayload,

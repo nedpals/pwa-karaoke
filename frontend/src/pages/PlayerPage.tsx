@@ -23,6 +23,8 @@ import { getDisplayNickname } from "../lib/nicknameStorage";
 import type { DisplayPlayerState } from "../types";
 import useSmartSync from "../hooks/useSmartSync";
 import { landingMs, performanceIdOf, rollScore, scoreFromPerformance } from "../lib/scoring";
+import { NativeVideoPlayer } from "../players/NativeVideoPlayer";
+import type { PlayerEvents, PlayerHandle } from "../players/types";
 
 type AppState = "awaiting-interaction" | "connecting" | "connected" | "ready" | "scoring" | "playing";
 
@@ -101,16 +103,15 @@ function VideoPlayerComponent({
   onNearingEnd: (params: { timeRemaining: number }) => void;
   onSongEnded: (playedSeconds: number) => void;
 }) {
-  const videoRef = useRef<HTMLVideoElement>(null);
+  const playerRef = useRef<PlayerHandle>(null);
   const { updatePlayerState, refreshVideoUrl, isLeader } = useRoomContext();
   const { osd, playerState } = usePlayerState();
   const isBufferingRef = useRef(false);
   const hasNearingEndFiredRef = useRef(false);
   const attemptsRef = useRef<{ entryId: string | null; count: number }>({ entryId: null, count: 0 });
   const recoveringRef = useRef(false);
-  const loadedUrlRef = useRef<string | null>(null);
 
-  // Media events and interval ticks fire long after the render that made them,
+  // Player events and interval ticks fire long after the render that made them,
   // so they read the room through a ref rather than a stale closure
   const playerStateRef = useRef(playerState);
 
@@ -143,62 +144,63 @@ function VideoPlayerComponent({
     });
   }, [updatePlayerState]);
 
-  // One place decides whether the element runs, so a fresh mount, a buffer
-  // recovery and a change from the room cannot disagree about it
-  const applyPlaybackState = useCallback((video: HTMLVideoElement) => {
+  const reportFromPlayer = useCallback((play_state: DisplayPlayerState["play_state"]) => {
     const current = playerStateRef.current;
-    if (!current) return;
+    const player = playerRef.current;
+    if (!current?.entry || !player) return;
 
-    // The room stopped this element and means it. Starting it again is how a
+    const snapshot = player.snapshot();
+    updateVersionedPlayerState({
+      entry: current.entry,
+      play_state,
+      current_time: snapshot.currentTime,
+      duration: snapshot.duration,
+      volume: snapshot.volume,
+    });
+  }, [updateVersionedPlayerState]);
+
+  // One place decides whether the player runs, so a fresh mount, a buffer
+  // recovery and a change from the room cannot disagree about it
+  const applyPlaybackState = useCallback(() => {
+    const current = playerStateRef.current;
+    const player = playerRef.current;
+    if (!current || !player) return;
+
+    const snapshot = player.snapshot();
+
+    // The room stopped this player and means it. Starting it again is how a
     // finished song replays itself instead of handing over.
     if (
       current.play_state === "finished" ||
       current.play_state === "error" ||
       current.play_state === "idle"
     ) {
-      if (!video.paused) video.pause();
+      if (!snapshot.paused) player.pause();
       return;
     }
 
     // Only sync forward to prevent regression loops on reconnection
     if (
       current.current_time &&
-      current.current_time > video.currentTime &&
-      Math.abs(video.currentTime - current.current_time) > 2
+      current.current_time > snapshot.currentTime &&
+      Math.abs(snapshot.currentTime - current.current_time) > 2
     ) {
-      video.currentTime = current.current_time;
+      player.seek(current.current_time);
     }
 
     if (current.play_state === "paused") {
-      if (!video.paused) video.pause();
+      if (!snapshot.paused) player.pause();
       return;
     }
 
     // "playing" and "buffering" both mean the room is expecting sound
-    if (video.paused) {
-      video.play().catch((error) => {
-        if (error.name !== "AbortError") {
-          console.error("Video play failed:", error);
-        }
-      });
-    }
+    if (snapshot.paused) player.play();
   }, []);
 
-  // A replacement URL for the same song reaches the same element, and swapping
-  // a source does nothing on its own
-  useEffect(() => {
-    const video = videoRef.current;
-    if (!video || !videoUrl || loadedUrlRef.current === videoUrl) return;
-
-    loadedUrlRef.current = videoUrl;
-    video.load();
-  }, [videoUrl]);
-
-  // videoUrl is a dep because the element only mounts once a URL resolves,
+  // videoUrl is a dep because the player only mounts once a URL resolves,
   // which can be long after the song changed.
   useEffect(() => {
-    if (!videoRef.current) return;
-    applyPlaybackState(videoRef.current);
+    applyPlaybackState();
   }, [
     videoUrl,
     playerState?.entry?.id,
@@ -263,81 +265,34 @@ function VideoPlayerComponent({
 
   // Handle volume changes from controller
   useEffect(() => {
-    if (!videoRef.current || !playerState) return;
-
-    const video = videoRef.current;
-    video.volume = playerState.volume ?? 0.5;
+    if (!playerState) return;
+    playerRef.current?.setVolume(playerState.volume ?? 0.5);
   }, [playerState?.volume]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Send periodic updates while playing. Keyed on the song rather than the
   // whole state, which changes every second and would restart the timer.
   useEffect(() => {
-    if (
-      !videoRef.current ||
-      !playerState?.entry?.id ||
-      playerState.play_state !== "playing"
-    ) {
-      return;
-    }
-
-    const video = videoRef.current;
+    if (!playerState?.entry?.id || playerState.play_state !== "playing") return;
 
     const interval = setInterval(() => {
-      const current = playerStateRef.current;
-      if (video.paused || video.ended || !current?.entry) {
-        return;
-      }
+      const snapshot = playerRef.current?.snapshot();
+      if (!snapshot || snapshot.paused || snapshot.ended) return;
 
-      updateVersionedPlayerState({
-        entry: current.entry,
-        play_state: "playing",
-        current_time: video.currentTime,
-        duration: video.duration || 0,
-        volume: video.volume,
-      });
+      reportFromPlayer("playing");
     }, 1000);
     return () => clearInterval(interval);
-  }, [playerState?.entry?.id, playerState?.play_state, updateVersionedPlayerState]);
-
-  useEffect(() => {
-    const video = videoRef.current;
-    if (!video || !playerState?.entry) return;
-
-    const handleTimeUpdate = () => {
-      if (!hasNearingEndFiredRef.current && video.duration > 0) {
-        const timeRemaining = video.duration - video.currentTime;
-        const shouldFireNearingEnd = (timeRemaining <= 15 && timeRemaining > 0); // Fire when 15 seconds or less remain
-
-        if (shouldFireNearingEnd) {
-          hasNearingEndFiredRef.current = true;
-          onNearingEnd({ timeRemaining });
-        }
-      }
-    };
-
-    video.addEventListener('timeupdate', handleTimeUpdate);
-    return () => video.removeEventListener('timeupdate', handleTimeUpdate);
-  }, [playerState?.entry, onNearingEnd]);
+  }, [playerState?.entry?.id, playerState?.play_state, reportFromPlayer]);
 
   // Reset nearing end flag when song changes
   useEffect(() => {
     hasNearingEndFiredRef.current = false;
   }, [playerState?.entry?.id]);
 
-  // Handle page unload/reload - save current video state
+  // Handle page unload/reload - save current player state
   useEffect(() => {
     const handleBeforeUnload = () => {
-      const current = playerStateRef.current;
-      if (videoRef.current && current?.entry) {
-        const video = videoRef.current;
-        updateVersionedPlayerState({
-          entry: current.entry,
-          play_state: video.paused ? "paused" : "playing",
-          current_time: video.currentTime,
-          duration: video.duration || 0,
-          volume: video.volume,
-        });
-      }
+      const snapshot = playerRef.current?.snapshot();
+      if (snapshot) reportFromPlayer(snapshot.paused ? "paused" : "playing");
     };
 
     window.addEventListener("beforeunload", handleBeforeUnload);
@@ -345,7 +300,57 @@ function VideoPlayerComponent({
     return () => {
       window.removeEventListener("beforeunload", handleBeforeUnload);
     };
-  }, [playerState?.entry]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [reportFromPlayer]);
+
+  const playerEvents = useMemo<PlayerEvents>(() => ({
+    onReady: () => {
+      isBufferingRef.current = false;
+
+      // Only clears the buffering report. A song the room has stopped is left
+      // where it put it.
+      if (playerStateRef.current?.play_state === "buffering") {
+        reportFromPlayer("playing");
+      }
+
+      const volume = playerStateRef.current?.volume;
+      if (volume !== undefined) playerRef.current?.setVolume(volume);
+      applyPlaybackState();
+    },
+    onPlay: () => {
+      isBufferingRef.current = false;
+      reportFromPlayer("playing");
+    },
+    onPause: () => reportFromPlayer("paused"),
+    onBuffering: () => {
+      if (isBufferingRef.current) return;
+
+      reportFromPlayer("buffering");
+      isBufferingRef.current = true;
+    },
+    onTimeUpdate: () => {
+      const snapshot = playerRef.current?.snapshot();
+      if (!snapshot || hasNearingEndFiredRef.current || !playerStateRef.current?.entry) return;
+      if (snapshot.duration <= 0) return;
+
+      const timeRemaining = snapshot.duration - snapshot.currentTime;
+      if (timeRemaining <= 15 && timeRemaining > 0) {
+        hasNearingEndFiredRef.current = true;
+        onNearingEnd({ timeRemaining });
+      }
+    },
+    onEnded: () => {
+      const current = playerStateRef.current;
+      if (!current?.entry || current.play_state === "finished") return;
+
+      const playedSeconds = playerRef.current?.snapshot().currentTime ?? 0;
+      reportFromPlayer("finished");
+      onSongEnded(playedSeconds);
+    },
+    onError: () => {
+      isBufferingRef.current = false;
+      recoverPlayback();
+    },
+  }), [applyPlaybackState, onNearingEnd, onSongEnded, recoverPlayback, reportFromPlayer]);
 
   // A stream that died after it started reads differently from one that never
   // resolved
@@ -427,100 +432,13 @@ function VideoPlayerComponent({
         </OSD>
       )}
 
-      {/* No autoPlay: a remount that started itself brought back the song the
-          room had just finished with. applyPlaybackState decides instead. */}
-      <video
+      <NativeVideoPlayer
         key={performanceIdOf(playerState) ?? undefined}
-        ref={videoRef}
+        ref={playerRef}
+        src={videoUrl}
+        events={playerEvents}
         className="w-full h-full object-contain"
-        preload="auto"
-        onPlay={(ev) => {
-          const current = playerStateRef.current;
-          if (current?.entry) {
-            const video = ev.currentTarget;
-            updateVersionedPlayerState({
-              entry: current.entry,
-              play_state: "playing",
-              current_time: video.currentTime,
-              duration: video.duration || 0,
-              volume: video.volume,
-            });
-          }
-        }}
-        onPause={(ev) => {
-          const current = playerStateRef.current;
-          if (current?.entry) {
-            const video = ev.currentTarget;
-            updateVersionedPlayerState({
-              entry: current.entry,
-              play_state: "paused",
-              current_time: video.currentTime,
-              duration: video.duration || 0,
-              volume: video.volume,
-            });
-          }
-        }}
-        onWaiting={(ev) => {
-          if (isBufferingRef.current) return;
-
-          const current = playerStateRef.current;
-          if (!current?.entry) return;
-
-          const video = ev.currentTarget;
-          updateVersionedPlayerState({
-            entry: current.entry,
-            play_state: "buffering",
-            current_time: video.currentTime || 0,
-            duration: video.duration || 0,
-            volume: video.volume,
-          });
-
-          isBufferingRef.current = true;
-        }}
-        onCanPlay={(ev) => {
-          isBufferingRef.current = false;
-
-          const current = playerStateRef.current;
-          const video = ev.currentTarget;
-
-          // Only clears the buffering report. A song the room has stopped is
-          // left where it put it.
-          if (current?.entry && current.play_state === "buffering") {
-            updateVersionedPlayerState({
-              entry: current.entry,
-              play_state: "playing",
-              current_time: video.currentTime || 0,
-              duration: video.duration || 0,
-              volume: video.volume,
-            });
-          }
-
-          applyPlaybackState(video);
-        }}
-        onCanPlayThrough={(ev) => applyPlaybackState(ev.currentTarget)}
-        onError={() => {
-          isBufferingRef.current = false;
-          recoverPlayback();
-        }}
-        onEnded={(ev) => {
-          const current = playerStateRef.current;
-          if (!current?.entry || current.play_state === "finished") return;
-
-          const video = ev.currentTarget;
-          updateVersionedPlayerState({
-            entry: current.entry,
-            play_state: "finished" as const,
-            current_time: video.currentTime || 0,
-            duration: video.duration || 0,
-            volume: video.volume,
-          });
-          onSongEnded(video.currentTime || 0);
-        }}
-      >
-        <track kind="captions" />
-        <source src={videoUrl} type="video/mp4" />
-        <p className="text-center">Your browser does not support the video tag.</p>
-      </video>
+      />
     </div>
   );
 }

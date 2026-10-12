@@ -105,7 +105,7 @@ export default function ControllerPage() {
     );
   }
 
-  if (room.isVerifying) {
+  if (room.isVerifying && !room.hasJoinedOnce) {
     return (
       <SystemMessage
         title="Connecting"
@@ -134,7 +134,7 @@ export default function ControllerPage() {
     );
   }
 
-  if (!room.isVerified || !room.hasJoinedRoom) {
+  if (!room.hasJoinedOnce) {
     return (
       <SystemMessage
         title={!room.isVerified ? "Loading" : "Joining Room"}

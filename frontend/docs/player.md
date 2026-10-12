@@ -110,7 +110,7 @@ Notes:
 | From | To | Cause |
 | --- | --- | --- |
 | `awaiting-interaction` | any later state | The Allow Sound button calls `setHasInteracted(true)`. Nothing else in the codebase sets `hasInteracted`, and it never goes back to `false` |
-| any | `connecting` | The WebSocket drops. `useRoom` also clears its room state when `ws.connected` is false |
+| any | `connecting` | The WebSocket drops. `useRoom` also clears its room state when `ws.connected` is false, and rejoins the room once it reconnects |
 | `connected` | `ready` | `controllerCount` goes above 0 (from `client_count` messages) |
 | `ready` | `playing` | `playerState.entry` becomes set, normally because a `play_next` the leader sent made the server broadcast a new `player_state` |
 | `playing` | `scoring` | `beginScoring` sets `scoring` (section 3, steps 6 to 8) |
@@ -500,7 +500,7 @@ The leader can change at any time (`leader_status`). What the code does:
 - **Becoming leader while a song sits finished.** Effect 3 depends on `isLeader`, so the watchdog arms.
 - **Losing leadership.** `playNext` and `updatePlayerState` become no-ops on that display. The grace timer in effect 5 and the timer in effect 3 are cleared by their effect cleanups, because `isLeader` is a dependency. A `finishScoring` timer is not cancelled, and its `play_next` call becomes a no-op.
 - **No duplicate-publish check across displays.** `judged` is per display. If the old leader already published for an item and the new leader's `judged` is empty, the new leader can publish again. The code does not prevent that, and the server's `publish_score` handler just broadcasts.
-- **Reconnecting.** When `ws.connected` is false, `useRoom` clears its room state (queue, player state, settings, score, requests) and `isLeader` goes to `false`. `useWebSocket` also sets `hasJoinedRoom` to `false` on close, and `PlayerPage` shows "Joining Room" whenever `!room.hasJoinedRoom`, which stops rendering the provider. `useWebSocket` reconnects on its own with backoff (1 s doubling to a 30 s cap, up to 50 attempts). In the files this page covers, `joinRoom` is only called from `verifyAndJoinRoom`, which `PlayerPage` calls once on mount, so this page does not describe a rejoin after a reconnect. When a join does happen, the server sends the current state and `leader_status` (`_receive_current_state`).
+- **Reconnecting.** When `ws.connected` is false, `useRoom` clears its room state (queue, player state, settings, score, requests) and `isLeader` goes to `false`, so the provider shows `"connecting"`. `useWebSocket` reconnects on its own with backoff (0.5 s doubling to a 30 s cap, up to 50 attempts) and sends a `handshake` as the first message on every new socket. When the socket is back, `useRoom` calls `verifyAndJoinRoom` again, which re-verifies over HTTP and sends `join_room`; the server then sends the current state and `leader_status` (`_receive_current_state`). `PlayerPage` keeps the provider mounted through all of this once `room.hasJoinedOnce` is true, so `hasInteracted` and the other local state survive. If the room no longer exists (rooms live in memory, so a backend restart loses them), the re-verify fails and the page shows "Access Denied" with "Room not found".
 
 ## 6. Tips for changing this code safely
 

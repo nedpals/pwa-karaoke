@@ -52,7 +52,7 @@ export default function PlayerPage() {
     return <Navigate to="/" replace />;
   }
 
-  if (room.isVerifying) {
+  if (room.isVerifying && !room.hasJoinedOnce) {
     return (
       <SystemMessage
         title="Connecting"
@@ -81,7 +81,7 @@ export default function PlayerPage() {
     );
   }
 
-  if (!room.isVerified || !room.hasJoinedRoom) {
+  if (!room.hasJoinedOnce) {
     return (
       <SystemMessage title={!room.isVerified ? "Loading" : "Joining Room"} variant="player">
         <LoadingIndicator size="lg" />

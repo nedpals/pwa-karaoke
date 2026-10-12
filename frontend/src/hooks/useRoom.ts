@@ -1,5 +1,5 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
-import { useWebSocket } from './useWebSocket';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { CONNECTION_LOST, useWebSocket } from './useWebSocket';
 import { useServerStatus, useVerifyRoomMutation } from './useApi';
 import { getRoomPassword, storeRoomPassword } from '../lib/roomStorage';
 import { apiClient } from '../api/client';
@@ -28,6 +28,8 @@ export interface RoomState {
   // WebSocket connection status
   connected: boolean;
   hasJoinedRoom: boolean;
+  /** Stays true through reconnects, so pages keep their state while the room is rejoined. */
+  hasJoinedOnce: boolean;
 
   // Room data
   clientCount: number;
@@ -129,7 +131,7 @@ export function useRoom(clientType: ClientType, nickname?: string | null): UseRo
   const verifyAndJoinRoom = useCallback(async (targetRoomId: string, password?: string) => {
     setIsVerifying(true);
 
-    if (isOffline) {
+    if (isOffline && !ws.connected) {
       setVerificationError('Server is offline. Please refresh the page to try again.');
       setIsVerifying(false);
       return;
@@ -157,6 +159,9 @@ export function useRoom(clientType: ClientType, nickname?: string | null): UseRo
 
       await ws.joinRoom(targetRoomId, nickname);
     } catch (error) {
+      // The rejoin after reconnecting picks this up
+      if (error instanceof Error && error.message === CONNECTION_LOST) return;
+
       let errorMessage = error instanceof Error ? error.message : 'This room may be private or require a password. Please check with the room creator.';
       if (error instanceof TypeError && error.message === 'Failed to fetch') {
         errorMessage = 'Server is offline or unreachable. Please check your connection and try again.';
@@ -184,7 +189,7 @@ export function useRoom(clientType: ClientType, nickname?: string | null): UseRo
     } finally {
       setIsVerifying(false);
     }
-  }, [isOffline, verifyRoom, nickname]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [isOffline, verifyRoom, nickname, ws.connected]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!ws.lastMessage) return;
@@ -318,6 +323,23 @@ export function useRoom(clientType: ClientType, nickname?: string | null): UseRo
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ws.lastMessage, clientType]);
 
+  const [hasJoinedOnce, setHasJoinedOnce] = useState(false);
+  useEffect(() => {
+    if (ws.hasJoinedRoom) setHasJoinedOnce(true);
+  }, [ws.hasJoinedRoom]);
+
+  const rejoinOnReconnect = useRef(false);
+  useEffect(() => {
+    if (!ws.connected) {
+      if (roomId) rejoinOnReconnect.current = true;
+      return;
+    }
+    if (!rejoinOnReconnect.current || !roomId) return;
+
+    rejoinOnReconnect.current = false;
+    verifyAndJoinRoom(roomId);
+  }, [ws.connected]); // eslint-disable-line react-hooks/exhaustive-deps
+
   useEffect(() => {
     if (!ws.connected) {
       setQueue(null);
@@ -350,6 +372,7 @@ export function useRoom(clientType: ClientType, nickname?: string | null): UseRo
     // WebSocket state (forwarded)
     connected: ws.connected,
     hasJoinedRoom: ws.hasJoinedRoom,
+    hasJoinedOnce,
     clientCount: ws.clientCounts.total,
     controllerCount: ws.clientCounts.controllers,
 

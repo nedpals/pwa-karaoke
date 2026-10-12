@@ -1,5 +1,5 @@
-import { useEffect, useState, useCallback, useMemo } from "react";
-import useWebSocketHook from "react-use-websocket";
+import { useEffect, useState, useCallback, useMemo, useRef } from "react";
+import useWebSocketHook, { ReadyState } from "react-use-websocket";
 import { getDeviceId } from "../lib/deviceId";
 
 type ClientType = "controller" | "display";
@@ -12,6 +12,8 @@ export interface ClientCounts {
 }
 
 const NO_CLIENTS: ClientCounts = { total: 0, controllers: 0, displays: 0 };
+
+export const CONNECTION_LOST = "Connection lost";
 
 export interface WebSocketState {
   connected: boolean;
@@ -48,6 +50,8 @@ export function useWebSocket(clientType: ClientType, initalAutoConnect = true): 
   const [lastMessage, setLastMessage] = useState<[string, unknown] | null>(null);
   const [pendingCommands, setPendingCommands] = useState<PendingCommand[]>([]);
   const [pendingRequests] = useState<Map<string, PendingRequest>>(new Map());
+  const handshaken = useRef(false);
+  const pendingJoins = useRef<(() => void)[]>([]);
 
   // Generate request ID
   const generateRequestId = useCallback(() => {
@@ -85,6 +89,11 @@ export function useWebSocket(clientType: ClientType, initalAutoConnect = true): 
         console.log(`[WebSocket ${clientType}] Connection closed`);
         setHasJoinedRoom(false);
         setPendingCommands([]); // Clear pending commands on disconnect
+        for (const request of pendingRequests.values()) {
+          request.reject(new Error(CONNECTION_LOST));
+        }
+        pendingRequests.clear();
+        pendingJoins.current = [];
       },
       onError: (error) => {
         console.error(`[WebSocket ${clientType}] Error:`, error);
@@ -92,19 +101,27 @@ export function useWebSocket(clientType: ClientType, initalAutoConnect = true): 
     },
   );
 
-  const connected = readyState === 1;
+  const connected = readyState === ReadyState.OPEN;
 
-  // Internal room joining function
-  const joinRoomInternal = useCallback(async (roomId: string, nickname?: string | null): Promise<void> => {
-    if (!autoConnect) {
-      setAutoConnect(true);
-      // Wait for 1 second to allow connection to establish
-      await new Promise((resolve) => setTimeout(resolve, 1000));
+  // The server expects a handshake as the first message on every socket, including reconnects
+  const sendJsonMessageRef = useRef(sendJsonMessage);
+  sendJsonMessageRef.current = sendJsonMessage;
+  useEffect(() => {
+    if (readyState !== ReadyState.OPEN) {
+      handshaken.current = false;
+      return;
     }
 
-    // Must be handshaken before joining room
-    sendJsonMessage(["handshake", { client_type: clientType }]);
+    sendJsonMessageRef.current(["handshake", { client_type: clientType }]);
+    handshaken.current = true;
 
+    const joins = pendingJoins.current;
+    pendingJoins.current = [];
+    for (const join of joins) join();
+  }, [readyState, clientType]);
+
+  // Internal room joining function
+  const joinRoomInternal = useCallback((roomId: string, nickname?: string | null): Promise<void> => {
     return new Promise((resolve, reject) => {
       const requestId = generateRequestId();
       const joinRoomRequest = {
@@ -122,7 +139,7 @@ export function useWebSocket(clientType: ClientType, initalAutoConnect = true): 
       };
 
       pendingRequests.set(requestId, joinRoomRequest);
-      sendJsonMessage([
+      const sendJoin = () => sendJsonMessageRef.current([
         "join_room",
         {
           room_id: roomId,
@@ -131,8 +148,15 @@ export function useWebSocket(clientType: ClientType, initalAutoConnect = true): 
           request_id: requestId,
         },
       ]);
+
+      if (handshaken.current) {
+        sendJoin();
+      } else {
+        pendingJoins.current.push(sendJoin);
+        setAutoConnect(true);
+      }
     });
-  }, [autoConnect, generateRequestId, clientType, pendingRequests, sendJsonMessage]);
+  }, [generateRequestId, clientType, pendingRequests]);
 
   // Flush pending commands after handshake completion
   useEffect(() => {

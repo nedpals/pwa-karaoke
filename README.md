@@ -168,7 +168,7 @@ Declining, denying the browser, or reaching the app over plain `http`, where mic
 
 ### Development
 
-Want to contribute? See [CONTRIBUTING.md](CONTRIBUTING.md) for the workflow, how to run the checks, and a tour of the code.
+Want to contribute? See [CONTRIBUTING.md](CONTRIBUTING.md) for the workflow, how to run the checks, and a tour of the code. We follow a [Code of Conduct](CODE_OF_CONDUCT.md) — please read it before participating.
 
 ## License
 

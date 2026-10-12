@@ -271,6 +271,10 @@ Before you click **Create pull request**:
 
 Reviewers may ask for changes. That is normal and part of how everyone learns. Push more commits to the same branch and the PR updates.
 
+## Code of Conduct
+
+By participating in this community you agree to follow our [Code of Conduct](CODE_OF_CONDUCT.md). Report problems by contacting the maintainer at the address listed there.
+
 ## Getting help
 
 - Comment on the issue or on your PR. Say what you tried and paste the error message. No question is too small.

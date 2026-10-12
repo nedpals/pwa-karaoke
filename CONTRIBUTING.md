@@ -1,6 +1,6 @@
 # Contributing to PWA Karaoke
 
-Welcome, and thank you for helping out at the PyCon Davao 2026 sprint!
+Welcome, and thank you for your interest in contributing!
 
 PWA Karaoke turns any device into a karaoke machine. One device is a **display** (a TV or laptop that plays the video), and phones are **controllers** (they search for songs and control playback). The backend is Python (FastAPI) and the frontend is React with TypeScript. Everything talks over a WebSocket.
 
@@ -27,7 +27,7 @@ If you cannot get Python or Node working, use the dev container instead. Open th
 
 ## Workflow
 
-1. **Pick and claim an issue.** Comment on the issue ("I'd like to work on this") before you start, so two people do not pick the same one. Wait for a mentor or maintainer to say yes.
+1. **Pick and claim an issue.** Comment on the issue ("I'd like to work on this") before you start, so two people do not pick the same one. Wait for a maintainer to say yes.
 2. **Fork** the repo: click **Fork** at the top of [github.com/nedpals/pwa-karaoke](https://github.com/nedpals/pwa-karaoke).
 3. **Clone your fork** (replace `YOUR-USERNAME`):
 
@@ -83,7 +83,7 @@ git switch your-branch-name
 git rebase upstream/main
 ```
 
-If you would rather not rebase, `git merge upstream/main` works too. If Git reports conflicts, open the files it lists, keep the right lines, remove the `<<<<<<<` markers, then run `git add <file>` and `git rebase --continue` (or commit, if you merged). After a rebase, push with `git push --force-with-lease`. Ask a mentor if you get stuck. Conflicts are normal and not your fault.
+If you would rather not rebase, `git merge upstream/main` works too. If Git reports conflicts, open the files it lists, keep the right lines, remove the `<<<<<<<` markers, then run `git add <file>` and `git rebase --continue` (or commit, if you merged). After a rebase, push with `git push --force-with-lease`. Ask on your PR if you get stuck. Conflicts are normal and not your fault.
 
 ## Running checks locally
 
@@ -208,7 +208,7 @@ Components live in `frontend/src/components/`, grouped by size:
 
 Many components have a `*.stories.tsx` file next to them (for example `Button.stories.tsx`). That file is what Storybook shows. Copy an existing one to add stories for a new component.
 
-The pages in `frontend/src/pages/` (`PlayerPage.tsx` is about 1400 lines, `ControllerPage.tsx` about 870) are large and tangled with the WebSocket logic. As a beginner, prefer changes to components, stories, or docs. If an issue needs a page change, ask a mentor first.
+The pages in `frontend/src/pages/` (`PlayerPage.tsx` is about 1400 lines, `ControllerPage.tsx` about 870) are large and tangled with the WebSocket logic. If you are new to the codebase, prefer changes to components, stories, or docs. If an issue needs a page change, ask on the issue first.
 
 ## How the app fits together
 
@@ -271,6 +271,5 @@ Reviewers may ask for changes. That is normal and part of how everyone learns. P
 
 ## Getting help
 
-- At the sprint, ask a mentor in the room. No question is too small.
-- Comment on the issue or on your PR. Say what you tried and paste the error message.
-- Not sure which issue to take? Ask a mentor to point you to one marked for beginners.
+- Comment on the issue or on your PR. Say what you tried and paste the error message. No question is too small.
+- Not sure which issue to take? Look for issues labelled `good first issue`.

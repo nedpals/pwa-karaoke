@@ -2,7 +2,7 @@ import time
 import hashlib
 from typing import Optional, Dict, Any
 
-from pydantic import BaseModel, PrivateAttr
+from pydantic import BaseModel, Field, PrivateAttr
 
 from core.search import KaraokeEntry
 from core.player import DisplayPlayerState
@@ -26,7 +26,7 @@ class Room(BaseModel):
     current_singer_device_id: Optional[str] = None
     settings_version: int = 1
     password_hash: Optional[str] = None
-    created_at: float = time.time()
+    created_at: float = Field(default_factory=time.time)
 
     _limiter: SlidingWindowLimiter = PrivateAttr(default_factory=SlidingWindowLimiter)
 

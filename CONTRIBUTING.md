@@ -44,7 +44,7 @@ If you cannot get Python or Node working, use the dev container instead. Open th
    ```
 
 5. **Set the app up** by following the [Local development section of the README](README.md#local-development). Short version: one terminal runs the backend (`uv sync` then `uv run python main.py` inside `backend/`), another runs the frontend (`npm ci` then `npm run dev` inside `frontend/`), and you open `http://localhost:5173`. The README has separate Windows (PowerShell) commands. You do not need to run the app to work on docs or backend tests.
-6. **Create a branch.** Never work on `main`. Name the branch after the kind of change:
+6. **Create a branch.** Never work on `master`. Name the branch after the kind of change:
 
    | Prefix | Use for | Example |
    | --- | --- | --- |
@@ -71,19 +71,19 @@ If you cannot get Python or Node working, use the dev container instead. Open th
    git push -u origin docs/windows-setup-tips
    ```
 
-10. **Open a PR.** GitHub shows a "Compare & pull request" button on your fork. Make sure the base is `nedpals/pwa-karaoke` and branch `main`. See the [PR checklist](#pr-checklist).
+10. **Open a PR.** GitHub shows a "Compare & pull request" button on your fork. Make sure the base is `nedpals/pwa-karaoke` and branch `master`. See the [PR checklist](#pr-checklist).
 
-### If `main` moves while you work
+### If `master` moves while you work
 
 Other people's PRs get merged. To bring your branch up to date:
 
 ```bash
 git fetch upstream
 git switch your-branch-name
-git rebase upstream/main
+git rebase upstream/master
 ```
 
-If you would rather not rebase, `git merge upstream/main` works too. If Git reports conflicts, open the files it lists, keep the right lines, remove the `<<<<<<<` markers, then run `git add <file>` and `git rebase --continue` (or commit, if you merged). After a rebase, push with `git push --force-with-lease`. Ask on your PR if you get stuck. Conflicts are normal and not your fault.
+If you would rather not rebase, `git merge upstream/master` works too. If Git reports conflicts, open the files it lists, keep the right lines, remove the `<<<<<<<` markers, then run `git add <file>` and `git rebase --continue` (or commit, if you merged). After a rebase, push with `git push --force-with-lease`. Ask on your PR if you get stuck. Conflicts are normal and not your fault.
 
 ## Running checks locally
 

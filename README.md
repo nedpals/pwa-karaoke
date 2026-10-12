@@ -169,7 +169,7 @@ Declining, denying the browser, or reaching the app over plain `http`, where mic
 
 ### Development
 
-To contribute to PWA Karaoke, fork the repository and create a new branch for your changes. See the individual README files in the `backend/` and `frontend/` directories for setup instructions. After making your changes, submit a pull request with a clear description of what you've modified.
+Want to contribute? See [CONTRIBUTING.md](CONTRIBUTING.md) for the workflow, how to run the checks, and a tour of the code.
 
 ## License
 

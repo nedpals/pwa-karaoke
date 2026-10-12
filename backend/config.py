@@ -19,7 +19,6 @@ def _float_env(name: str, default: float) -> float:
 
 
 def _default_ytdlp_binary() -> str:
-    """Prefer yt-dlp on PATH, else the one installed beside this Python (an unactivated venv)."""
     if shutil.which("yt-dlp"):
         return "yt-dlp"
     name = "yt-dlp.exe" if os.name == "nt" else "yt-dlp"

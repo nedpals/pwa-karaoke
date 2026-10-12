@@ -48,6 +48,8 @@ src/
 ├── main.tsx           Entry point, registers the service worker
 ├── routes.tsx         Routes: / (home), /player (display), /controller and /remote (controller)
 ├── pages/             One component per route
+│   ├── controller/    Controller tabs, header and mic check
+│   └── player/        Display screens, video player and playback state
 ├── components/
 │   ├── atoms/         Small building blocks: Button, Input, Text, Panel
 │   ├── molecules/     Combinations of atoms: SearchInput, IconButton, TimeDisplay
@@ -69,7 +71,9 @@ The hooks that matter most:
 - `useLoudnessScore` scores singing from the phone microphone.
 - `useApi` wraps search and video URL lookups with SWR.
 
-`pages/PlayerPage.tsx` and `pages/ControllerPage.tsx` are large. Changes are usually easier to make and review in a component.
+To read the display (player) code, start with [docs/player.md](docs/player.md). It maps the screens, the song lifecycle and the refs that coordinate the playback effects.
+
+The controller tabs and display screens are good places for a first change. `pages/player/PlayerStateProvider.tsx` and `pages/player/VideoPlayer.tsx` coordinate playback timing through many effects and refs, so read the player doc before changing them.
 
 ## Storybook
 

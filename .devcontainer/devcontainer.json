@@ -1,0 +1,9 @@
+{
+  "name": "pwa-karaoke",
+  "image": "mcr.microsoft.com/devcontainers/base:bookworm",
+  "features": {
+    "ghcr.io/devcontainers/features/node:1": { "version": "22" }
+  },
+  "forwardPorts": [8000, 5173],
+  "postCreateCommand": "curl -LsSf https://astral.sh/uv/install.sh | sh && export PATH=\"$HOME/.local/bin:$PATH\" && (cd backend && uv sync) && (cd frontend && npm ci)"
+}

@@ -21,7 +21,7 @@ A web-based karaoke application that transforms any device into a karaoke system
 Coming soon. In the meantime, you may use the "Clone with Git" or "Download ZIP" methods below.
 
 ### Clone with Git
-To download the application via `git`, simply clone it using `git clone https://github.com/username/pwa-karaoke.git`.
+To download the application via `git`, simply clone it using `git clone https://github.com/nedpals/pwa-karaoke.git`.
 
 ### Download ZIP
 You can download the source code as a ZIP file by clicking "Code" → "Download ZIP" on the GitHub repository page.
@@ -58,18 +58,58 @@ docker run -d -p 8000:8000 --name pwa-karaoke pwa-karaoke
 
 Visit `http://localhost:8000` to access the application.
 
-### Manual
-A manual setup is also possible. This method requires more steps but allows for greater customization.
+### Local development
+Run the backend and the Vite dev server in two terminals. Open the repository root in both.
 
 #### Prerequisites
-Ensure you have the following installed:
-- Python 3.11+
+- [uv](https://docs.astral.sh/uv/), which also downloads the right Python for you
 - Node.js 20+
 - Docker (optional, for containerized deployment)
 
-#### Steps
-To set up PWA Karaoke manually, follow the setup procedure below:
+Install uv once.
 
+macOS / Linux:
+
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+Windows (PowerShell):
+
+```powershell
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+```
+
+If you already have Python, `pip install uv` works too. Open a new terminal afterwards so `uv` is on your PATH.
+
+#### Terminal 1: backend
+```bash
+cd backend
+uv sync
+uv run python main.py
+```
+
+`uv sync` creates `backend/.venv` and installs the locked dependencies, including `yt-dlp`, so there is nothing to activate. To update `yt-dlp` later, run `uv lock --upgrade-package yt-dlp && uv sync`.
+
+#### Terminal 2: frontend
+```bash
+cd frontend
+npm ci
+npm run dev
+```
+
+#### Open the app
+- On your laptop: `http://localhost:5173`
+- On a phone on the same wifi: `http://<your-LAN-IP>:5173`. Vite prints the exact address as `Network:` when it starts.
+
+The dev server proxies API and WebSocket requests to the backend on `http://localhost:8000`, so phones need nothing else. To use a backend running elsewhere, set `VITE_BACKEND_URL` (for example `VITE_BACKEND_URL=http://192.168.1.20:8000 npm run dev`).
+
+> [!NOTE]
+> Microphone scoring needs HTTPS. Over plain `http://<LAN-IP>:5173` a phone cannot use its microphone, so the score is generated instead. This is expected.
+
+If you cannot get uv or Node working on your machine, the repository includes a dev container (`.devcontainer/`) that you can open with VS Code or GitHub Codespaces.
+
+### Production build
 ```bash
 # Build frontend and bundle into backend
 cd frontend
@@ -78,9 +118,8 @@ npm run build:prod
 
 # Start the server
 cd ../backend
-pip install -r requirements.txt
-pip install --upgrade "yt-dlp[default,deno]"
-python main.py
+uv sync --no-dev
+uv run python main.py
 ```
 
 Visit `http://localhost:8000` to access the application.
@@ -129,7 +168,7 @@ Declining, denying the browser, or reaching the app over plain `http`, where mic
 
 ### Development
 
-To contribute to PWA Karaoke, fork the repository and create a new branch for your changes. See the individual README files in the `backend/` and `frontend/` directories for setup instructions. After making your changes, submit a pull request with a clear description of what you've modified.
+Want to contribute? See [CONTRIBUTING.md](CONTRIBUTING.md) for the workflow, how to run the checks, and a tour of the code.
 
 ## License
 

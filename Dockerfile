@@ -20,9 +20,16 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-# Copy backend requirements and install Python dependencies
-COPY backend/requirements.txt ./
-RUN pip install --no-cache-dir -r requirements.txt
+# The official uv binary installs the locked dependencies into /app/.venv,
+# using the image's own Python rather than downloading one.
+COPY --from=ghcr.io/astral-sh/uv:0.11.32 /uv /uvx /bin/
+ENV UV_PYTHON_DOWNLOADS=never \
+    UV_COMPILE_BYTECODE=1 \
+    UV_LINK_MODE=copy \
+    PATH="/app/.venv/bin:$PATH"
+
+COPY backend/pyproject.toml backend/uv.lock backend/.python-version ./
+RUN uv sync --frozen --no-dev
 
 # Copy backend source
 COPY backend/ ./
@@ -32,16 +39,18 @@ COPY --from=frontend-build /app/frontend/dist ./static
 
 # yt-dlp is installed last, unpinned, in its own layer. It releases far more
 # often than the rest of the stack, so every rebuild picks up the current
-# version instead of whatever was pinned months ago. Pass an exact version to
+# version instead of whatever uv.lock holds. Pass an exact version to
 # reproduce an old build:
 #   docker build --build-arg YTDLP_VERSION=2026.8.19 .
 # The default extra pins the yt-dlp-ejs release that matches yt-dlp, and the
 # deno extra installs Deno, the JavaScript runtime yt-dlp enables by default.
+# The server runs with plain python from the venv, not uv run, which would
+# re-sync the venv back to uv.lock.
 ARG YTDLP_VERSION=latest
 RUN if [ "$YTDLP_VERSION" = "latest" ]; then \
-        pip install --no-cache-dir --upgrade "yt-dlp[default,deno]"; \
+        uv pip install --no-cache --python /app/.venv/bin/python --upgrade "yt-dlp[default,deno]"; \
     else \
-        pip install --no-cache-dir "yt-dlp[default,deno]==$YTDLP_VERSION"; \
+        uv pip install --no-cache --python /app/.venv/bin/python "yt-dlp[default,deno]==$YTDLP_VERSION"; \
     fi \
     && yt-dlp --version \
     && deno --version

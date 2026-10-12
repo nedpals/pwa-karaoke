@@ -22,6 +22,7 @@ A FastAPI-based WebSocket server for managing karaoke rooms, song queues, and pl
   - [Connection Flow](#connection-flow)
   - [Client Types](#client-types)
   - [Message Format](#message-format)
+  - [Message Processing](#message-processing)
   - [Commands Reference](#commands-reference)
   - [Server-to-Client Messages](#server-to-client-messages)
   - [Data Models](#data-models)
@@ -94,35 +95,36 @@ Frontend implements intelligent synchronization for non-leader displays:
 ## Quick Start
 
 ### Prerequisites
-- Python 3.11+ (tested with 3.12)
-- pip package manager
+- [uv](https://docs.astral.sh/uv/) (it downloads Python 3.12 for you if needed)
 
 ### Installation
 
-1. **Navigate to backend directory**:
+1. **Install uv** (once):
+   ```bash
+   curl -LsSf https://astral.sh/uv/install.sh | sh
+   ```
+   On Windows (PowerShell): `powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"`.
+   `pip install uv` also works.
+
+2. **Navigate to backend directory**:
    ```bash
    cd backend
    ```
 
-2. **Create virtual environment** (recommended):
-   ```bash
-   python -m venv venv
-   source venv/bin/activate  # On Windows: venv\Scripts\activate
-   ```
-
 3. **Install dependencies**:
    ```bash
-   pip install -r requirements.txt
-   pip install --upgrade "yt-dlp[default,deno]"
+   uv sync
    ```
 
-   The `deno` extra installs the JavaScript runtime yt-dlp needs for YouTube.
+   This creates `.venv` with the locked dependencies from `uv.lock`, including
+   `yt-dlp` and the `deno` JavaScript runtime it needs for YouTube.
    To use another runtime, set `YTDLP_RUNTIME` (for example `node` or
-   `node:/usr/bin/node`).
+   `node:/usr/bin/node`). To update yt-dlp, run
+   `uv lock --upgrade-package yt-dlp && uv sync`.
 
 4. **Run the server**:
    ```bash
-   python main.py
+   uv run python main.py
    ```
 
    The server will start on `http://localhost:8000`
@@ -132,6 +134,17 @@ Frontend implements intelligent synchronization for non-leader displays:
    - Video URL endpoint: `POST http://localhost:8000/get_video_url`
    - Rooms endpoint: `http://localhost:8000/rooms`
    - API docs: `http://localhost:8000/docs`
+
+   `/search` and `/get_video_url` require HTTP Basic auth: the room id is the username and the room password is the password (empty if the room has none). Create the room first with `POST /rooms/create`:
+
+   ```bash
+   curl -X POST http://localhost:8000/rooms/create \
+     -H "Content-Type: application/json" \
+     -d '{"room_id": "myroom"}'
+
+   # Add "password": "secret" to the body above for a protected room, then use -u myroom:secret
+   curl -u myroom: "http://localhost:8000/search?query=my%20way&limit=2"
+   ```
 
 ## Source Providers
 
@@ -274,25 +287,48 @@ Every provider's state is reported under `sources` on `/health`, which returns
 | `youtube` | YouTube, via yt-dlp | Searches through the library, extracts through the CLI binary |
 
 
-## HTTP Server
+## HTTP API Endpoints
 
-The backend provides a FastAPI-based HTTP server alongside the WebSocket functionality. HTTP endpoints are defined in `main.py` and handle search operations and health monitoring.
+The backend provides a FastAPI-based HTTP server alongside the WebSocket functionality. HTTP endpoints are defined in `main.py`.
+
+| Endpoint | Auth | Notes |
+| --- | --- | --- |
+| `GET /search` | Room (Basic) | `query`, `limit` (default 12, max 50), `offset` |
+| `POST /get_video_url` | Room (Basic) | Body is a `KaraokeEntry` |
+| `GET /health` | None | Connection metrics, cache stats and `sources`; 503 once no source can resolve a video |
+| `GET /heartbeat` | None | `{"status": "ok", "timestamp": <ms>}` |
+| `POST /rooms/create` | None | Body `{"room_id", "password"?}`; 400 if the room exists |
+| `GET /rooms/{room_id}` | None | Public room info (`id`, `requires_password`, `created_at`); 404 if missing |
+| `POST /rooms/verify` | Room (Basic) | Returns the room when the credentials are valid |
+
+There is no endpoint that lists rooms. Any other path serves the built frontend from `static/`, with `index.html` as the fallback for client routes.
 
 ### Configuration
 
-The server runs on `0.0.0.0:8000` (accessible from all interfaces) and is currently configured for development.
+The server runs on `0.0.0.0` and port `PORT` (default 8000).
 
 ### CORS
 
-Cross-origin requests are currently allowed from all origins (`["*"]`) for production hosting. To modify CORS settings, update the `CORSMiddleware` configuration in `main.py`.
+Cross-origin requests are allowed from `localhost:5173`, `localhost:8000`, `127.0.0.1:5173` and `127.0.0.1:8000`, plus `http(s)://$DOMAIN` when the `DOMAIN` environment variable is set to something other than `localhost`. To modify CORS settings, update the `CORSMiddleware` configuration in `main.py`.
 
 ### API Documentation
 
 Complete interactive API documentation is available at `http://localhost:8000/docs` when the server is running.
 
-## WebSocket Server
+## WebSocket Protocol
 
 The real-time communication layer is implemented via WebSocket at `/ws` endpoint. WebSocket handling is defined in `main.py`. Clients connect to manage room state, send commands, and receive live updates.
+
+### Connection Flow
+
+Clients establish connection by connecting to `ws://localhost:8000/ws`, then send a handshake message with their client type (`["handshake", {"client_type": "controller"}]` or `["handshake", {"client_type": "display"}]`). A handshake with an invalid payload gets an `error` message and the socket is closed. A malformed first message just closes it. After handshake completion, clients must join a room using `["join_room", {"room_id": "room_name"}]` (the room must already exist, see `POST /rooms/create`) before sending any room-scoped commands. On join the server sends `client_count`, `queue_update`, `room_settings` and, if set, `player_state`. Controllers also get `scoring_turn` and displays get `leader_status`.
+
+The server pings every 30 seconds with `["ping", {"timestamp": number}]`. Clients answer with `["pong", {"timestamp": number}]`, and a client silent for more than 90 seconds is disconnected.
+
+### Client Types
+
+- **controller**: a remote. Queues songs, controls playback and sends reactions and score readings.
+- **display**: a screen. The first display in a room is the leader, and only the leader's playback reports, score messages and removals are accepted.
 
 ### Message Format
 
@@ -300,12 +336,12 @@ All WebSocket communication uses JSON arrays: `[command_name, payload_object]`
 
 **Standard message:**
 ```json
-["queue_song", {"id": "123", "title": "Song Title", "artist": "Artist"}]
+["queue_song", {"id": "123", "title": "Song Title", "artist": "Artist", "source": "youtube", "uploader": "Uploader", "duration": 200}]
 ```
 
 **With acknowledgment:**
 ```json
-["queue_song", {"id": "123", "title": "Song Title", "request_id": "unique_id"}]
+["play_next", {"request_id": "unique_id"}]
 ```
 
 **Acknowledgment response:**
@@ -313,68 +349,93 @@ All WebSocket communication uses JSON arrays: `[command_name, payload_object]`
 ["ack", {"request_id": "unique_id", "success": true, "result": {...}}]
 ```
 
-### Connection Flow
-
-Clients establish connection by connecting to `ws://localhost:8000/ws`, then send a handshake message with their client type (`["handshake", {"client_type": "controller"}]` or `["handshake", {"client_type": "display"}]`). After handshake completion, clients must join a room using `["join_room", {"room_id": "room_name"}]` before sending any room-scoped commands.
+`result` is whatever the command method returned (often `null`). On failure the ack has `"success": false` and `error` holds the error object described under [Error Handling](#error-handling). Without a `request_id`, errors arrive as a separate `error` message and successful commands get no reply.
 
 ### Message Processing
 
-The server processes incoming WebSocket messages by extracting the command name and routing it to the appropriate handler. Commands are defined in `commands.py` with separate classes for `ControllerCommands` and `DisplayCommands`. Each command is implemented as an async method that matches the command name. To add new commands, create a new method in the appropriate command class - the server will automatically route messages to methods with matching names.
+For each message the server removes `request_id`, validates the payload, then calls the method of the same name on `ControllerCommands` or `DisplayCommands` (chosen by client type) in `commands.py`. Both classes inherit from `ClientCommands`. To add a command:
+
+1. Register it in `COMMAND_PAYLOAD_MAP` in `websocket_models.py` with a payload model (or `dict` for no validation). A command missing from the map is rejected with `VALIDATION_ERROR`.
+2. Add an async method of the same name to the appropriate command class in `commands.py`. A mapped command with no matching method for that client type is rejected with `INVALID_COMMAND`, as are names starting with `_`.
+
+High frequency commands can be listed in `QUIET_COMMANDS` (currently `send_reaction` and `reaction`) to keep them out of the logs.
 
 ### Commands Reference
 
-#### Common Commands (Both Client Types)
+Commands a client sends. Payloads are validated against the models in `websocket_models.py`.
 
-**Connection Management**
+#### Both Client Types
+
 ```typescript
-["handshake", {"client_type": "controller" | "display"}]
-["join_room", {"room_id": string}]
+["join_room", {"room_id": string, "nickname"?: string, "device_id"?: string}] // nickname trimmed to 14 chars, device_id max 64
 ["pong", {"timestamp": number}]
+["play_next", {"from_item_id"?: string}]
 ```
+
+`handshake` is only valid as the first message. `play_next` pops the queue and starts the next turn. If `from_item_id` is set and is not the turn currently on air, the call is ignored and returns `{"advanced": false, "stale": true}`. Otherwise it returns `{"advanced": boolean}`.
 
 #### Controller Commands
 
 **Queue Management**
 ```typescript
-// Add song to queue
-["queue_song", KaraokeEntry]
+// Add song to queue (nickname and device_id from join_room mark the singer)
+["queue_song", KaraokeEntry] // title and artist must be non-empty
 
-// Remove song from queue
+// Remove a queue item
 ["remove_song", {"entry_id": string}]
 
-// Move song to next position
+// Move a queue item to the front of the queue
 ["queue_next_song", {"entry_id": string}]
 
 // Clear entire queue
 ["clear_queue", {}]
-
-// Play next song in queue
-["play_next", {}]
 ```
+
+In `remove_song` and `queue_next_song` the field is named `entry_id` but the value is the queue item (reservation) `id` from `KaraokeQueueItem`, not the song's `KaraokeEntry.id`.
 
 **Playback Control**
 ```typescript
-["play_song", {}]
-["pause_song", {}]
-["set_volume", {"volume": number}] // 0.0 to 1.0
-```
-
-**State Management**
-```typescript
+["play_song", {}]   // forwarded to displays as play_song
+["pause_song", {}]  // forwarded to displays as pause_song
+["skip_song", {}]   // forwarded to displays as skip_request
+["set_volume", {"volume": number}] // 0.0 to 1.0, forwarded to displays
+["set_autoplay", {"enabled": boolean}]
 ["player_state", DisplayPlayerState]
 ```
 
+`play_song`, `pause_song` and `skip_song` return `{"screens": number}`. They do not change the room's play state. The leader display reports what happened through `update_player_state`. `set_autoplay` returns `{"autoplay": boolean}` and broadcasts `room_settings` when the value changed.
+
+**Reactions and Scoring**
+```typescript
+["send_reaction", {"reaction": "clap" | "fire" | "heart" | "laugh" | "star" | "boo"}]
+["submit_score", {"item_id": string, "performance": number}] // 0.0 to 1.0
+```
+
+`send_reaction` is rate limited per client (8 per 3s) and per room (20 per 3s). Over-limit reactions are dropped silently. `submit_score` is only honoured from the device that reserved the current turn, for the item on air, after at least `min_scored_seconds` of playback, and is limited to 4 per 10s. Rejected calls are dropped silently. Accepted readings go to displays as `score_reading`.
+
 #### Display Commands
+
+Leader only: every command below except `queue_update` is ignored when sent by a non-leader display.
 
 **Player State Management**
 ```typescript
 ["update_player_state", DisplayPlayerState]
-["video_loaded", DisplayPlayerState]
+["video_loaded", DisplayPlayerState] // relayed to controllers as player_state
+["refresh_video_url", {"entry_id": string}] // entry_id is the song's KaraokeEntry.id
+["remove_song", {"entry_id": string}] // queue item id of the turn being dropped
+```
+
+`update_player_state` is ignored if it refers to a different turn than the one on air, or if it would reopen a `finished` turn. `refresh_video_url` re-resolves the URL of the song on air and returns `{"refreshed": boolean}`. `remove_song` returns `{"removed": boolean}`.
+
+**Scoring**
+```typescript
+["scoring_state", {"active": boolean}] // forwarded to controllers
+["publish_score", {"item_id": string, "score": number, "source": "mic" | "auto"}] // score 0 to 100, broadcast as score
 ```
 
 **State Broadcasting**
 ```typescript
-["queue_update", QueueData]
+["queue_update", QueueData] // forwarded to controllers (any display, not only the leader)
 ```
 
 ### Server-to-Client Messages
@@ -387,11 +448,11 @@ The server processes incoming WebSocket messages by extracting the command name 
   timestamp: number
 }]
 
-["player_state", {
-  entry: KaraokeEntry | null,
-  play_state: "playing" | "paused" | "loading",
-  progress: number,
-  volume: number,
+["player_state", DisplayPlayerState] // version and timestamp stamped by the server
+
+["room_settings", {
+  autoplay: boolean,
+  min_scored_seconds: number,
   version: number,
   timestamp: number
 }]
@@ -399,28 +460,38 @@ The server processes incoming WebSocket messages by extracting the command name 
 
 #### Connection Status
 ```typescript
-["client_count", number]
+["client_count", {"total": number, "controllers": number, "displays": number}]
 ["leader_status", {"is_leader": boolean}] // Displays only
 ["ping", {"timestamp": number}]
 ```
 
-#### Commands
+#### Forwarded Commands and Events
 ```typescript
-// Control Commands (to displays)
+// To displays
 ["play_song", {}]
 ["pause_song", {}]
+["skip_request", {}]
 ["set_volume", number]
+["reaction", {"id": string, "reaction": string, "timestamp": number}]
+["score_reading", {"item_id": string, "performance": number}]
 
-// Queue Commands (to controllers)
-["queue_update", QueueData]
+// To controllers
+["scoring_state", {"active": boolean}]
+["scoring_turn", {"active": boolean}] // true only for the device that reserved the current turn
+
+// To everyone in the room
+["score", {"item_id": string, "score": number, "source": "mic" | "auto", "timestamp": number}]
 ```
 
-#### Errors
+#### Responses and Errors
 ```typescript
+["ack", {request_id: string, success: boolean, result?: any, error?: ErrorObject}]
+
 ["error", {
   error_type: string,
   message: string,
   details?: object,
+  timestamp: number,
   request_id?: string
 }]
 ```
@@ -445,7 +516,9 @@ The server processes incoming WebSocket messages by extracting the command name 
 ```typescript
 {
   entry: KaraokeEntry | null,
-  play_state: "playing" | "paused" | "buffering" | "finished",
+  item_id?: string,      // Queue item on air, stamped by the room
+  singer?: string,       // Stamped by the room
+  play_state: "playing" | "paused" | "finished" | "buffering" | "error" | "idle",
   current_time: number,  // Current position in seconds
   duration: number,      // Total duration in seconds
   volume: number,        // Volume level 0.0-1.0
@@ -454,13 +527,15 @@ The server processes incoming WebSocket messages by extracting the command name 
 }
 ```
 
+`finished` keeps the song on the screen and `idle` means an empty room.
+
 #### KaraokeQueueItem
 ```typescript
 {
-  id: string,
+  id: string,            // Reservation id, used by remove_song and queue_next_song
   entry: KaraokeEntry,
-  added_at: number,      // Unix timestamp
-  added_by?: string
+  singer?: string,       // Nickname of the controller that queued it
+  singer_device_id?: string
 }
 ```
 
@@ -468,19 +543,23 @@ The server processes incoming WebSocket messages by extracting the command name 
 
 #### Error Types
 - `HANDSHAKE_FAILED`: Client handshake failed
-- `VALIDATION_ERROR`: Message payload validation failed
-- `INVALID_COMMAND`: Unknown or invalid command
+- `VALIDATION_ERROR`: Message payload validation failed (including commands missing from `COMMAND_PAYLOAD_MAP`)
+- `INVALID_COMMAND`: No handler for the command on this client type
 - `COMMAND_EXECUTION_FAILED`: Command execution error
+
+`CONNECTION_LOST`, `HEARTBEAT_TIMEOUT`, `AUTHORIZATION_ERROR`, `RATE_LIMIT_EXCEEDED`, `QUEUE_CONFLICT` and `STATE_SYNC_ERROR` are defined in `websocket_errors.py` but not currently sent. The wire value is the lowercase name (for example `command_execution_failed`).
 
 #### Error Response Format
 ```json
 ["error", {
-  "error_type": "COMMAND_EXECUTION_FAILED",
-  "message": "Room ID is required for broadcasting",
+  "error_type": "command_execution_failed",
+  "message": "Command execution failed: Room ID is required for broadcasting",
   "details": {
     "command": "queue_song",
-    "client_type": "controller"
+    "client_type": "controller",
+    "error": "Room ID is required for broadcasting"
   },
+  "timestamp": 1700000000.0,
   "request_id": "optional_request_id"
 }]
 ```
@@ -493,22 +572,21 @@ When search functionality fails, check the server logs for YouTube search errors
 
 ### WebSocket Connection Issues
 
-Connection problems often stem from port 8000 being blocked by firewall settings. If connecting from different domains, verify that CORS settings in the FastAPI configuration allow your client's origin. Monitor server logs for connection errors and disconnections to identify patterns or specific client issues.
+Connection problems often stem from port 8000 being blocked by firewall settings. If connecting from different domains, verify that the client's origin is in the CORS list in `main.py` (or set `DOMAIN`). Monitor server logs for connection errors and disconnections to identify patterns or specific client issues.
 
 ### Performance Issues
 
-Performance problems can be diagnosed through the health endpoint at `/health`, which provides connection metrics including heartbeat timeouts and disconnection rates. If network connectivity is unstable, consider reducing heartbeat frequency to prevent unnecessary disconnections from timeout issues.
+Performance problems can be diagnosed through the health endpoint at `/health`, which provides connection metrics including heartbeat timeouts and disconnection rates. The server pings every 30 seconds and drops clients that have not answered within 90 seconds (counted as `heartbeat_timeouts`), so clients on unstable networks may be disconnected. The interval is fixed in `client_manager.py`.
 
 ### Room Management Issues
 
 - Verify room exists via `GET /rooms/{room_id}`
 - Check password requirements via room verification endpoint
-- Monitor room leadership status in logs
+- Check `room_leadership` in `/health` to see whether a room has a leader display
 - Ensure client joins room before sending room-scoped commands
 
 ### Caching Issues
 
-- Monitor cache hit rates via `/health` endpoint
-- Check memory usage in cache statistics
-- Video URL cache has configurable TTL settings
-- Cache cleanup runs automatically for expired entries
+- Check `video_cache` (total, hits, misses) and `search_cache` counts under `cache` in `/health`
+- Cached video URLs default to a 1 hour TTL and search results to 30 minutes
+- The cache is a temporary store that is deleted on shutdown

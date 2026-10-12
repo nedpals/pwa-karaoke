@@ -22,10 +22,7 @@ class ApiClient {
 
   constructor() {
     const protocol = window.location.protocol;
-    const host = window.location.host.includes('localhost')
-      ? 'localhost:8000'
-      : window.location.host;
-    this.baseUrl = `${protocol}//${host}`;
+    this.baseUrl = `${protocol}//${window.location.host}`;
   }
 
   setRoomCredentials(roomId: string, password?: string) {

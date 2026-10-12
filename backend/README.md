@@ -94,35 +94,36 @@ Frontend implements intelligent synchronization for non-leader displays:
 ## Quick Start
 
 ### Prerequisites
-- Python 3.11+ (tested with 3.12)
-- pip package manager
+- [uv](https://docs.astral.sh/uv/) (it downloads Python 3.12 for you if needed)
 
 ### Installation
 
-1. **Navigate to backend directory**:
+1. **Install uv** (once):
+   ```bash
+   curl -LsSf https://astral.sh/uv/install.sh | sh
+   ```
+   On Windows (PowerShell): `powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"`.
+   `pip install uv` also works.
+
+2. **Navigate to backend directory**:
    ```bash
    cd backend
    ```
 
-2. **Create virtual environment** (recommended):
-   ```bash
-   python -m venv venv
-   source venv/bin/activate  # On Windows (PowerShell): venv\Scripts\Activate.ps1
-   ```
-
 3. **Install dependencies**:
    ```bash
-   pip install -r requirements.txt
-   pip install --upgrade "yt-dlp[default,deno]"
+   uv sync
    ```
 
-   The `deno` extra installs the JavaScript runtime yt-dlp needs for YouTube.
+   This creates `.venv` with the locked dependencies from `uv.lock`, including
+   `yt-dlp` and the `deno` JavaScript runtime it needs for YouTube.
    To use another runtime, set `YTDLP_RUNTIME` (for example `node` or
-   `node:/usr/bin/node`).
+   `node:/usr/bin/node`). To update yt-dlp, run
+   `uv lock --upgrade-package yt-dlp && uv sync`.
 
 4. **Run the server**:
    ```bash
-   python main.py
+   uv run python main.py
    ```
 
    The server will start on `http://localhost:8000`

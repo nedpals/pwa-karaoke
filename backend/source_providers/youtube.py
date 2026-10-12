@@ -164,7 +164,7 @@ def _subprocess_env() -> dict:
     """Pass the proxy through the environment so credentials stay out of the host process list."""
     env = os.environ.copy()
     if os.path.isabs(config.YTDLP_BINARY):
-        # Lets yt-dlp find the deno that pip installed beside it in an unactivated venv.
+        # Lets yt-dlp find the deno installed beside it in an unactivated venv.
         env["PATH"] = os.path.dirname(config.YTDLP_BINARY) + os.pathsep + env.get("PATH", "")
     proxy = proxy_url()
     if proxy:
@@ -214,7 +214,7 @@ async def run_ytdlp(args: list[str], timeout: Optional[float] = None) -> str:
     except FileNotFoundError as e:
         raise YtdlpMissing(
             f"yt-dlp binary not found at {config.YTDLP_BINARY!r}. "
-            'Install it with: pip install --upgrade "yt-dlp[default,deno]"'
+            'Install it with: uv sync (from the backend folder)'
         ) from e
     except OSError as e:
         raise YtdlpError(f"Failed to start yt-dlp: {e}") from e

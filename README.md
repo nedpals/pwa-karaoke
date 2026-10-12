@@ -62,34 +62,34 @@ Visit `http://localhost:8000` to access the application.
 Run the backend and the Vite dev server in two terminals. Open the repository root in both.
 
 #### Prerequisites
-- Python 3.11+
+- [uv](https://docs.astral.sh/uv/), which also downloads the right Python for you
 - Node.js 20+
 - Docker (optional, for containerized deployment)
 
-#### Terminal 1: backend
+Install uv once.
+
 macOS / Linux:
 
 ```bash
-cd backend
-python3 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
-pip install --upgrade "yt-dlp[default,deno]"
-python main.py
+curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
 Windows (PowerShell):
 
 ```powershell
-cd backend
-py -m venv venv
-venv\Scripts\Activate.ps1
-pip install -r requirements.txt
-pip install --upgrade "yt-dlp[default,deno]"
-python main.py
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
 ```
 
-If PowerShell refuses to run the activation script, run `Set-ExecutionPolicy -Scope Process RemoteSigned` first, or skip activation and call the venv directly with `venv\Scripts\python.exe main.py`. The server finds the `yt-dlp` installed in the same venv either way.
+If you already have Python, `pip install uv` works too. Open a new terminal afterwards so `uv` is on your PATH.
+
+#### Terminal 1: backend
+```bash
+cd backend
+uv sync
+uv run python main.py
+```
+
+`uv sync` creates `backend/.venv` and installs the locked dependencies, including `yt-dlp`, so there is nothing to activate. To update `yt-dlp` later, run `uv lock --upgrade-package yt-dlp && uv sync`.
 
 #### Terminal 2: frontend
 ```bash
@@ -107,7 +107,7 @@ The dev server proxies API and WebSocket requests to the backend on `http://loca
 > [!NOTE]
 > Microphone scoring needs HTTPS. Over plain `http://<LAN-IP>:5173` a phone cannot use its microphone, so the score is generated instead. This is expected.
 
-If you cannot get Python or Node working on your machine, the repository includes a dev container (`.devcontainer/`) that you can open with VS Code or GitHub Codespaces.
+If you cannot get uv or Node working on your machine, the repository includes a dev container (`.devcontainer/`) that you can open with VS Code or GitHub Codespaces.
 
 ### Production build
 ```bash
@@ -118,9 +118,8 @@ npm run build:prod
 
 # Start the server
 cd ../backend
-pip install -r requirements.txt
-pip install --upgrade "yt-dlp[default,deno]"
-python main.py
+uv sync --no-dev
+uv run python main.py
 ```
 
 Visit `http://localhost:8000` to access the application.

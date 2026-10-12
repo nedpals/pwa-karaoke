@@ -12,14 +12,14 @@ You need:
 
 - A [GitHub](https://github.com) account
 - [Git](https://git-scm.com/downloads) (on Windows, install Git for Windows and use Git Bash or PowerShell)
-- Python 3.11 or newer
+- [uv](https://docs.astral.sh/uv/getting-started/installation/), which installs Python for you
 - Node.js 20 or newer
 
 Check your versions:
 
 ```bash
 git --version
-python --version     # on Windows you may need: py --version
+uv --version
 node --version
 ```
 
@@ -43,7 +43,7 @@ If you cannot get Python or Node working, use the dev container instead. Open th
    git remote -v
    ```
 
-5. **Set the app up** by following the [Local development section of the README](README.md#local-development). Short version: one terminal runs the backend (`python main.py` inside `backend/`, in a virtual environment), another runs the frontend (`npm ci` then `npm run dev` inside `frontend/`), and you open `http://localhost:5173`. The README has separate Windows (PowerShell) commands. You do not need to run the app to work on docs or backend tests.
+5. **Set the app up** by following the [Local development section of the README](README.md#local-development). Short version: one terminal runs the backend (`uv sync` then `uv run python main.py` inside `backend/`), another runs the frontend (`npm ci` then `npm run dev` inside `frontend/`), and you open `http://localhost:5173`. The README has separate Windows (PowerShell) commands. You do not need to run the app to work on docs or backend tests.
 6. **Create a branch.** Never work on `main`. Name the branch after the kind of change:
 
    | Prefix | Use for | Example |
@@ -89,11 +89,17 @@ If you would rather not rebase, `git merge upstream/main` works too. If Git repo
 
 CI (`.github/workflows/ci.yml`) runs these on every push and PR. Run the same commands before you push.
 
-**Backend**, from the `backend/` folder, with your virtual environment active:
+**Backend**, from the `backend/` folder:
 
 ```bash
-pip install -r requirements-dev.txt
-pytest
+uv sync
+uv run pytest
+```
+
+To run a single test:
+
+```bash
+uv run pytest tests/test_queue.py::test_enqueue_adds_song_to_the_end -v
 ```
 
 The tests work offline. You do not need `yt-dlp`, the network, or a running server.
@@ -112,7 +118,7 @@ npm run build
 
 ## Writing a backend test
 
-Tests live in `backend/tests/`. `backend/pytest.ini` points pytest at that folder, so you run `pytest` from `backend/`. Test files are named `test_*.py` and test functions start with `test_`. Plain `assert` is all you need.
+Tests live in `backend/tests/`. The pytest settings in `backend/pyproject.toml` point pytest at that folder, so you run `uv run pytest` from `backend/`. Test files are named `test_*.py` and test functions start with `test_`. Plain `assert` is all you need.
 
 ### A simple test to copy
 
@@ -179,10 +185,10 @@ def test_allows_again_after_the_window_has_passed(clock):
 ### Running one test
 
 ```bash
-pytest tests/test_queue.py::test_enqueue_adds_song_to_the_end -v
+uv run pytest tests/test_queue.py::test_enqueue_adds_song_to_the_end -v
 ```
 
-Run a whole file with `pytest tests/test_queue.py -v`, or filter by name with `pytest -k queue`.
+Run a whole file with `uv run pytest tests/test_queue.py -v`, or filter by name with `uv run pytest -k queue`.
 
 ## Frontend work
 
@@ -258,8 +264,8 @@ Before you click **Create pull request**:
 - [ ] It links the issue, for example `Closes #12`, so GitHub closes the issue when the PR is merged
 - [ ] UI changes include a screenshot or short screen recording
 - [ ] Behavior changes include a test
-- [ ] `pytest`, `npm run lint`, and `npm run build` pass locally
-- [ ] You did not commit secrets, `venv/`, or `node_modules/`
+- [ ] `uv run pytest`, `npm run lint`, and `npm run build` pass locally
+- [ ] You did not commit secrets, `.venv/`, or `node_modules/`
 
 Reviewers may ask for changes. That is normal and part of how everyone learns. Push more commits to the same branch and the PR updates.
 

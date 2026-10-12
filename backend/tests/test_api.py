@@ -2,7 +2,6 @@ import uuid
 
 
 def unique_room_id() -> str:
-    # Rooms live in memory for the whole test run, so every test gets its own.
     return f"test-room-{uuid.uuid4().hex[:8]}"
 
 

@@ -20,8 +20,6 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-# The official uv binary installs the locked dependencies into /app/.venv,
-# using the image's own Python rather than downloading one.
 COPY --from=ghcr.io/astral-sh/uv:0.11.32 /uv /uvx /bin/
 ENV UV_PYTHON_DOWNLOADS=never \
     UV_COMPILE_BYTECODE=1 \

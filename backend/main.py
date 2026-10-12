@@ -1,3 +1,5 @@
+from typing import Optional
+
 from typing_extensions import Annotated
 from pathlib import Path
 from os import environ
@@ -103,13 +105,21 @@ app.add_middleware(
 )
 
 session_manager = SessionManager()
-security = HTTPBasic()
+# No WWW-Authenticate header on our 401s: it makes browsers open a native sign-in
+# dialog that stalls the app's fetch
+security = HTTPBasic(auto_error=False)
 
 # Dependencies
 def get_cache() -> CacheStore:
     return get_cache_store()
 
-def get_current_room(credentials: HTTPBasicCredentials = Depends(security)) -> Room:
+def get_current_room(credentials: Optional[HTTPBasicCredentials] = Depends(security)) -> Room:
+    if credentials is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Not authenticated",
+        )
+
     room_id = credentials.username
     password = credentials.password
 
@@ -117,7 +127,6 @@ def get_current_room(credentials: HTTPBasicCredentials = Depends(security)) -> R
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Room not found",
-            headers={"WWW-Authenticate": "Basic"},
         )
 
     try:
@@ -127,13 +136,11 @@ def get_current_room(credentials: HTTPBasicCredentials = Depends(security)) -> R
                 raise HTTPException(
                     status_code=status.HTTP_401_UNAUTHORIZED,
                     detail="Invalid room password",
-                    headers={"WWW-Authenticate": "Basic"},
                 )
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(e),
-            headers={"WWW-Authenticate": "Basic"},
         )
 
     return room
@@ -243,7 +250,6 @@ async def get_room_details(room_id: str):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(e),
-            headers={"WWW-Authenticate": "Basic"},
         )
 
 @app.post("/rooms/verify")

@@ -69,3 +69,18 @@ def test_search_without_login_returns_401(client):
     response = client.get("/search", params={"query": "queen"})
 
     assert response.status_code == 401
+
+
+def test_auth_errors_do_not_trigger_the_browser_sign_in_dialog(client):
+    room_id = unique_room_id()
+    client.post("/rooms/create", json={"room_id": room_id, "password": "secret"})
+
+    responses = [
+        client.post("/rooms/verify", auth=(room_id, "wrong")),
+        client.post("/rooms/verify", auth=(unique_room_id(), "")),
+        client.get("/search", params={"query": "queen"}),
+    ]
+
+    for response in responses:
+        assert response.status_code == 401
+        assert "www-authenticate" not in response.headers

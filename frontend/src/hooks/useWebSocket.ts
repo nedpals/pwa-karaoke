@@ -57,10 +57,7 @@ export function useWebSocket(clientType: ClientType, initalAutoConnect = true): 
   // Generate WebSocket URL
   const socketUrl = useMemo(() => {
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const host = window.location.host.includes("localhost")
-      ? "localhost:8000"
-      : window.location.host;
-    return `${protocol}//${host}/ws`;
+    return `${protocol}//${window.location.host}/ws`;
   }, []);
 
   const { sendJsonMessage, lastJsonMessage, readyState } = useWebSocketHook(

@@ -1,0 +1,10 @@
+{
+  "name": "pwa-karaoke",
+  "image": "mcr.microsoft.com/devcontainers/base:bookworm",
+  "features": {
+    "ghcr.io/devcontainers/features/python:1": { "version": "3.12" },
+    "ghcr.io/devcontainers/features/node:1": { "version": "22" }
+  },
+  "forwardPorts": [8000, 5173],
+  "postCreateCommand": "pip install -r backend/requirements.txt && pip install --upgrade 'yt-dlp[default,deno]' && cd frontend && npm ci"
+}

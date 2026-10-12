@@ -1,5 +1,5 @@
 /// <reference types="vitest/config" />
-import { defineConfig } from "vite";
+import { defineConfig, loadEnv } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import { VitePWA } from 'vite-plugin-pwa';
@@ -10,8 +10,21 @@ import { fileURLToPath } from 'node:url';
 import { storybookTest } from '@storybook/addon-vitest/vitest-plugin';
 const dirname = typeof __dirname !== 'undefined' ? __dirname : path.dirname(fileURLToPath(import.meta.url));
 
+// Set VITE_BACKEND_URL (shell or frontend/.env.local) to proxy to a backend that is not on localhost:8000.
+const backendUrl = process.env.VITE_BACKEND_URL
+  || loadEnv('development', dirname, '').VITE_BACKEND_URL
+  || 'http://localhost:8000';
+const proxy = Object.fromEntries(
+  ['/ws', '/search', '/get_video_url', '/health', '/heartbeat', '/rooms'].map((route) => [
+    route,
+    { target: backendUrl, changeOrigin: true, ws: route === '/ws' },
+  ])
+);
+
 // More info at: https://storybook.js.org/docs/next/writing-tests/integrations/vitest-addon
 export default defineConfig({
+  server: { host: true, proxy },
+  preview: { host: true, proxy },
   plugins: [
     react(), 
     tailwindcss(),

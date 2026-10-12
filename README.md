@@ -21,7 +21,7 @@ A web-based karaoke application that transforms any device into a karaoke system
 Coming soon. In the meantime, you may use the "Clone with Git" or "Download ZIP" methods below.
 
 ### Clone with Git
-To download the application via `git`, simply clone it using `git clone https://github.com/username/pwa-karaoke.git`.
+To download the application via `git`, simply clone it using `git clone https://github.com/nedpals/pwa-karaoke.git`.
 
 ### Download ZIP
 You can download the source code as a ZIP file by clicking "Code" → "Download ZIP" on the GitHub repository page.
@@ -58,18 +58,58 @@ docker run -d -p 8000:8000 --name pwa-karaoke pwa-karaoke
 
 Visit `http://localhost:8000` to access the application.
 
-### Manual
-A manual setup is also possible. This method requires more steps but allows for greater customization.
+### Local development
+Run the backend and the Vite dev server in two terminals. Open the repository root in both.
 
 #### Prerequisites
-Ensure you have the following installed:
 - Python 3.11+
 - Node.js 20+
 - Docker (optional, for containerized deployment)
 
-#### Steps
-To set up PWA Karaoke manually, follow the setup procedure below:
+#### Terminal 1: backend
+macOS / Linux:
 
+```bash
+cd backend
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+pip install --upgrade "yt-dlp[default,deno]"
+python main.py
+```
+
+Windows (PowerShell):
+
+```powershell
+cd backend
+py -m venv venv
+venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+pip install --upgrade "yt-dlp[default,deno]"
+python main.py
+```
+
+If PowerShell refuses to run the activation script, run `Set-ExecutionPolicy -Scope Process RemoteSigned` first, or skip activation and call the venv directly with `venv\Scripts\python.exe main.py`. The server finds the `yt-dlp` installed in the same venv either way.
+
+#### Terminal 2: frontend
+```bash
+cd frontend
+npm ci
+npm run dev
+```
+
+#### Open the app
+- On your laptop: `http://localhost:5173`
+- On a phone on the same wifi: `http://<your-LAN-IP>:5173`. Vite prints the exact address as `Network:` when it starts.
+
+The dev server proxies API and WebSocket requests to the backend on `http://localhost:8000`, so phones need nothing else. To use a backend running elsewhere, set `VITE_BACKEND_URL` (for example `VITE_BACKEND_URL=http://192.168.1.20:8000 npm run dev`).
+
+> [!NOTE]
+> Microphone scoring needs HTTPS. Over plain `http://<LAN-IP>:5173` a phone cannot use its microphone, so the score is generated instead. This is expected.
+
+If you cannot get Python or Node working on your machine, the repository includes a dev container (`.devcontainer/`) that you can open with VS Code or GitHub Codespaces.
+
+### Production build
 ```bash
 # Build frontend and bundle into backend
 cd frontend

@@ -107,7 +107,7 @@ Frontend implements intelligent synchronization for non-leader displays:
 2. **Create virtual environment** (recommended):
    ```bash
    python -m venv venv
-   source venv/bin/activate  # On Windows: venv\Scripts\activate
+   source venv/bin/activate  # On Windows (PowerShell): venv\Scripts\Activate.ps1
    ```
 
 3. **Install dependencies**:
@@ -132,6 +132,17 @@ Frontend implements intelligent synchronization for non-leader displays:
    - Video URL endpoint: `POST http://localhost:8000/get_video_url`
    - Rooms endpoint: `http://localhost:8000/rooms`
    - API docs: `http://localhost:8000/docs`
+
+   `/search` and `/get_video_url` require HTTP Basic auth: the room id is the username and the room password is the password (empty if the room has none). Create the room first with `POST /rooms/create`:
+
+   ```bash
+   curl -X POST http://localhost:8000/rooms/create \
+     -H "Content-Type: application/json" \
+     -d '{"room_id": "myroom"}'
+
+   # Add "password": "secret" to the body above for a protected room, then use -u myroom:secret
+   curl -u myroom: "http://localhost:8000/search?query=my%20way&limit=2"
+   ```
 
 ## Source Providers
 

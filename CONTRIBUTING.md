@@ -208,7 +208,9 @@ Components live in `frontend/src/components/`, grouped by size:
 
 Many components have a `*.stories.tsx` file next to them (for example `Button.stories.tsx`). That file is what Storybook shows. Copy an existing one to add stories for a new component.
 
-The pages in `frontend/src/pages/` (`PlayerPage.tsx` is about 1400 lines, `ControllerPage.tsx` about 870) are large and tangled with the WebSocket logic. If you are new to the codebase, prefer changes to components, stories, or docs. If an issue needs a page change, ask on the issue first.
+Each page in `frontend/src/pages/` has a folder for its parts: `controller/` holds one file per controller tab, and `player/` holds the display screens, the video player and `PlayerStateProvider.tsx`, which runs playback and scoring. The tabs and screens are reasonable places for a first change. `PlayerStateProvider.tsx` and `VideoPlayer.tsx` coordinate a lot of timing through effects and refs, so if an issue needs a change there, ask on the issue first.
+
+If you need to read the display code, [frontend/docs/player.md](frontend/docs/player.md) explains how the player screens, the song lifecycle and the leader and follower displays fit together.
 
 ## How the app fits together
 
@@ -221,7 +223,7 @@ This is a short map. For the full protocol, see [backend/README.md](backend/READ
 
 ### Trace: a controller reserves a song
 
-1. On the controller, the Reserve button in `frontend/src/pages/ControllerPage.tsx` calls `queueSong(selected)`.
+1. On the controller, the Reserve button in the song dialog (`frontend/src/pages/controller/useSongDialog.ts`) calls `queueSong(selected)`.
 2. `queueSong` is defined in `frontend/src/hooks/useRoom.ts`. It calls `ws.sendCommandWithAck("queue_song", entry)`.
 3. `sendCommandWithAck` in `frontend/src/hooks/useWebSocket.ts` adds a `request_id` and sends `["queue_song", {...entry, "request_id": "..."}]`.
 4. The WebSocket loop in `backend/main.py` (the `/ws` endpoint) checks the payload with `validate_websocket_message()` from `backend/websocket_models.py`. It then finds a method with the same name as the command on `ControllerCommands` and calls it.
@@ -229,7 +231,7 @@ This is a short map. For the full protocol, see [backend/README.md](backend/READ
 6. It then calls `_broadcast_room_state()`, which sends `["queue_update", {items, version, timestamp}]` to every client in the room (`SessionManager.broadcast_to_room`). It also sends `player_state` to the displays and starts fetching video URLs for the next two songs in the background.
 7. The server sends the `ack` back to the sender, which resolves the promise returned by `queueSong`.
 8. Back in the browser, the `queue_update` case in `useRoom.ts` stores the new queue (only if its `version` is newer), and the UI re-renders on every phone and display.
-9. If nothing is playing, the leader display notices a reservation with nothing on air (an effect in `PlayerPage.tsx`) and sends `play_next`. `play_next` lives on the shared `ClientCommands` class in `commands.py`, so displays and controllers can both use it. It pops the queue and broadcasts the new state.
+9. If nothing is playing, the leader display notices a reservation with nothing on air (an effect in `frontend/src/pages/player/PlayerStateProvider.tsx`) and sends `play_next`. `play_next` lives on the shared `ClientCommands` class in `commands.py`, so displays and controllers can both use it. It pops the queue and broadcasts the new state.
 
 ### Adding a new WebSocket command
 

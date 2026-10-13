@@ -3,7 +3,7 @@
 A web-based karaoke application that transforms any device into a karaoke system.
 
 > [!IMPORTANT]
-> This software is intended for personal, non-commercial use only. Users are responsible for ensuring compliance with applicable copyright laws and terms of service in their jurisdiction.**
+> This software is intended for personal, non-commercial use only. Users are responsible for ensuring compliance with applicable copyright laws and terms of service in their jurisdiction.
 
 ![PWA Karaoke Screenshot](./screenshot.png)
 
@@ -11,10 +11,10 @@ A web-based karaoke application that transforms any device into a karaoke system
 
 ## Features
 - Use your phone or tablet as a controller and any web-capable device as a display
-- Easy to use and slick user interface
-- Search and queue songs video streaming platforms
+- Easy-to-use, slick user interface
+- Search and queue songs from video streaming platforms
 - Supports multiple rooms with password protection
-- Operate entirely within the browser
+- Operates entirely within the browser
 
 ## Downloads
 ### Releases

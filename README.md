@@ -187,6 +187,7 @@ The backend reads these environment variables. With Docker Compose, set them in 
 | `DOMAIN` | `localhost` | Host name Caddy serves and gets a certificate for. Also added to the backend's allowed CORS origins. |
 | `LAN_IP` | `127.0.0.1` | Compose only. The computer's LAN address, which Caddy also serves over HTTPS. See [Phones on the same network](#phones-on-the-same-network). |
 | `PORT` | `8000` | Port the backend listens on. |
+| `ROOM_IDLE_TTL_SECONDS` | `3600` | How long a room with nobody connected is kept before it is deleted. `0` keeps rooms until the server restarts. |
 | `HTTP_PORT` | `80` | Compose only. Host port for plain HTTP access through Caddy. |
 | `PROXY_SERVER` | | Proxy for YouTube requests, such as `http://proxy:8080`. |
 | `PROXY_USERNAME`, `PROXY_PASSWORD` | | Credentials for `PROXY_SERVER`. |
@@ -216,9 +217,9 @@ For API and WebSocket problems, see the Troubleshooting section of [backend/READ
 - With Docker Compose, Caddy only answers on the LAN address if `LAN_IP` is set to it. See [Phones on the same network](#phones-on-the-same-network).
 - A firewall on the computer may be blocking the port (5173 for the dev server). Allow it, or temporarily turn the firewall off to test.
 
-### "Room not found" after restarting the server
+### "Room not found"
 
-Rooms are kept in memory, so restarting the server removes them. Create the room again from the home screen.
+Rooms are kept in memory, so restarting the server removes them. A room is also deleted once nobody has been connected to it for an hour (see `ROOM_IDLE_TTL_SECONDS` under [Configuration](#configuration)). Create the room again from the home screen.
 
 ### Search returns nothing
 

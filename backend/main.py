@@ -3,6 +3,7 @@ from typing import Optional
 from typing_extensions import Annotated
 from pathlib import Path
 from os import environ
+import asyncio
 import time
 from contextlib import asynccontextmanager
 
@@ -67,10 +68,22 @@ async def lifespan(app: FastAPI):
         else:
             print(f"[STARTUP] Source unavailable: {provider_id}: {state.get('last_error')}")
 
+    sweep_task = None
+    if ROOM_IDLE_TTL_SECONDS > 0:
+        sweep_task = asyncio.create_task(
+            sweep_rooms_forever(ROOM_SWEEP_INTERVAL_SECONDS, ROOM_IDLE_TTL_SECONDS)
+        )
+
     yield
 
     # Shutdown
     print("[SHUTDOWN] Karaoke server shutting down...")
+    if sweep_task:
+        sweep_task.cancel()
+        try:
+            await sweep_task
+        except asyncio.CancelledError:
+            pass
     await SOURCE_REGISTRY.close()
     cache = get_cache_store()
     cache.cleanup()
@@ -152,6 +165,9 @@ assets_root = (static_dir / "assets").resolve()
 NO_CACHE = {"Cache-Control": "no-cache"}
 IMMUTABLE = {"Cache-Control": "public, max-age=31536000, immutable"}
 ALWAYS_REVALIDATE = {"index.html", "sw.js", "registerSW.js", "manifest.webmanifest"}
+# A room with no clients for this long is deleted. 0 keeps rooms forever.
+ROOM_IDLE_TTL_SECONDS = float(environ.get("ROOM_IDLE_TTL_SECONDS", "3600"))
+ROOM_SWEEP_INTERVAL_SECONDS = 60
 
 def resolve_static_file(url_path: str) -> Path | None:
     """Map a URL path to a file inside static_dir, or None if it misses/escapes."""
@@ -173,6 +189,13 @@ def spa_index_response() -> FileResponse:
     if not index_file.is_file():
         raise HTTPException(status_code=404, detail="Application not found")
     return FileResponse(index_file, headers=NO_CACHE)
+
+async def sweep_rooms_forever(interval: float, ttl: float):
+    while True:
+        await asyncio.sleep(interval)
+        removed = session_manager.sweep_idle_rooms(time.time(), ttl)
+        if removed:
+            print(f"[ROOMS] Removed idle rooms: {', '.join(removed)}")
 
 @app.get("/")
 async def serve_spa_index():

@@ -101,7 +101,7 @@ allowed_origins = [
 ]
 
 # Add domain from environment if specified (matches Caddy service)
-domain = environ.get("DOMAIN")
+domain = environ.get("KARAOKE_DOMAIN")
 if domain and domain != "localhost":
     print(f"[CORS] Added domain: {domain}")
     allowed_origins.extend([

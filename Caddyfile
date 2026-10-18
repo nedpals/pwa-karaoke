@@ -1,23 +1,23 @@
 {
     admin off
-    # Clients send no SNI to a bare IP, so https://<LAN_IP> needs this.
-    default_sni {$LAN_IP:127.0.0.1}
+    # Clients send no SNI to a bare IP, so https://<KARAOKE_LAN_IP> needs this.
+    default_sni {$KARAOKE_LAN_IP:127.0.0.1}
 }
 
 (app) {
     reverse_proxy karaoke-app:8000
 }
 
-{$DOMAIN:localhost} {
+{$KARAOKE_DOMAIN:localhost} {
     import app
 }
 
-{$LAN_IP:127.0.0.1} {
+{$KARAOKE_LAN_IP:127.0.0.1} {
     tls internal
     import app
 }
 
-http://{$LAN_IP:127.0.0.1} {
+http://{$KARAOKE_LAN_IP:127.0.0.1} {
     handle /ca.crt {
         root * /data/caddy/pki/authorities/local
         rewrite * /root.crt

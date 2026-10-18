@@ -66,22 +66,24 @@ Requires Docker with the Compose plugin. From the repository root:
 ./start-docker-app -d
 ```
 
-This builds the image and starts two containers: the app, and a [Caddy](https://caddyserver.com/) web server in front of it on ports 80 (HTTP, set by `HTTP_PORT`) and 443 (HTTPS). `start-docker-app` runs `docker compose up` with `YTDLP_CHANNEL=nightly` and passes along any arguments you give it, such as `-d` to run in the background.
+This builds the image and starts two containers: the app, and a [Caddy](https://caddyserver.com/) web server in front of it on ports 80 (HTTP, set by `KARAOKE_HTTP_PORT`) and 443 (HTTPS). `start-docker-app` runs `docker compose up` with `YTDLP_CHANNEL=nightly` and passes along any arguments you give it, such as `-d` to run in the background.
 
-Open `http://localhost`, or `http://$DOMAIN` if you set `DOMAIN`. If you set `HTTP_PORT`, add it to the address, such as `http://localhost:9000`. This and the other settings are read from your shell or a `.env` file next to `docker-compose.yml`, and are listed under [Configuration](#configuration). With nothing set, the server answers on `localhost`.
+Open `http://localhost`, or `http://$KARAOKE_DOMAIN` if you set `KARAOKE_DOMAIN`. This and the other settings are read from your shell or a `.env` file next to `docker-compose.yml`, and are listed under [Configuration](#configuration). With nothing set, the server answers on `localhost`.
 
-Caddy serves HTTPS automatically. For a real domain name it gets a certificate from Let's Encrypt. For `localhost` it uses its own certificate, which your browser will warn about. Caddy only answers requests for the host name in `DOMAIN`, so phones must reach the server by that name, or by its LAN address as described next.
+To change the public HTTP port, set `KARAOKE_HTTP_PORT` (for example `KARAOKE_HTTP_PORT=9000` in `.env`, or `KARAOKE_HTTP_PORT=9000 ./start-docker-app -d`) and open `http://localhost:9000`. In `docker-compose.yml` this feeds the Caddy mapping `"${KARAOKE_HTTP_PORT:-80}:80"`. The first number is the port on your computer, which is the one that changes. The `:80` after the colon is the port inside the Caddy container and must stay 80, so don't edit it. HTTPS stays on port 443.
+
+Caddy serves HTTPS automatically. For a real domain name it gets a certificate from Let's Encrypt. For `localhost` it uses its own certificate, which your browser will warn about. Caddy only answers requests for the host name in `KARAOKE_DOMAIN`, so phones must reach the server by that name, or by its LAN address as described next.
 
 #### Phones on the same network
 
-Phones need HTTPS to use the microphone for scoring. Without a domain name, set `LAN_IP` to the computer's address on your network (for example `LAN_IP=192.168.1.20` in `.env`) and restart Compose. Caddy then serves `https://<LAN_IP>` with a certificate from its own certificate authority, which each phone has to trust once:
+Phones need HTTPS to use the microphone for scoring. Without a domain name, set `KARAOKE_LAN_IP` to the computer's address on your network (for example `KARAOKE_LAN_IP=192.168.1.20` in `.env`) and restart Compose. Caddy then serves `https://<KARAOKE_LAN_IP>` with a certificate from its own certificate authority, which each phone has to trust once:
 
-1. On the phone, open `http://<LAN_IP>/ca.crt` (add `:<HTTP_PORT>` if you changed it from 80) and install the certificate.
+1. On the phone, open `http://<KARAOKE_LAN_IP>/ca.crt` (add `:<KARAOKE_HTTP_PORT>` if you changed it from 80) and install the certificate.
    - iOS: install the downloaded profile in Settings, then turn it on under **General** → **About** → **Certificate Trust Settings**.
    - Android: install it from **Settings** → **Security** → **Encryption & credentials** → **Install a certificate** → **CA certificate**.
-2. Open the display at `https://<LAN_IP>`, not `localhost`. The room's QR code uses the display's address, so phones that scan it land on the same one.
+2. Open the display at `https://<KARAOKE_LAN_IP>`, not `localhost`. The room's QR code uses the display's address, so phones that scan it land on the same one.
 
-The certificate authority is kept in the `caddy_data` volume, so phones keep trusting the server across restarts. If the computer's address changes, update `LAN_IP`. Reserving the address in your router avoids this.
+The certificate authority is kept in the `caddy_data` volume, so phones keep trusting the server across restarts. If the computer's address changes, update `KARAOKE_LAN_IP`. Reserving the address in your router avoids this.
 
 The app refreshes yt-dlp every time its container starts, so a restart is enough to pick up the latest version. The nightly channel picks up YouTube fixes before a stable release does. To use stable releases instead, run Compose directly:
 
@@ -184,11 +186,11 @@ The backend reads these environment variables. With Docker Compose, set them in 
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `DOMAIN` | `localhost` | Host name Caddy serves and gets a certificate for. Also added to the backend's allowed CORS origins. |
-| `LAN_IP` | `127.0.0.1` | Compose only. The computer's LAN address, which Caddy also serves over HTTPS. See [Phones on the same network](#phones-on-the-same-network). |
+| `KARAOKE_DOMAIN` | `localhost` | Host name Caddy serves and gets a certificate for. Also added to the backend's allowed CORS origins. |
+| `KARAOKE_LAN_IP` | `127.0.0.1` | Compose only. The computer's LAN address, which Caddy also serves over HTTPS. See [Phones on the same network](#phones-on-the-same-network). |
 | `PORT` | `8000` | Port the backend listens on. |
 | `ROOM_IDLE_TTL_SECONDS` | `3600` | How long a room with nobody connected is kept before it is deleted. `0` keeps rooms until the server restarts. |
-| `HTTP_PORT` | `80` | Compose only. Host port for plain HTTP access through Caddy. |
+| `KARAOKE_HTTP_PORT` | `80` | Compose only. Host port for plain HTTP access through Caddy. |
 | `PROXY_SERVER` | | Proxy for YouTube requests, such as `http://proxy:8080`. |
 | `PROXY_USERNAME`, `PROXY_PASSWORD` | | Credentials for `PROXY_SERVER`. |
 | `KARAOKE_SOURCES` | all | Comma-separated song sources to enable. `youtube` is the only one today. |
@@ -198,6 +200,8 @@ The backend reads these environment variables. With Docker Compose, set them in 
 | `YTDLP_PLAYER_CLIENT` | | Comma-separated YouTube player clients. Empty lets yt-dlp choose. |
 | `YTDLP_EXTRA_ARGS` | | Extra yt-dlp command-line flags, shell quoted. |
 | `YTDLP_BINARY` | `yt-dlp` | Name or path of the yt-dlp executable. |
+
+> **Renamed settings.** `DOMAIN` is now `KARAOKE_DOMAIN` and `LAN_IP` is now `KARAOKE_LAN_IP`. The old names are no longer read, so rename them in your shell or `.env`, or Caddy will quietly fall back to `localhost`.
 
 These apply only to the Docker image:
 
@@ -213,8 +217,8 @@ For API and WebSocket problems, see the Troubleshooting section of [backend/READ
 ### A phone can't open the app
 
 - The phone must be on the same Wi-Fi network as the computer running the server.
-- Use the address Vite prints as `Network:` (development) or the computer's LAN address (Docker, port 80 by default or `HTTP_PORT`).
-- With Docker Compose, Caddy only answers on the LAN address if `LAN_IP` is set to it. See [Phones on the same network](#phones-on-the-same-network).
+- Use the address Vite prints as `Network:` (development) or the computer's LAN address (Docker, port 80 by default or `KARAOKE_HTTP_PORT`).
+- With Docker Compose, Caddy only answers on the LAN address if `KARAOKE_LAN_IP` is set to it. See [Phones on the same network](#phones-on-the-same-network).
 - A firewall on the computer may be blocking the port (5173 for the dev server). Allow it, or temporarily turn the firewall off to test.
 
 ### "Room not found"
@@ -249,7 +253,7 @@ Keep using `--no-sync` every time you start the server. Plain `uv run` silently 
 
 ### Microphone scoring doesn't work
 
-Browsers only allow the microphone on HTTPS pages (and on `localhost`). A phone that opens the app over plain `http://`, such as the dev server's LAN address, falls back to generated scores. This is expected. To score with the microphone, serve the app over HTTPS: through Caddy with a real `DOMAIN`, or with `LAN_IP` set (see [Phones on the same network](#phones-on-the-same-network)).
+Browsers only allow the microphone on HTTPS pages (and on `localhost`). A phone that opens the app over plain `http://`, such as the dev server's LAN address, falls back to generated scores. This is expected. To score with the microphone, serve the app over HTTPS: through Caddy with a real `KARAOKE_DOMAIN`, or with `KARAOKE_LAN_IP` set (see [Phones on the same network](#phones-on-the-same-network)).
 
 ### A display plays no sound
 

@@ -1,5 +1,10 @@
 #!/usr/bin/env bash
 # Start the PWA Karaoke server with a yt-dlp nightly build.
+#
+# The public HTTP port is 80 by default. To use another, set KARAOKE_HTTP_PORT in the
+# environment or in a .env file next to docker-compose.yml, for example:
+#   KARAOKE_HTTP_PORT=8000 ./start-docker-app -d
+# Then open http://localhost:8000. HTTPS stays on 443.
 set -euo pipefail
 
 export YTDLP_CHANNEL=nightly

@@ -309,7 +309,7 @@ The server runs on `0.0.0.0` and port `PORT` (default 8000).
 
 ### CORS
 
-Cross-origin requests are allowed from `localhost:5173`, `localhost:8000`, `127.0.0.1:5173` and `127.0.0.1:8000`, plus `http(s)://$DOMAIN` when the `DOMAIN` environment variable is set to something other than `localhost`. To modify CORS settings, update the `CORSMiddleware` configuration in `main.py`.
+Cross-origin requests are allowed from `localhost:5173`, `localhost:8000`, `127.0.0.1:5173` and `127.0.0.1:8000`, plus `http(s)://$KARAOKE_DOMAIN` when the `KARAOKE_DOMAIN` environment variable is set to something other than `localhost`. To modify CORS settings, update the `CORSMiddleware` configuration in `main.py`.
 
 ### API Documentation
 
@@ -573,7 +573,7 @@ When search functionality fails, check the server logs for YouTube search errors
 
 ### WebSocket Connection Issues
 
-Connection problems often stem from port 8000 being blocked by firewall settings. If connecting from different domains, verify that the client's origin is in the CORS list in `main.py` (or set `DOMAIN`). Monitor server logs for connection errors and disconnections to identify patterns or specific client issues.
+Connection problems often stem from port 8000 being blocked by firewall settings. If connecting from different domains, verify that the client's origin is in the CORS list in `main.py` (or set `KARAOKE_DOMAIN`). Monitor server logs for connection errors and disconnections to identify patterns or specific client issues.
 
 ### Performance Issues
 

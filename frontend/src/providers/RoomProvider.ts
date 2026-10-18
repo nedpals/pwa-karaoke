@@ -1,8 +1,7 @@
 import { createContext, useContext } from "react";
-import type { ReactNode } from "react";
 import type { UseRoomReturn } from "../hooks/useRoom";
 
-const RoomContext = createContext<UseRoomReturn | undefined>(
+export const RoomContext = createContext<UseRoomReturn | undefined>(
   undefined,
 );
 
@@ -15,17 +14,3 @@ export const useRoomContext = () => {
   }
   return context;
 };
-
-export function RoomProvider({
-  children,
-  data: room,
-}: {
-  data: UseRoomReturn;
-  children: ReactNode;
-}) {
-  return (
-    <RoomContext.Provider value={room}>
-      {children}
-    </RoomContext.Provider>
-  );
-}

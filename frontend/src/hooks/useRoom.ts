@@ -321,7 +321,6 @@ export function useRoom(clientType: ClientType, nickname?: string | null): UseRo
         }
         break;
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ws.lastMessage, clientType]);
 
   const [hasJoinedOnce, setHasJoinedOnce] = useState(false);

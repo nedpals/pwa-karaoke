@@ -2,7 +2,7 @@
 
 Welcome, and thank you for your interest in contributing!
 
-PWA Karaoke turns any device into a karaoke machine. One device is a **display** (a TV or laptop that plays the video), and phones are **controllers** (they search for songs and control playback). The backend is Python (FastAPI) and the frontend is React with TypeScript. Everything talks over a WebSocket.
+PWA Karaoke turns any device into a karaoke machine. One device is a **display** (a TV or laptop that plays the video), and phones are **controllers** (they search for songs and control playback). The backend is Python (FastAPI) and the frontend is React with TypeScript. The browser uses HTTP for search and room APIs, and a WebSocket for live room updates and playback commands.
 
 You do not need to build a big feature. Small contributions are very welcome: fixing a typo in the docs, adding a test, polishing a UI component. If this is your first open-source pull request (PR), you are in the right place.
 
@@ -12,8 +12,8 @@ You need:
 
 - A [GitHub](https://github.com) account
 - [Git](https://git-scm.com/downloads) (on Windows, install Git for Windows and use Git Bash or PowerShell)
-- [uv](https://docs.astral.sh/uv/getting-started/installation/), which installs Python for you
-- Node.js 20 or newer
+- [uv](https://docs.astral.sh/uv/getting-started/installation/), which can install the project's pinned Python version (3.12)
+- Node.js 22 (the version used in CI; Node.js 20 or newer is supported by the app)
 
 Check your versions:
 
@@ -23,7 +23,7 @@ uv --version
 node --version
 ```
 
-If you cannot get Python or Node working, use the dev container instead. Open the repo in VS Code with the Dev Containers extension, or start a GitHub Codespace from your fork. The config is in `.devcontainer/devcontainer.json` and it installs everything for you.
+If you cannot get Python or Node working, use the dev container instead. Open the repo in VS Code with the Dev Containers extension, or start a GitHub Codespace from your fork. The config is in `.devcontainer/devcontainer.json`; it installs uv, Python dependencies, and Node dependencies when the container is created.
 
 ## Workflow
 
@@ -43,8 +43,19 @@ If you cannot get Python or Node working, use the dev container instead. Open th
    git remote -v
    ```
 
-5. **Set the app up** by following the [Local development section of the README](README.md#local-development). Short version: one terminal runs the backend (`uv sync` then `uv run python main.py` inside `backend/`), another runs the frontend (`npm ci` then `npm run dev` inside `frontend/`), and you open `http://localhost:5173`. The README has separate Windows (PowerShell) commands. You do not need to run the app to work on docs or backend tests.
-6. **Create a branch.** Never work on `master`. Name the branch after the kind of change:
+5. **Sync your fork's `master` branch** with the original repo before starting work:
+
+   ```bash
+   git switch master
+   git fetch upstream
+   git merge --ff-only upstream/master
+   git push origin master
+   ```
+
+   This updates local `master` from `upstream/master` and pushes the same update to `origin` (your fork). If the fast-forward fails, your local `master` has diverged; resolve that before creating a feature branch.
+
+6. **Set the app up** by following the [Local development section of the README](README.md#local-development). Short version: one terminal runs the backend (`uv sync` then `uv run python main.py` inside `backend/`), another runs the frontend (`npm ci` then `npm run dev` inside `frontend/`), and you open `http://localhost:5173`. The README has separate Windows (PowerShell) commands. You do not need to run the app to work on docs or backend tests.
+7. **Create a branch from the updated `master`.** Never work on `master`. Name the branch after the kind of change:
 
    | Prefix | Use for | Example |
    | --- | --- | --- |
@@ -57,21 +68,21 @@ If you cannot get Python or Node working, use the dev container instead. Open th
    git switch -c docs/windows-setup-tips
    ```
 
-7. **Make your change**, then [run the checks](#running-checks-locally).
-8. **Commit** with a [conventional message](#commit-messages):
+8. **Make your change**, then [run the checks](#running-checks-locally).
+9. **Commit** with a [conventional message](#commit-messages):
 
    ```bash
    git add path/to/changed-file
    git commit -m "docs: add Windows setup tips"
    ```
 
-9. **Push to your fork**:
+10. **Push to your fork**:
 
    ```bash
    git push -u origin docs/windows-setup-tips
    ```
 
-10. **Open a PR.** GitHub shows a "Compare & pull request" button on your fork. Make sure the base is `nedpals/pwa-karaoke` and branch `master`. See the [PR checklist](#pr-checklist).
+11. **Open a PR.** GitHub shows a "Compare & pull request" button on your fork. Make sure the base is `nedpals/pwa-karaoke` and branch `master`. See the [PR checklist](#pr-checklist).
 
 ### If `master` moves while you work
 
@@ -87,7 +98,7 @@ If you would rather not rebase, `git merge upstream/master` works too. If Git re
 
 ## Running checks locally
 
-CI (`.github/workflows/ci.yml`) runs these on every push and PR. Run the same commands before you push.
+CI (`.github/workflows/ci.yml`) runs the backend tests and frontend lint and build on every push and pull request. Run the relevant commands before you push.
 
 **Backend**, from the `backend/` folder:
 
@@ -102,7 +113,7 @@ To run a single test:
 uv run pytest tests/test_queue.py::test_enqueue_adds_song_to_the_end -v
 ```
 
-The tests work offline. You do not need `yt-dlp`, the network, or a running server.
+The tests do not contact YouTube or need a running server. `uv sync` installs the project's dependencies, including yt-dlp; the test client skips the app startup check that would contact the network.
 
 **Frontend**, from the `frontend/` folder:
 
@@ -112,7 +123,7 @@ npm run lint
 npm run build
 ```
 
-`npm run build` also type-checks the code (`tsc -b`), so it catches TypeScript errors. You may see a couple of lint *warnings*. Warnings are fine. Only errors fail the check.
+`npm run build` also type-checks the code (`tsc -b`), so it catches TypeScript errors. ESLint may report warnings; the current CI command fails on lint errors, not warnings.
 
 **What a red check means:** one of these commands failed on GitHub. Click **Details** next to the failed check on your PR, read the log, and reproduce the failure locally with the same command. Fix it, commit, and push again. The PR updates by itself.
 
@@ -122,7 +133,7 @@ Tests live in `backend/tests/`. The pytest settings in `backend/pyproject.toml` 
 
 ### A simple test to copy
 
-This is from `backend/tests/test_queue.py`. It builds a queue, does one thing, and checks the result:
+This is adapted from `backend/tests/test_queue.py`. The file imports `KaraokeQueue` and `KaraokeEntry`, and defines `make_entry`; the example builds a queue, does one thing, and checks the result:
 
 ```python
 def make_queue_with_songs(*titles: str) -> KaraokeQueue:
@@ -157,7 +168,7 @@ def test_heartbeat_returns_ok(client):
     assert response.json()["status"] == "ok"
 ```
 
-Rooms stay in memory for the whole test run, so `test_api.py` uses a `unique_room_id()` helper to give each test its own room.
+`test_api.py` uses a `unique_room_id()` helper to give each test its own room, since the app's room manager is shared across requests.
 
 ### Faking time: the monkeypatch trick
 
@@ -208,7 +219,7 @@ Components live in `frontend/src/components/`, grouped by size:
 
 Many components have a `*.stories.tsx` file next to them (for example `Button.stories.tsx`). That file is what Storybook shows. Copy an existing one to add stories for a new component.
 
-Each page in `frontend/src/pages/` has a folder for its parts: `controller/` holds one file per controller tab, and `player/` holds the display screens, the video player and `PlayerStateProvider.tsx`, which runs playback and scoring. The tabs and screens are reasonable places for a first change. `PlayerStateProvider.tsx` and `VideoPlayer.tsx` coordinate a lot of timing through effects and refs, so if an issue needs a change there, ask on the issue first.
+The controller tabs live in `frontend/src/pages/controller/`. The display screens, video player, and `PlayerStateProvider.tsx` live in `frontend/src/pages/player/`; the provider coordinates playback and scoring. The tabs and screens are approachable places for a first change. `PlayerStateProvider.tsx` and `VideoPlayer.tsx` coordinate timing through effects and refs, so read the player guide before changing them.
 
 If you need to read the display code, [frontend/docs/player.md](frontend/docs/player.md) explains how the player screens, the song lifecycle and the leader and follower displays fit together.
 

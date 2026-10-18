@@ -37,14 +37,18 @@ See the [manual setup prerequisites](#prerequisites) when running without Docker
 The recommended way to run PWA Karaoke is through Docker Compose. This method simplifies the setup process and ensures that all dependencies are correctly configured.
 
 ```bash
-docker-compose up -d
+./start-docker-app -d
 ```
 
-This will start the backend and [Caddy](https://caddyserver.com/) web server.
+`start-docker-app` sets `YTDLP_CHANNEL=nightly` and runs `docker compose up`, forwarding any arguments you pass (such as `-d`). It starts the backend and [Caddy](https://caddyserver.com/) web server.
 
 Visit `http://localhost` or `http://$DOMAIN` (where `$DOMAIN` is your configured domain) to access the application.
 
-The container refreshes `yt-dlp` on every start. If songs stop playing and the backend logs show "Sign in to confirm you're not a bot" or "Requested format is not available", the stable release may be behind YouTube. Set `YTDLP_CHANNEL=nightly` and restart to use nightly builds instead.
+The container refreshes `yt-dlp` on every start. Because `start-docker-app` uses the nightly channel, it picks up YouTube fixes before a stable release does. To run on stable instead, bypass the script:
+
+```bash
+YTDLP_CHANNEL=stable docker compose up -d
+```
 
 ### Docker
 

@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# Start the PWA Karaoke server with a yt-dlp nightly build.
+set -euo pipefail
+
+export YTDLP_CHANNEL=nightly
+exec docker compose up "$@"

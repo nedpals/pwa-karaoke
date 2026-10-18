@@ -45,10 +45,19 @@ export function VideoPlayerComponent({
   // Media events and interval ticks fire long after the render that made them,
   // so they read the room through a ref rather than a stale closure
   const playerStateRef = useRef(playerState);
+  // useRoom hands back fresh closures every render. Callbacks built on them
+  // would restart the stall timer and the report interval on every message.
+  const updatePlayerStateRef = useRef(updatePlayerState);
+  const refreshVideoUrlRef = useRef(refreshVideoUrl);
 
   useEffect(() => {
     playerStateRef.current = playerState;
   }, [playerState]);
+
+  useEffect(() => {
+    updatePlayerStateRef.current = updatePlayerState;
+    refreshVideoUrlRef.current = refreshVideoUrl;
+  });
 
   const updateVersionedPlayerState = useCallback((partialState: Partial<DisplayPlayerState>) => {
     const current = playerStateRef.current;
@@ -60,7 +69,7 @@ export function VideoPlayerComponent({
     // Finished is the room's call: end of song, a skip, or an autoplay hold
     if (current?.play_state === "finished" && partialState.play_state !== "finished") return;
 
-    updatePlayerState({
+    updatePlayerStateRef.current({
       play_state: "paused" as const,
       current_time: 0,
       duration: 0,
@@ -73,7 +82,7 @@ export function VideoPlayerComponent({
       // report from one about a turn it has left, and drops it.
       item_id: entry ? current?.item_id ?? null : null,
     });
-  }, [updatePlayerState]);
+  }, []);
 
   // One place decides whether the element runs, so a fresh mount, a buffer
   // recovery and a change from the room cannot disagree about it
@@ -171,7 +180,7 @@ export function VideoPlayerComponent({
     recoveringRef.current = true;
     console.log(`[Player] Re-resolving a dead stream for ${entry.title} (${attempts.count}/${RECOVERY_ATTEMPTS})`);
 
-    refreshVideoUrl(entry.id)
+    refreshVideoUrlRef.current(entry.id)
       .then(({ refreshed }) => {
         if (!refreshed) giveUp();
       })
@@ -182,7 +191,7 @@ export function VideoPlayerComponent({
       .finally(() => {
         recoveringRef.current = false;
       });
-  }, [isLeader, refreshVideoUrl, updateVersionedPlayerState]);
+  }, [isLeader, updateVersionedPlayerState]);
 
   // Buffering has no natural end when the far side has stopped answering, so
   // sitting in it past any plausible wait counts as the stream being gone

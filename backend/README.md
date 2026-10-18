@@ -550,8 +550,6 @@ Leader only: every command below except `queue_update` is ignored when sent by a
 - `INVALID_COMMAND`: No handler for the command on this client type
 - `COMMAND_EXECUTION_FAILED`: Command execution error
 
-`CONNECTION_LOST`, `HEARTBEAT_TIMEOUT`, `AUTHORIZATION_ERROR`, `RATE_LIMIT_EXCEEDED`, `QUEUE_CONFLICT` and `STATE_SYNC_ERROR` are defined in `websocket_errors.py` but not currently sent. The wire value is the lowercase name (for example `command_execution_failed`).
-
 #### Error Response Format
 ```json
 ["error", {

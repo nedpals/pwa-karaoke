@@ -147,6 +147,11 @@ class Room(BaseModel):
         # cannot relabel a performance
         state.item_id = self.current_item_id if state.entry else None
         state.singer = self.current_singer if state.entry else None
+        previous = self.player_state
+        if state.play_state != "finished":
+            state.skipped = False
+        elif previous and previous.play_state == "finished" and previous.item_id == state.item_id:
+            state.skipped = previous.skipped
         self.player_state = state
         self.player_version += 1
 

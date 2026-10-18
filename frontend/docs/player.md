@@ -235,7 +235,7 @@ There are two ways in, and both end up in `endSong(itemId, playedSeconds, quick)
 3. If the room is already `finished`:
    - with no `scoringRef.current`, `autoplayRef.current` false and a `cuedItemRef.current`, it calls `removeSongRef.current(cued.id)` (command `remove_song` with `{entry_id: cued.id}`, which the server accepts from the leader display) and returns. The comment says this drops the held song so the one behind it becomes cued;
    - otherwise it calls `playNextRef.current({ fromItemId: itemId })` and returns.
-4. If the room is anything else, it sends `updatePlayerStateRef.current({...current, play_state: "finished", ...})` and calls `endSong(itemId, current.current_time, true)`. The `true` is `quick`.
+4. If the room is anything else, it sends `updatePlayerStateRef.current({...current, play_state: "finished", skipped: true, ...})` and calls `endSong(itemId, current.current_time, true)`. The `true` is `quick`. `skipped` is how the followers learn the same thing (see "Followers do not rely on their own video event" below).
 
 ### Step 7: `endSong`: score it or skip scoring
 
@@ -248,7 +248,9 @@ There are two ways in, and both end up in `endSong(itemId, playedSeconds, quick)
 
 `rollOver(itemId)` is where autoplay is enforced on the client. The server never checks it for `play_next`. It returns `null` (hold) when `!autoplayRef.current && reservedCountRef.current > 0`. Otherwise it returns `Promise.resolve(playNextRef.current({ fromItemId: itemId }))`. With nothing reserved, it proceeds even when autoplay is off, so the room clears to idle.
 
-Followers do not rely on their own video event. Effect 8 ("followers read the decision") runs when `playState === "finished"`, there is a `currentItemId`, `scoring` is null, `scoredItem.current !== currentItemId`, and the state's `current_time` is at least `minScoredSeconds`. It then calls `beginScoring(currentItemId, false)`. Because `beginScoring` skips an item already in `scoredItem`, the leader (and any display whose own `endSong` ran first) does not start a second session. This effect always passes `quick = false`.
+Followers do not rely on their own video event. Effect 8 ("followers read the decision") runs when `playState === "finished"`, there is a `currentItemId`, `scoring` is null, `scoredItem.current !== currentItemId`, and the state's `current_time` is at least `minScoredSeconds`. It then calls `beginScoring(currentItemId, Boolean(current.skipped))`, so a follower runs the quick reveal on a skip, the same as the leader. Because `beginScoring` skips an item already in `scoredItem`, the leader (and any display whose own `endSong` ran first) does not start a second session.
+
+`skipped` is kept by the room (`Room.update_player_state` in `backend/core/room.py`). It is forced to `false` on any state other than `finished`. Once a turn is `finished`, a later `finished` report for the same turn keeps the first one's value, so how a turn ended cannot change after it ends.
 
 ### Step 8: Scoring starts (`beginScoring`)
 
@@ -441,12 +443,12 @@ The comment above the mirrors (`useRoom hands back fresh closures every render`)
 | 5 | 190 | `isLeader`, `scoring`, `scoreReading`, `judged` change | The jury. Leader publishes a score unless the room already has one for the performance, using the mic reading if present, else after `JURY_GRACE_MS` a generated one |
 | 6 | 272 | `scoring`, `score`, `finishScoring` change | When the `score` matches the scoring session, replaces the fallback timer with `finishScoring(quick, landingMs(quick) + hold)` |
 | 7 | 308 | `skipRequest`, `isLeader`, `endSong` change | Handles a remote's Next (leader only, once per `at`) |
-| 8 | 349 | `playState`, `currentItemId`, `scoring`, `minScoredSeconds`, `beginScoring` change | On any display, when the room state is `finished`, not yet scored and long enough, calls `beginScoring(currentItemId, false)` |
-| 9 | 361 | `playbackRequest` changes | Handles a remote's Play or Pause (leader only, once per `at`) |
-| 10 | 394 | `currentItemId`, `clearScoreTimer` change | Resets the per-performance refs and state when the performance changes |
-| 11 | 402 | `clearScoreTimer` (effectively mount) | Cleanup on unmount: clears `scoreTimer` |
-| 12 | 408 | `playerState?.play_state`, `playerState?.entry`, `setOSD` change | Sets the on-screen label for `play_state` changes ("Play" for 2000 ms, "Pause", "Buffering"), tracked with `lastPlayStateRef` |
-| 13 | 429 | `lastQueueCommand` changes | For `set_volume`: sends the new volume through `updatePlayerState` and shows a volume OSD for 2000 ms |
+| 8 | 351 | `playState`, `currentItemId`, `scoring`, `minScoredSeconds`, `beginScoring` change | On any display, when the room state is `finished`, not yet scored and long enough, calls `beginScoring(currentItemId, Boolean(current.skipped))` |
+| 9 | 363 | `playbackRequest` changes | Handles a remote's Play or Pause (leader only, once per `at`) |
+| 10 | 396 | `currentItemId`, `clearScoreTimer` change | Resets the per-performance refs and state when the performance changes |
+| 11 | 404 | `clearScoreTimer` (effectively mount) | Cleanup on unmount: clears `scoreTimer` |
+| 12 | 410 | `playerState?.play_state`, `playerState?.entry`, `setOSD` change | Sets the on-screen label for `play_state` changes ("Play" for 2000 ms, "Pause", "Buffering"), tracked with `lastPlayStateRef` |
+| 13 | 431 | `lastQueueCommand` changes | For `set_volume`: sends the new volume through `updatePlayerState` and shows a volume OSD for 2000 ms |
 
 #### Effects in `VideoPlayer.tsx` in source order
 

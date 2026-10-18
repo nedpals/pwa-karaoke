@@ -12,6 +12,7 @@ class DisplayPlayerState(BaseModel):
     singer: str | None = None
     # "finished" keeps the song on the screen; "idle" is an empty room.
     play_state: Literal["playing", "paused", "finished", "buffering", "error", "idle"]
+    skipped: bool = False
     current_time: float = Field(0.0, ge=0.0)
     duration: float = Field(0.0, ge=0.0) 
     volume: float = Field(1.0, ge=0.0, le=1.0)

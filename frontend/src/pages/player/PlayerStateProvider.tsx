@@ -337,6 +337,7 @@ export function PlayerStateProviderInternal({ children }: { children: React.Reac
     updatePlayerStateRef.current({
       ...current,
       play_state: "finished",
+      skipped: true,
       version: Date.now(),
       timestamp: Date.now(),
     });
@@ -345,7 +346,8 @@ export function PlayerStateProviderInternal({ children }: { children: React.Reac
   }, [skipRequest, isLeader, endSong]);
 
   // Followers read the decision rather than remaking it: current_time on a
-  // finished turn is the number the leader ended it with.
+  // finished turn is the number the leader ended it with, and skipped says
+  // whether a Next ended it, so every screen runs the same reveal.
   useEffect(() => {
     if (playState !== "finished" || !currentItemId) return;
     if (scoring || scoredItem.current === currentItemId) return;
@@ -353,7 +355,7 @@ export function PlayerStateProviderInternal({ children }: { children: React.Reac
     const current = playerStateRef.current;
     if (!current || (current.current_time ?? 0) < minScoredSeconds) return;
 
-    beginScoring(currentItemId, false);
+    beginScoring(currentItemId, Boolean(current.skipped));
   }, [playState, currentItemId, scoring, minScoredSeconds, beginScoring]);
 
   // The leader reports the change and every screen follows the room, rather

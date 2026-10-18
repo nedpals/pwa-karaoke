@@ -387,11 +387,14 @@ Commands a client sends. Payloads are validated against the models in `websocket
 // Move a queue item to the front of the queue
 ["queue_next_song", {"entry_id": string}]
 
+// Reorder queue items by list of item IDs
+["reorder_queue", {"item_ids": string[]}]
+
 // Clear entire queue
 ["clear_queue", {}]
 ```
 
-In `remove_song` and `queue_next_song` the field is named `entry_id` but the value is the queue item (reservation) `id` from `KaraokeQueueItem`, not the song's `KaraokeEntry.id`.
+In `remove_song` and `queue_next_song` the field is named `entry_id` but the value is the queue item (reservation) `id` from `KaraokeQueueItem`, not the song's `KaraokeEntry.id`. `reorder_queue` expects an array of queue item `id`s.
 
 **Playback Control**
 ```typescript

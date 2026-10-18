@@ -141,3 +141,55 @@ def test_reorder_with_unknown_ids_ignores_unknowns():
 
     assert changed is True
     assert titles_in(queue) == ["Song B", "Song A"]
+
+
+def test_move_song_moves_item_to_target_position():
+    queue = make_queue_with_songs("Song A", "Song B", "Song C", "Song D")
+    id_of_d = queue.items[3].id
+
+    # Move Song D (index 3) to position 1
+    changed = queue.move_song(id_of_d, 1)
+
+    assert changed is True
+    assert titles_in(queue) == ["Song A", "Song D", "Song B", "Song C"]
+
+
+def test_move_song_to_front():
+    queue = make_queue_with_songs("Song A", "Song B", "Song C")
+    id_of_c = queue.items[2].id
+
+    changed = queue.move_song(id_of_c, 0)
+
+    assert changed is True
+    assert titles_in(queue) == ["Song C", "Song A", "Song B"]
+
+
+def test_move_song_to_same_position_returns_false():
+    queue = make_queue_with_songs("Song A", "Song B", "Song C")
+    id_of_b = queue.items[1].id
+
+    changed = queue.move_song(id_of_b, 1)
+
+    assert changed is False
+    assert titles_in(queue) == ["Song A", "Song B", "Song C"]
+
+
+def test_move_song_with_unknown_id_returns_false():
+    queue = make_queue_with_songs("Song A", "Song B")
+
+    changed = queue.move_song("non-existent-id", 0)
+
+    assert changed is False
+    assert titles_in(queue) == ["Song A", "Song B"]
+
+
+def test_move_song_clamps_out_of_bounds_position():
+    queue = make_queue_with_songs("Song A", "Song B", "Song C")
+    id_of_a = queue.items[0].id
+
+    # Move index 0 to position 100 (should clamp to end: index 2)
+    changed = queue.move_song(id_of_a, 100)
+
+    assert changed is True
+    assert titles_in(queue) == ["Song B", "Song C", "Song A"]
+

@@ -53,3 +53,13 @@ def test_reorder_queue_payload_validation():
 
     with pytest.raises(ValueError, match="Invalid payload for command 'reorder_queue'"):
         validate_websocket_message("reorder_queue", {"item_ids": []})
+
+
+def test_move_song_payload_validation():
+    validated = validate_websocket_message("move_song", {"item_id": "song-1", "position": 2})
+    assert validated["item_id"] == "song-1"
+    assert validated["position"] == 2
+
+    with pytest.raises(ValueError, match="Invalid payload for command 'move_song'"):
+        validate_websocket_message("move_song", {"item_id": "song-1", "position": -1})
+

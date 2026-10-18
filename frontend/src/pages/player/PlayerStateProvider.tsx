@@ -61,7 +61,6 @@ export function PlayerStateProviderInternal({ children }: { children: React.Reac
   }, [hasInteracted, connected, scoring, playerState?.entry, controllerCount]);
 
   const scoringRef = useRef<ScoringSession | null>(null);
-  const judged = useRef<string | null>(null);
   const advancing = useRef(false);
   // A turn is scored once. Without this the held song would open a fresh score
   // screen every time a screen re-read the finished state.
@@ -185,17 +184,16 @@ export function PlayerStateProviderInternal({ children }: { children: React.Reac
   }, [scoring, isLeader]);
 
   // The leader is the jury, so the room shows one number. Being promoted mid
-  // grace re-arms it rather than costing the singer their score.
+  // grace re-arms it rather than costing the singer their score. The room
+  // keeps the score, so a display promoted after it arrived has nothing to do.
+  const judged = Boolean(scoring && score?.item_id === scoring.itemId);
   useEffect(() => {
-    if (!isLeader || !scoring || judged.current === scoring.itemId) return;
+    if (!isLeader || !scoring || judged) return;
 
     const { itemId } = scoring;
     const heard = scoreReading?.itemId === itemId ? scoreReading : null;
 
     const publish = () => {
-      if (judged.current === itemId) return;
-
-      judged.current = itemId;
       publishScoreRef.current(
         itemId,
         heard ? scoreFromPerformance(heard.performance) : rollScore(),
@@ -211,7 +209,7 @@ export function PlayerStateProviderInternal({ children }: { children: React.Reac
 
     const timer = window.setTimeout(publish, JURY_GRACE_MS);
     return () => window.clearTimeout(timer);
-  }, [isLeader, scoring, scoreReading]);
+  }, [isLeader, scoring, scoreReading, judged]);
 
   const clearScoreTimer = useCallback(() => {
     if (scoreTimer.current === null) return;
@@ -399,7 +397,6 @@ export function PlayerStateProviderInternal({ children }: { children: React.Reac
     scoredItem.current = null;
     setScoring(null);
     clearScoreTimer();
-    judged.current = null;
   }, [currentItemId, clearScoreTimer]);
 
   useEffect(() => {

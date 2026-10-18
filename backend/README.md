@@ -321,7 +321,7 @@ The real-time communication layer is implemented via WebSocket at `/ws` endpoint
 
 ### Connection Flow
 
-Clients establish connection by connecting to `ws://localhost:8000/ws`, then send a handshake message with their client type (`["handshake", {"client_type": "controller"}]` or `["handshake", {"client_type": "display"}]`). A handshake with an invalid payload gets an `error` message and the socket is closed. A malformed first message just closes it. After handshake completion, clients must join a room using `["join_room", {"room_id": "room_name"}]` (the room must already exist, see `POST /rooms/create`) before sending any room-scoped commands. On join the server sends `client_count`, `queue_update`, `room_settings` and, if set, `player_state`. Controllers also get `scoring_turn` and displays get `leader_status`.
+Clients establish connection by connecting to `ws://localhost:8000/ws`, then send a handshake message with their client type (`["handshake", {"client_type": "controller"}]` or `["handshake", {"client_type": "display"}]`). A handshake with an invalid payload gets an `error` message and the socket is closed. A malformed first message just closes it. After handshake completion, clients must join a room using `["join_room", {"room_id": "room_name"}]` (the room must already exist, see `POST /rooms/create`) before sending any room-scoped commands. On join the server sends `client_count`, `queue_update`, `room_settings` and, if set, `player_state` and the turn's `score`. Controllers also get `scoring_turn` and displays get `leader_status`.
 
 The server pings every 30 seconds with `["ping", {"timestamp": number}]`. Clients answer with `["pong", {"timestamp": number}]`, and a client silent for more than 90 seconds is disconnected.
 
@@ -433,7 +433,7 @@ Leader only: every command below except `queue_update` is ignored when sent by a
 **Scoring**
 ```typescript
 ["scoring_state", {"active": boolean}] // forwarded to controllers
-["publish_score", {"item_id": string, "score": number, "source": "mic" | "auto"}] // score 0 to 100, broadcast as score
+["publish_score", {"item_id": string, "score": number, "source": "mic" | "auto"}] // score 0 to 100, broadcast as score. Once per turn, for the turn on air only; acks {"published": boolean}
 ```
 
 **State Broadcasting**

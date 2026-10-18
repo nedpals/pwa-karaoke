@@ -40,6 +40,10 @@ class ClientCommands:
         await self.client.send_command("room_settings", self.room.get_settings_payload())
         if self.room.player_state:
             await self.client.send_command("player_state", self.room.player_state.model_dump())
+        # A display that joins during the reveal shows the room's number
+        # rather than judging the turn again
+        if self.room.score:
+            await self.client.send_command("score", self.room.score)
 
         if self.client.client_type == "controller":
             target = self.room.current_singer_device_id
@@ -386,18 +390,14 @@ class DisplayCommands(ClientCommands):
 
     async def publish_score(self, payload):
         if not self.session_manager.is_display_leader(self.client):
-            return
+            return {"published": False}
 
-        await self.session_manager.broadcast_to_room(
-            self.client.room_id,
-            "score",
-            {
-                "item_id": payload["item_id"],
-                "score": payload["score"],
-                "source": payload["source"],
-                "timestamp": time.time(),
-            },
-        )
+        score = self.room.record_score(payload["item_id"], payload["score"], payload["source"])
+        if not score:
+            return {"published": False}
+
+        await self.session_manager.broadcast_to_room(self.client.room_id, "score", score)
+        return {"published": True}
 
     async def video_loaded(self, payload):
         # Only allow leader displays to broadcast video loaded state

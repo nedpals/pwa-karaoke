@@ -10,6 +10,9 @@ services:
       # Refresh yt-dlp on every start so a restart is enough to pick up a new
       # release. Set to 0 to stay on whatever the image was built with.
       - YTDLP_AUTO_UPDATE=${YTDLP_AUTO_UPDATE:-1}
+      # stable or nightly. Nightly builds pick up YouTube fixes before a
+      # stable release does.
+      - YTDLP_CHANNEL=${YTDLP_CHANNEL:-stable}
       - YTDLP_TIMEOUT_SECONDS=${YTDLP_TIMEOUT_SECONDS:-45}
       - YTDLP_EXTRA_ARGS=${YTDLP_EXTRA_ARGS:-}
       - YTDLP_RUNTIME=${YTDLP_RUNTIME:-deno}

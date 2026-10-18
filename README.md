@@ -44,6 +44,8 @@ This will start the backend and [Caddy](https://caddyserver.com/) web server.
 
 Visit `http://localhost` or `http://$DOMAIN` (where `$DOMAIN` is your configured domain) to access the application.
 
+The container refreshes `yt-dlp` on every start. If songs stop playing and the backend logs show "Sign in to confirm you're not a bot" or "Requested format is not available", the stable release may be behind YouTube. Set `YTDLP_CHANNEL=nightly` and restart to use nightly builds instead.
+
 ### Docker
 
 If you have a custom setup that doesn't use Docker Compose, you can run the backend and frontend services separately using Docker.

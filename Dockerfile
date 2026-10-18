@@ -38,23 +38,25 @@ COPY --from=frontend-build /app/frontend/dist ./static
 # yt-dlp is installed last, unpinned, in its own layer. It releases far more
 # often than the rest of the stack, so every rebuild picks up the current
 # version instead of whatever uv.lock holds. Pass an exact version to
-# reproduce an old build:
+# reproduce an old build, or pick the nightly channel when the stable release
+# falls behind YouTube:
 #   docker build --build-arg YTDLP_VERSION=2026.8.19 .
+#   docker build --build-arg YTDLP_CHANNEL=nightly .
 # The default extra pins the yt-dlp-ejs release that matches yt-dlp, and the
 # deno extra installs Deno, the JavaScript runtime yt-dlp enables by default.
 # The server runs with plain python from the venv, not uv run, which would
 # re-sync the venv back to uv.lock.
 ARG YTDLP_VERSION=latest
-RUN if [ "$YTDLP_VERSION" = "latest" ]; then \
-        uv pip install --no-cache --python /app/.venv/bin/python --upgrade "yt-dlp[default,deno]"; \
-    else \
-        uv pip install --no-cache --python /app/.venv/bin/python "yt-dlp[default,deno]==$YTDLP_VERSION"; \
-    fi \
+ARG YTDLP_CHANNEL=stable
+ENV YTDLP_CHANNEL=$YTDLP_CHANNEL
+COPY install-ytdlp.sh /usr/local/bin/install-ytdlp.sh
+RUN install-ytdlp.sh "$YTDLP_VERSION" \
     && yt-dlp --version \
     && deno --version
 
 # Set YTDLP_AUTO_UPDATE=1 to also refresh yt-dlp on every container start,
-# which keeps a long-lived deployment current without an image rebuild.
+# which keeps a long-lived deployment current without an image rebuild. It
+# follows YTDLP_CHANNEL, which defaults to the channel the image was built with.
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 
 # Expose port

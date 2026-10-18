@@ -14,6 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
+from config import config
 from core.room import Room
 from core.search import KaraokeEntry
 from services.karaoke_service import (
@@ -245,9 +246,12 @@ async def get_health(
 @app.get("/heartbeat")
 async def heartbeat():
     """Simple heartbeat endpoint for frontend server status monitoring"""
+    lan_ip = config.KARAOKE_LAN_IP
     return {
         "status": "ok",
-        "timestamp": int(time.time() * 1000)  # milliseconds timestamp
+        "timestamp": int(time.time() * 1000),  # milliseconds timestamp
+        # Loopback is Compose's default for "not set" and is no use to a phone.
+        "lan_ip": None if lan_ip in ("", "127.0.0.1") else lan_ip,
     }
 
 @app.post("/rooms/create")

@@ -81,7 +81,7 @@ Phones need HTTPS to use the microphone for scoring. Without a domain name, set 
 1. On the phone, open `http://<KARAOKE_LAN_IP>/ca.crt` (add `:<KARAOKE_HTTP_PORT>` if you changed it from 80) and install the certificate.
    - iOS: install the downloaded profile in Settings, then turn it on under **General** → **About** → **Certificate Trust Settings**.
    - Android: install it from **Settings** → **Security** → **Encryption & credentials** → **Install a certificate** → **CA certificate**.
-2. Open the display at `https://<KARAOKE_LAN_IP>`, not `localhost`. The room's QR code uses the display's address, so phones that scan it land on the same one.
+2. Open the display at `https://<KARAOKE_LAN_IP>`, not `localhost`. The room's QR code uses the display's address, so phones that scan it land on the same one. If you do open the display at `localhost`, the QR code uses `KARAOKE_LAN_IP` instead.
 
 The certificate authority is kept in the `caddy_data` volume, so phones keep trusting the server across restarts. If the computer's address changes, update `KARAOKE_LAN_IP`. Reserving the address in your router avoids this.
 
@@ -187,7 +187,7 @@ The backend reads these environment variables. With Docker Compose, set them in 
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `KARAOKE_DOMAIN` | `localhost` | Host name Caddy serves and gets a certificate for. Also added to the backend's allowed CORS origins. |
-| `KARAOKE_LAN_IP` | `127.0.0.1` | Compose only. The computer's LAN address, which Caddy also serves over HTTPS. See [Phones on the same network](#phones-on-the-same-network). |
+| `KARAOKE_LAN_IP` | `127.0.0.1` | The computer's LAN address, which Caddy also serves over HTTPS. The backend reports it on `/heartbeat`. See [Phones on the same network](#phones-on-the-same-network). |
 | `PORT` | `8000` | Port the backend listens on. |
 | `ROOM_IDLE_TTL_SECONDS` | `3600` | How long a room with nobody connected is kept before it is deleted. `0` keeps rooms until the server restarts. |
 | `KARAOKE_HTTP_PORT` | `80` | Compose only. Host port for plain HTTP access through Caddy. |

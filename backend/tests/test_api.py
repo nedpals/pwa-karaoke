@@ -12,6 +12,19 @@ def test_heartbeat_returns_ok(client):
     assert response.json()["status"] == "ok"
 
 
+def test_heartbeat_reports_no_lan_ip_when_unset(client, monkeypatch):
+    for value in ("", "127.0.0.1"):
+        monkeypatch.setattr("main.config.KARAOKE_LAN_IP", value)
+
+        assert client.get("/heartbeat").json()["lan_ip"] is None
+
+
+def test_heartbeat_reports_configured_lan_ip(client, monkeypatch):
+    monkeypatch.setattr("main.config.KARAOKE_LAN_IP", "192.168.1.20")
+
+    assert client.get("/heartbeat").json()["lan_ip"] == "192.168.1.20"
+
+
 def test_create_room_then_get_it(client):
     room_id = unique_room_id()
 

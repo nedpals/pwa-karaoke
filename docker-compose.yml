@@ -7,6 +7,9 @@ services:
       - PROXY_USERNAME=${PROXY_USERNAME}
       - PROXY_PASSWORD=${PROXY_PASSWORD}
       - KARAOKE_DOMAIN=${KARAOKE_DOMAIN:-localhost}
+      # Reported on /heartbeat so a display opened at localhost can still show
+      # phones an address they can reach.
+      - KARAOKE_LAN_IP=${KARAOKE_LAN_IP:-127.0.0.1}
       # Refresh yt-dlp on every start so a restart is enough to pick up a new
       # release. Set to 0 to stay on whatever the image was built with.
       - YTDLP_AUTO_UPDATE=${YTDLP_AUTO_UPDATE:-1}

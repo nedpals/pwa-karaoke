@@ -2,6 +2,7 @@ import useSWR from 'swr';
 import useSWRMutation from 'swr/mutation';
 import useSWRInfinite from 'swr/infinite';
 import { apiClient } from '../api/client';
+import { getControllerOrigin } from '../lib/controllerOrigin';
 import type { KaraokeEntry, KaraokeSearchResult, CreateRoomRequest, VerifyRoomRequest } from '../types';
 
 export const SEARCH_PAGE_SIZE = 12;
@@ -106,7 +107,13 @@ export function useServerStatus() {
     isOffline: !!error || (!isLoading && !data),
     isLoading,
     lastHeartbeat: data?.timestamp,
+    lanIp: data?.lan_ip,
     error,
     mutate,
   };
+}
+
+export function useControllerOrigin() {
+  const { lanIp } = useServerStatus();
+  return getControllerOrigin(lanIp);
 }

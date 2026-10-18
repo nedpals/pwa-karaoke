@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { QRCode } from "../../../components/atoms/QRCode";
 import { Text } from "../../../components/atoms/Text";
+import { useControllerOrigin } from "../../../hooks/useApi";
 import { useRoomContext } from "../../../providers/RoomProvider";
 import { usePlayerState } from "../context";
 import { cn } from "../../../lib/utils";
@@ -8,6 +9,7 @@ import { cn } from "../../../lib/utils";
 export function MiniQRWidget() {
   const { roomId, controllerCount } = useRoomContext();
   const { appState } = usePlayerState();
+  const controllerOrigin = useControllerOrigin();
 
   const [isOpen, setIsOpen] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -32,7 +34,7 @@ export function MiniQRWidget() {
   }, [isOpen]);
 
   const controllerUrl = roomId
-    ? `${window.location.origin}/controller?room=${encodeURIComponent(roomId)}`
+    ? `${controllerOrigin}/controller?room=${encodeURIComponent(roomId)}`
     : "";
 
   const handleCopy = useCallback(

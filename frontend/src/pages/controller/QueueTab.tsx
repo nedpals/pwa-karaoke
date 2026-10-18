@@ -10,6 +10,7 @@ import { SectionLabel } from "./SectionLabel";
 import { Notice } from "./Notice";
 import { useSongDialog } from "./useSongDialog";
 import { SortableQueueList } from "./SortableQueueList";
+import { Dialog } from "../../components/organisms/Dialog.tsx"
 
 export function QueueTab() {
   const { upNextQueue, playerState, autoplay, skipSong, clearQueue, moveSong } = useRoomContext();
@@ -18,10 +19,12 @@ export function QueueTab() {
   const [isClearingQueue, setIsClearingQueue] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const upNextItems = upNextQueue?.items ?? [];
+  const [isOpen, setIsOpen] = useState(false);
 
   const handleClearQueue = async () => {
     if (isClearingQueue) return;
 
+    setIsOpen(false);
     setIsClearingQueue(true);
     setErrorMessage(null);
 
@@ -69,7 +72,7 @@ export function QueueTab() {
           Up Next
         </Text>
         {upNextItems.length > 0 && (
-          <Button onClick={handleClearQueue} variant="danger" size="sm" disabled={isClearingQueue}>
+          <Button onClick={() => setIsOpen(true)} variant="danger" size="sm" disabled={isClearingQueue}>
             Clear All
           </Button>
         )}
@@ -95,6 +98,29 @@ export function QueueTab() {
           onSelectSong={dialog.open}
         />
       )}
+
+      <Dialog
+        open={isOpen}
+        onClose={() => setIsOpen(false)}
+        title={"Confirm Queue Clear"}
+        footer={
+          <>
+            <Button onClick={handleClearQueue} variant="danger" size="lg">
+              Clear
+            </Button>
+
+            <Button onClick={() => setIsOpen(false)} variant="ghost" size="lg">
+              Cancel
+            </Button>
+
+          </>
+        }
+      >
+        <Text font="display" size="2xl" className="text-center">
+          Clear all {upNextItems.length} reserved songs?
+        </Text>
+      </Dialog>
+
 
       <SongActionsDialog
         entry={dialog.selected}

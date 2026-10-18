@@ -1,7 +1,30 @@
 {
     admin off
+    # Clients send no SNI to a bare IP, so https://<LAN_IP> needs this.
+    default_sni {$LAN_IP:127.0.0.1}
+}
+
+(app) {
+    reverse_proxy karaoke-app:8000
 }
 
 {$DOMAIN:localhost} {
-    reverse_proxy karaoke-app:8000
+    import app
+}
+
+{$LAN_IP:127.0.0.1} {
+    tls internal
+    import app
+}
+
+http://{$LAN_IP:127.0.0.1} {
+    handle /ca.crt {
+        root * /data/caddy/pki/authorities/local
+        rewrite * /root.crt
+        header Content-Type application/x-x509-ca-cert
+        file_server
+    }
+    handle {
+        redir https://{host}{uri} 308
+    }
 }

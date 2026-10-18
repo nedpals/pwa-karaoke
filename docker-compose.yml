@@ -42,6 +42,7 @@ services:
       - caddy_config:/config
     environment:
       - DOMAIN=${DOMAIN:-localhost}
+      - LAN_IP=${LAN_IP:-127.0.0.1}
 
 # Optional: Create a custom network for better isolation
 networks:

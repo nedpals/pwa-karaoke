@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef } from "react";
 import { useSearchParams, Navigate } from "react-router";
 import { useRoom } from "../hooks/useRoom";
-import { RoomProvider, useRoomContext } from "../providers/RoomProvider";
+import { RoomProvider } from "../providers/RoomProviderComponent";
+import { useRoomContext } from "../providers/RoomProvider";
 import { LoadingIndicator } from "../components/atoms/LoadingIndicator";
 import { TabNavigation, type Tab } from "../components/organisms/TabNavigation";
 import { ControllerLayout } from "../components/templates/ControllerLayout";

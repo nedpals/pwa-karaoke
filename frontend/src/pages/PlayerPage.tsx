@@ -4,7 +4,7 @@ import { useRoom } from "../hooks/useRoom";
 import { LoadingIndicator } from "../components/atoms/LoadingIndicator";
 import { SystemMessage } from "../components/templates/SystemMessage";
 import { PasswordInput } from "../components/organisms/PasswordInput";
-import { RoomProvider } from "../providers/RoomProvider";
+import { RoomProvider } from "../providers/RoomProviderComponent";
 import { getDisplayNickname } from "../lib/nicknameStorage";
 import { usePlayerState } from "./player/context";
 import { PlayerStateProviderInternal } from "./player/PlayerStateProvider";

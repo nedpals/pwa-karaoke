@@ -40,6 +40,24 @@ class KaraokeQueue(BaseModel):
                 self.items.insert(0, item)
                 break
 
+    def move_song(self, item_id: str, position: int) -> bool:
+        """Move an item to a specific position (0-indexed).
+
+        Returns True if the item was moved to a new position, False otherwise.
+        """
+        if not self.items:
+            return False
+
+        target_index = max(0, min(position, len(self.items) - 1))
+        for index, queue_item in enumerate(self.items):
+            if queue_item.id == item_id:
+                if index == target_index:
+                    return False
+                item = self.items.pop(index)
+                self.items.insert(target_index, item)
+                return True
+        return False
+
     def reorder(self, item_ids: list[str]) -> bool:
         """Reorder items to match the order in item_ids.
 

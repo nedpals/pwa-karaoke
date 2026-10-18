@@ -70,7 +70,7 @@ export function useWebSocket(clientType: ClientType, initalAutoConnect = true): 
       shouldReconnect: () => true,
       reconnectAttempts: 50, // Increased from 10
       reconnectInterval: (attemptNumber: number) => {
-        // Exponential backoff: 1s, 2s, 4s, 8s, max 30s
+        // Exponential backoff: 0.5s, 1s, 2s, 4s,..., max 30s
         const baseDelay = 1000;
         const maxDelay = 30000;
         const delay = Math.min(
@@ -177,7 +177,7 @@ export function useWebSocket(clientType: ClientType, initalAutoConnect = true): 
 
   // Handle incoming messages
   // biome-ignore lint/correctness/useExhaustiveDependencies: playerState always changes and causes unnecessary re-renders
-    useEffect(() => {
+  useEffect(() => {
     if (!lastJsonMessage) return;
 
     try {
@@ -205,7 +205,7 @@ export function useWebSocket(clientType: ClientType, initalAutoConnect = true): 
             } else {
               console.error(ackData.error);
               const errorMessage = typeof ackData.error === "object" ? (ackData.error as { message: string }).message : ackData.error;
-              pendingRequest.reject(new Error(errorMessage|| "Request failed"));
+              pendingRequest.reject(new Error(errorMessage || "Request failed"));
             }
             pendingRequests.delete(ackData.request_id);
           }

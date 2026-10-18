@@ -226,6 +226,12 @@ class ControllerCommands(ClientCommands):
         if moved:
             await self._broadcast_room_state()
 
+    async def move_song(self, payload):
+        # Move song to a specific position in room queue and broadcast update
+        moved = self.room.move_song(payload["item_id"], payload["position"])
+        if moved:
+            await self._broadcast_room_state()
+
     async def reorder_queue(self, payload):
         # Reorder songs in room queue and broadcast update
         changed = self.room.reorder_queue(payload["item_ids"])

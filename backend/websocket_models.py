@@ -96,6 +96,11 @@ class JoinRoomPayload(BaseModel):
         nickname = ' '.join(v.split())[:MAX_NICKNAME_LENGTH]
         return nickname or None
 
+class MoveSongPayload(BaseModel):
+    """Move song command payload"""
+    item_id: str
+    position: int = Field(..., ge=0)
+
 class ReorderQueuePayload(BaseModel):
     """Reorder queue command payload"""
     item_ids: list[str] = Field(..., min_length=1)
@@ -110,6 +115,7 @@ COMMAND_PAYLOAD_MAP = {
     "queue_song": QueueSongPayload,
     "remove_song": EntryIDPayload,
     "queue_next_song": EntryIDPayload,
+    "move_song": MoveSongPayload,
     "reorder_queue": ReorderQueuePayload,
     "refresh_video_url": EntryIDPayload,
     "set_volume": SetVolumePayload,

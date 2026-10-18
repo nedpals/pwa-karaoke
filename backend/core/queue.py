@@ -39,3 +39,23 @@ class KaraokeQueue(BaseModel):
                 item = self.items.pop(index)
                 self.items.insert(0, item)
                 break
+
+    def reorder(self, item_ids: list[str]) -> bool:
+        """Reorder items to match the order in item_ids.
+
+        Any existing items not in item_ids are preserved at the end of the queue.
+        Returns True if the order changed, False otherwise.
+        """
+        id_to_item = {item.id: item for item in self.items}
+        new_items = []
+        for item_id in item_ids:
+            if item_id in id_to_item:
+                new_items.append(id_to_item.pop(item_id))
+        # Keep any items that were added concurrently and not in item_ids
+        new_items.extend(id_to_item.values())
+
+        if [item.id for item in self.items] == [item.id for item in new_items]:
+            return False
+
+        self.items = new_items
+        return True

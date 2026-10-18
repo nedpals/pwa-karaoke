@@ -1,8 +1,6 @@
 import { useState } from "react";
-import type { KaraokeQueueItem } from "../../types";
 import { useRoomContext } from "../../providers/RoomProvider";
 import { MaterialSymbolsFastForwardRounded } from "../../components/icons/MaterialSymbolsFastForwardRounded";
-import { MaterialSymbolsKeyboardArrowUpRounded } from "../../components/icons/MaterialSymbolsArrowUpRounded";
 import { Text } from "../../components/atoms/Text";
 import { Button } from "../../components/atoms/Button";
 import { QueueItem } from "../../components/organisms/QueueItem";
@@ -11,9 +9,10 @@ import { useEntryStatus } from "../../hooks/useEntryStatus";
 import { SectionLabel } from "./SectionLabel";
 import { Notice } from "./Notice";
 import { useSongDialog } from "./useSongDialog";
+import { SortableQueueList } from "./SortableQueueList";
 
 export function QueueTab() {
-  const { upNextQueue, playerState, autoplay, skipSong, clearQueue, queueNextSong } = useRoomContext();
+  const { upNextQueue, playerState, autoplay, skipSong, clearQueue, reorderQueue } = useRoomContext();
   const entryStatus = useEntryStatus();
   const dialog = useSongDialog();
   const [isClearingQueue, setIsClearingQueue] = useState(false);
@@ -89,25 +88,12 @@ export function QueueTab() {
           </Text>
         </div>
       ) : (
-        <div className="flex flex-col gap-1">
-          {upNextItems.map((item: KaraokeQueueItem, index: number) => (
-            <QueueItem
-              key={`queue_item_${item.id}`}
-              entry={item.entry}
-              singer={item.singer}
-              index={index + 1}
-              status={entryStatus(item.entry)}
-              onSelect={() => dialog.open(item.entry)}
-              actions={[
-                {
-                  icon: <MaterialSymbolsKeyboardArrowUpRounded className="text-2xl" />,
-                  label: "Move to next",
-                  onClick: () => queueNextSong(item.id),
-                },
-              ]}
-            />
-          ))}
-        </div>
+        <SortableQueueList
+          items={upNextItems}
+          onReorder={reorderQueue}
+          entryStatus={entryStatus}
+          onSelectSong={dialog.open}
+        />
       )}
 
       <SongActionsDialog

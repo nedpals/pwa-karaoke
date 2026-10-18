@@ -3,7 +3,7 @@ import { CONNECTION_LOST, useWebSocket } from './useWebSocket';
 import { useServerStatus, useVerifyRoomMutation } from './useApi';
 import { getRoomPassword, storeRoomPassword } from '../lib/roomStorage';
 import { apiClient } from '../api/client';
-import type { DisplayPlayerState, KaraokeQueue, KaraokeEntry, ReactionEvent, ReactionType, RoomSettings, ScoreSource, SongScore } from '../types';
+import type { DisplayPlayerState, KaraokeQueue, KaraokeQueueItem, KaraokeEntry, ReactionEvent, ReactionType, RoomSettings, ScoreSource, SongScore } from '../types';
 
 type ClientType = "controller" | "display";
 
@@ -74,6 +74,7 @@ export interface RoomActions {
   playNext: (options?: { fromItemId?: string | null }) => Promise<unknown>;
   skipSong: () => Promise<{ screens: number }>;
   queueNextSong: (entryId: string) => void;
+  reorderQueue: (itemIds: string[]) => void;
   refreshVideoUrl: (entryId: string) => Promise<{ refreshed: boolean }>;
   clearQueue: () => Promise<unknown>;
   setVolume: (volume: number) => Promise<unknown>;
@@ -421,6 +422,29 @@ export function useRoom(clientType: ClientType, nickname?: string | null): UseRo
     // song first or moving straight on
     skipSong: () => screensAck(ws.sendCommandWithAck("skip_song")),
     queueNextSong: (entryId: string) => ws.sendCommand("queue_next_song", { entry_id: entryId }),
+    reorderQueue: (itemIds: string[]) => {
+      setQueue((prev) => {
+        if (!prev) return prev;
+        const idToItem = new Map(prev.items.map((item) => [item.id, item]));
+        const newItems: KaraokeQueueItem[] = [];
+        for (const id of itemIds) {
+          const item = idToItem.get(id);
+          if (item) {
+            newItems.push(item);
+            idToItem.delete(id);
+          }
+        }
+        for (const item of idToItem.values()) {
+          newItems.push(item);
+        }
+        return {
+          ...prev,
+          items: newItems,
+          timestamp: Date.now(),
+        };
+      });
+      ws.sendCommand("reorder_queue", { item_ids: itemIds });
+    },
     // The room hands the same URL to every screen and to the next reload, so a
     // link that stopped playing has to be replaced at the source
     refreshVideoUrl: async (entryId: string) => {

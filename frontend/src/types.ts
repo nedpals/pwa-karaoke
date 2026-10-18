@@ -24,6 +24,8 @@ export interface DisplayPlayerState {
   item_id?: string | null;
   singer?: string | null;
   play_state: "playing" | "paused" | "finished" | "buffering" | "error" | "idle";
+  /** On a finished turn, whether a remote's Next ended it. Kept by the room. */
+  skipped?: boolean;
   current_time: number;
   duration: number;
   volume: number;

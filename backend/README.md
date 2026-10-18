@@ -522,6 +522,7 @@ Leader only: every command below except `queue_update` is ignored when sent by a
   item_id?: string,      // Queue item on air, stamped by the room
   singer?: string,       // Stamped by the room
   play_state: "playing" | "paused" | "finished" | "buffering" | "error" | "idle",
+  skipped?: boolean,     // On a finished turn, whether a Next ended it. Kept by the room
   current_time: number,  // Current position in seconds
   duration: number,      // Total duration in seconds
   volume: number,        // Volume level 0.0-1.0
@@ -530,7 +531,7 @@ Leader only: every command below except `queue_update` is ignored when sent by a
 }
 ```
 
-`finished` keeps the song on the screen and `idle` means an empty room.
+`finished` keeps the song on the screen and `idle` means an empty room. `skipped` is `false` unless the turn is `finished`, and a later `finished` report for the same turn cannot change it.
 
 #### KaraokeQueueItem
 ```typescript

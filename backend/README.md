@@ -296,7 +296,7 @@ The backend provides a FastAPI-based HTTP server alongside the WebSocket functio
 | `GET /search` | Room (Basic) | `query`, `limit` (default 12, max 50), `offset` |
 | `POST /get_video_url` | Room (Basic) | Body is a `KaraokeEntry` |
 | `GET /health` | None | Connection metrics, cache stats and `sources`; 503 once no source can resolve a video |
-| `GET /heartbeat` | None | `{"status": "ok", "timestamp": <ms>}` |
+| `GET /heartbeat` | None | `{"status": "ok", "timestamp": <ms>, "lan_ip": <string or null>}`; `lan_ip` is `KARAOKE_LAN_IP`, or `null` when unset or `127.0.0.1` |
 | `POST /rooms/create` | None | Body `{"room_id", "password"?}`; 400 if the room exists |
 | `GET /rooms/{room_id}` | None | Public room info (`id`, `requires_password`, `created_at`); 404 if missing |
 | `POST /rooms/verify` | Room (Basic) | Returns the room when the credentials are valid |

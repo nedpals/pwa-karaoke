@@ -2,17 +2,19 @@ import { useSearchParams, Navigate } from "react-router";
 import { Text } from "../../../components/atoms/Text";
 import { Panel } from "../../../components/atoms/Panel";
 import { QRCode } from "../../../components/atoms/QRCode";
+import { useControllerOrigin } from "../../../hooks/useApi";
 import { MessageTemplate } from "../../../components/templates/MessageTemplate";
 
 export function ConnectedStateScreen() {
   const [searchParams] = useSearchParams();
   const roomId = searchParams.get("room");
+  const controllerOrigin = useControllerOrigin();
 
   if (!roomId) {
     return <Navigate to="/" replace />;
   }
 
-  const controllerUrl = `${window.location.origin}/controller?room=${encodeURIComponent(roomId)}`;
+  const controllerUrl = `${controllerOrigin}/controller?room=${encodeURIComponent(roomId)}`;
 
   return (
     <MessageTemplate title="Connect a Controller" backdrop="idle">

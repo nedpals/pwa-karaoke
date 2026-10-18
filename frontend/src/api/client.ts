@@ -228,7 +228,7 @@ class ApiClient {
     return response.json();
   }
 
-  async heartbeat(): Promise<{ status: string; timestamp: number }> {
+  async heartbeat(): Promise<{ status: string; timestamp: number; lan_ip: string | null }> {
     const response = await fetch(`${this.baseUrl}/heartbeat`, {
       method: 'GET',
       signal: AbortSignal.timeout(5000), // 5 second timeout

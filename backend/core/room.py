@@ -24,6 +24,9 @@ class Room(BaseModel):
     current_item_id: Optional[str] = None
     current_singer: Optional[str] = None
     current_singer_device_id: Optional[str] = None
+    # The score the room accepted for the turn on air. One per turn, so a
+    # display promoted after the reveal cannot publish a second number.
+    score: Optional[Dict[str, Any]] = None
     settings_version: int = 1
     password_hash: Optional[str] = None
     created_at: float = Field(default_factory=time.time)
@@ -85,6 +88,7 @@ class Room(BaseModel):
         return changed
 
     def play_next(self) -> Optional[KaraokeQueueItem]:
+        self.score = None
         if self.queue.items:
             next_song = self.queue.items.pop(0)
             self.queue_version += 1
@@ -101,6 +105,20 @@ class Room(BaseModel):
     def clear_queue(self) -> None:
         self.queue.items.clear()
         self.queue_version += 1
+
+    def record_score(self, item_id: str, score: int, source: str) -> Optional[Dict[str, Any]]:
+        """Accept the turn's score, or None if it is not the turn on air or
+        already has one."""
+        if not self.current_item_id or item_id != self.current_item_id or self.score:
+            return None
+
+        self.score = {
+            "item_id": item_id,
+            "score": score,
+            "source": source,
+            "timestamp": time.time(),
+        }
+        return self.score
 
     def get_current_song(self) -> Optional[KaraokeQueueItem]:
         return self.player_state.entry if self.player_state else None

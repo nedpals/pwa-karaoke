@@ -263,7 +263,7 @@ Effect 4 (announce scoring) runs on the leader when `Boolean(scoring)` differs f
 
 ### Step 9: The score: mic reading or generated
 
-The leader is the jury, so the whole room sees one number. Effect 5 (the jury effect) runs when `isLeader`, `scoring` or `scoreReading` changes, and does nothing unless the display is the leader, `scoring` is set, and `judged.current !== scoring.itemId`.
+The leader is the jury, so the whole room sees one number. Effect 5 (the jury effect) runs when `isLeader`, `scoring`, `scoreReading` or `judged` changes, and does nothing unless the display is the leader, `scoring` is set, and `judged` is false. `judged` is not a ref: it is derived on each render as `score?.item_id === scoring.itemId`, so it reads the room's score rather than anything this display remembers.
 
 Where a mic reading comes from:
 
@@ -275,13 +275,15 @@ Where a mic reading comes from:
 What the jury effect does with it:
 
 - `heard` is `scoreReading` if `scoreReading.itemId === scoring.itemId`, else `null`.
-- `publish()` returns early if `judged.current === itemId`; otherwise sets `judged.current = itemId` and calls `publishScoreRef.current(itemId, score, source)`:
+- `publish()` calls `publishScoreRef.current(itemId, score, source)`:
   - with a reading: `scoreFromPerformance(heard.performance)` and source `"mic"`;
   - without: `rollScore()` and source `"auto"`.
 - If a reading is already in hand, `publish()` runs immediately.
 - If not, it waits `JURY_GRACE_MS` (1000 ms) in a timer. If a reading arrives during that second, the effect re-runs (its cleanup clears the timer) and publishes the mic score right away.
 
-The command sent is `publish_score` with `{item_id, score, source}`. The server (`DisplayCommands.publish_score`) accepts it from the leader only and broadcasts `score` with `{item_id, score, source, timestamp}` to the whole room.
+The command sent is `publish_score` with `{item_id, score, source}`. The server (`DisplayCommands.publish_score`) accepts it only from the leader, only for the turn on air (`room.current_item_id`), and only once per turn. It stores the score on the room (`Room.record_score`), broadcasts `score` with `{item_id, score, source, timestamp}` to the whole room, and acks `{published: true}`. Anything else acks `{published: false}` and broadcasts nothing. `Room.play_next` clears the stored score, and `join_room` sends it to a client that joins while it is set.
+
+The room's copy is the only record of whether a turn is scored. A second `publish()` for the same turn, for example a mic reading arriving after the grace timer already published, is refused by the server rather than guarded against on the display.
 
 ### Step 10: The reveal, then rolling over
 
@@ -305,7 +307,7 @@ The `play_next` command carries `from_item_id`, which the server compares with t
 
 The server's response to `play_next` is a new `player_state` for the next reservation (`play_state: "playing"`, new `item_id`), or `entry: null` with `play_state: "idle"` if the queue was empty.
 
-When `currentItemId` changes, effect 10 (the reset effect) runs and clears the per-performance state: `scoringRef.current = null`, `advancing.current = false`, `scoredItem.current = null`, `setScoring(null)`, `clearScoreTimer()`, `judged.current = null`. This also runs once on mount.
+When `currentItemId` changes, effect 10 (the reset effect) runs and clears the per-performance state: `scoringRef.current = null`, `advancing.current = false`, `scoredItem.current = null`, `setScoring(null)`, `clearScoreTimer()`. This also runs once on mount.
 
 Then:
 
@@ -380,7 +382,6 @@ Inline numbers without a name:
 | `recovering` | A watchdog `play_next` (effect 3) is in flight. Also blocks the watchdog from arming |
 | `advancing` | An advance after scoring is in flight. Stops `finishScoring` and `beginScoring` from acting during the round trip |
 | `scoredItem` | The performance id that already has a scoring session, so a turn is scored once |
-| `judged` | The performance id the jury already published a score for |
 | `announced` | The last `scoring_state` value sent (`true`, `false`, or `null` before the first), so it is only sent on change |
 
 **Timers**
@@ -433,19 +434,19 @@ The comment above the mirrors (`useRoom hands back fresh closures every render`)
 
 | # | Line | Runs when | What it does |
 | --- | --- | --- | --- |
-| 1 | 92 | `publishScore`, `announceScoring`, `playNext`, `removeSong`, `updatePlayerState`, `playerState`, `scoring`, `autoplay`, `minScoredSeconds`, `reservedCount`, `cuedItem` change | Copies each into its mirror ref (`publishScoreRef` ... `cuedItemRef`, `scoringRef`) |
-| 2 | 132 | `isLeader`, `autoplay`, `currentItemId`, `reservedCount` change | Leader with autoplay on, nothing on air and something reserved: sends `play_next` `{}` guarded by `starting` |
-| 3 | 148 | `isLeader`, `currentItemId`, `playState`, `autoplay`, `scoring` change | Rollover watchdog. If the leader has a `finished` song, autoplay on, no scoring and `recovering` false, arms a `ROLLOVER_WATCHDOG_MS` timer. When it fires it re-reads `scoringRef` and `playerStateRef`, and if still finished sends `play_next` with `fromItemId: currentItemId` |
-| 4 | 179 | `scoring`, `isLeader` change | Leader sends `scoring_state` `{active}` when `Boolean(scoring)` differs from `announced.current` |
-| 5 | 189 | `isLeader`, `scoring`, `scoreReading` change | The jury. Leader publishes a score once per performance (`judged`), using the mic reading if present, else after `JURY_GRACE_MS` a generated one |
-| 6 | 274 | `scoring`, `score`, `finishScoring` change | When the `score` matches the scoring session, replaces the fallback timer with `finishScoring(quick, landingMs(quick) + hold)` |
-| 7 | 310 | `skipRequest`, `isLeader`, `endSong` change | Handles a remote's Next (leader only, once per `at`) |
-| 8 | 351 | `playState`, `currentItemId`, `scoring`, `minScoredSeconds`, `beginScoring` change | On any display, when the room state is `finished`, not yet scored and long enough, calls `beginScoring(currentItemId, false)` |
-| 9 | 363 | `playbackRequest` changes | Handles a remote's Play or Pause (leader only, once per `at`) |
-| 10 | 396 | `currentItemId`, `clearScoreTimer` change | Resets the per-performance refs and state when the performance changes |
-| 11 | 405 | `clearScoreTimer` (effectively mount) | Cleanup on unmount: clears `scoreTimer` |
-| 12 | 411 | `playerState?.play_state`, `playerState?.entry`, `setOSD` change | Sets the on-screen label for `play_state` changes ("Play" for 2000 ms, "Pause", "Buffering"), tracked with `lastPlayStateRef` |
-| 13 | 432 | `lastQueueCommand` changes | For `set_volume`: sends the new volume through `updatePlayerState` and shows a volume OSD for 2000 ms |
+| 1 | 91 | `publishScore`, `announceScoring`, `playNext`, `removeSong`, `updatePlayerState`, `playerState`, `scoring`, `autoplay`, `minScoredSeconds`, `reservedCount`, `cuedItem` change | Copies each into its mirror ref (`publishScoreRef` ... `cuedItemRef`, `scoringRef`) |
+| 2 | 131 | `isLeader`, `autoplay`, `currentItemId`, `reservedCount` change | Leader with autoplay on, nothing on air and something reserved: sends `play_next` `{}` guarded by `starting` |
+| 3 | 147 | `isLeader`, `currentItemId`, `playState`, `autoplay`, `scoring` change | Rollover watchdog. If the leader has a `finished` song, autoplay on, no scoring and `recovering` false, arms a `ROLLOVER_WATCHDOG_MS` timer. When it fires it re-reads `scoringRef` and `playerStateRef`, and if still finished sends `play_next` with `fromItemId: currentItemId` |
+| 4 | 178 | `scoring`, `isLeader` change | Leader sends `scoring_state` `{active}` when `Boolean(scoring)` differs from `announced.current` |
+| 5 | 190 | `isLeader`, `scoring`, `scoreReading`, `judged` change | The jury. Leader publishes a score unless the room already has one for the performance, using the mic reading if present, else after `JURY_GRACE_MS` a generated one |
+| 6 | 272 | `scoring`, `score`, `finishScoring` change | When the `score` matches the scoring session, replaces the fallback timer with `finishScoring(quick, landingMs(quick) + hold)` |
+| 7 | 308 | `skipRequest`, `isLeader`, `endSong` change | Handles a remote's Next (leader only, once per `at`) |
+| 8 | 349 | `playState`, `currentItemId`, `scoring`, `minScoredSeconds`, `beginScoring` change | On any display, when the room state is `finished`, not yet scored and long enough, calls `beginScoring(currentItemId, false)` |
+| 9 | 361 | `playbackRequest` changes | Handles a remote's Play or Pause (leader only, once per `at`) |
+| 10 | 394 | `currentItemId`, `clearScoreTimer` change | Resets the per-performance refs and state when the performance changes |
+| 11 | 402 | `clearScoreTimer` (effectively mount) | Cleanup on unmount: clears `scoreTimer` |
+| 12 | 408 | `playerState?.play_state`, `playerState?.entry`, `setOSD` change | Sets the on-screen label for `play_state` changes ("Play" for 2000 ms, "Pause", "Buffering"), tracked with `lastPlayStateRef` |
+| 13 | 429 | `lastQueueCommand` changes | For `set_volume`: sends the new volume through `updatePlayerState` and shows a volume OSD for 2000 ms |
 
 #### Effects in `VideoPlayer.tsx` in source order
 
@@ -496,10 +497,10 @@ The comment above effect 3 says the ask that ends a finished song is a timer in 
 The leader can change at any time (`leader_status`). What the code does:
 
 - **Becoming leader mid-song.** `isLeader` turns true, so `updatePlayerState` starts sending. The new leader's `<video>` element was already following the room state, so its `onPlay`, interval and other reports start reaching the server. `useSmartSync` stops predicting for it.
-- **Becoming leader mid-scoring.** Effect 4 sends `scoring_state` `{active: true}` because `announced.current` is still `null`. Effect 5 re-arms because `isLeader` is in its dependencies and `judged.current` does not equal the session's item id. The comment says being promoted mid-grace re-arms the jury rather than costing the singer their score. A pending `finishScoring` timer on that display now calls a `playNext` that works, because `playNextRef` is refreshed from the render that knows `isLeader` is true.
+- **Becoming leader mid-scoring.** Effect 4 sends `scoring_state` `{active: true}` because `announced.current` is still `null`. Effect 5 re-arms because `isLeader` is in its dependencies, unless the room's `score` already names the session's item id, in which case the new leader has nothing to publish. The comment says being promoted mid-grace re-arms the jury rather than costing the singer their score. A pending `finishScoring` timer on that display now calls a `playNext` that works, because `playNextRef` is refreshed from the render that knows `isLeader` is true.
 - **Becoming leader while a song sits finished.** Effect 3 depends on `isLeader`, so the watchdog arms.
 - **Losing leadership.** `playNext` and `updatePlayerState` become no-ops on that display. The grace timer in effect 5 and the timer in effect 3 are cleared by their effect cleanups, because `isLeader` is a dependency. A `finishScoring` timer is not cancelled, and its `play_next` call becomes a no-op.
-- **No duplicate-publish check across displays.** `judged` is per display. If the old leader already published for an item and the new leader's `judged` is empty, the new leader can publish again. The code does not prevent that, and the server's `publish_score` handler just broadcasts.
+- **One score per turn across displays.** The room keeps the score it accepted, so a display promoted after the old leader published sees `score` for the item and does not publish. If its `score` has not arrived yet, the server refuses its `publish_score` anyway.
 - **Reconnecting.** When `ws.connected` is false, `useRoom` clears its room state (queue, player state, settings, score, requests) and `isLeader` goes to `false`, so the provider shows `"connecting"`. `useWebSocket` reconnects on its own with backoff (0.5 s doubling to a 30 s cap, up to 50 attempts) and sends a `handshake` as the first message on every new socket. When the socket is back, `useRoom` calls `verifyAndJoinRoom` again, which re-verifies over HTTP and sends `join_room`; the server then sends the current state and `leader_status` (`_receive_current_state`). `PlayerPage` keeps the provider mounted through all of this once `room.hasJoinedOnce` is true, so `hasInteracted` and the other local state survive. If the room no longer exists (rooms live in memory, so a backend restart loses them), the re-verify fails and the page shows "Access Denied" with "Room not found".
 
 ## 6. Tips for changing this code safely
@@ -508,7 +509,7 @@ The leader can change at any time (`leader_status`). What the code does:
 
 - **Mirror refs and their state.** Each mirror in section 4b is copied in effect 1 from the state or prop it mirrors. If you add a value a timer or one-shot effect needs, add a `useRef`, add the copy in effect 1, and add the value to that effect's dependency array. Do not read the closure value inside a timer.
 - **`scoring` and `scoringRef`.** `beginScoring` and the reset effect write `scoringRef.current` directly, before `setScoring` takes effect. `finishScoring`'s timer reads `scoringRef`, not the state.
-- **`scoredItem`, `judged`, `advancing`, `scoreTimer` and `scoring`.** The reset effect (10) clears them together when `currentItemId` changes. A new per-performance guard belongs in that effect.
+- **`scoredItem`, `advancing`, `scoreTimer` and `scoring`.** The reset effect (10) clears them together when `currentItemId` changes. A new per-performance guard belongs in that effect.
 - **`announced` and `scoring`.** Effect 4 turns `scoring` into at most one message per change.
 - **Guards and `.finally`.** `starting`, `recovering` and `advancing` are reset in `.finally` of the promise they guard. Keep it that way so a rejected command cannot leave one stuck.
 - **Handled markers.** `handledSkip` and `handledPlayback` compare against `request.at`. An effect that reads a request from `useRoom` needs the same marker.

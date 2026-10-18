@@ -1,3 +1,4 @@
+import time
 from typing import Optional, List, Dict
 from fastapi import WebSocket
 
@@ -30,6 +31,7 @@ class SessionManager:
                 await self.ensure_room_display_leader(room_id)
             
             await self.broadcast_room_client_count(room_id)
+            self._mark_if_empty(room_id)
     
     # Room management
     def get_room(self, room_id: str) -> Room:
@@ -92,10 +94,15 @@ class SessionManager:
         nickname: Optional[str] = None,
         device_id: Optional[str] = None,
     ):
+        # Look the room up first, so a missing room leaves the client as it was
+        room = self.get_room(room_id)
+        previous_room_id = client.room_id
         client.room_id = room_id
         client.nickname = nickname
         client.device_id = device_id
-        room = self.get_room(room_id)
+        room.empty_since = None
+        if previous_room_id and previous_room_id != room_id:
+            self._mark_if_empty(previous_room_id)
         
         # If display, ensure leadership is handled
         if client.client_type == "display":
@@ -159,3 +166,21 @@ class SessionManager:
             })
         }
     
+    def _mark_if_empty(self, room_id: str):
+        if self.room_manager.room_exists(room_id) and self.get_room_client_count(room_id) == 0:
+            self.get_room(room_id).empty_since = time.time()
+
+    def sweep_idle_rooms(self, now: float, ttl: float) -> list[str]:
+        """Delete rooms that have had no clients for at least ttl seconds.
+
+        Synchronous on purpose: nothing can join a room between the check and
+        the delete."""
+        removed = []
+        for room_id, room in list(self.room_manager.rooms.items()):
+            if (room.empty_since is not None
+                    and now - room.empty_since >= ttl
+                    and self.get_room_client_count(room_id) == 0):
+                self.room_manager.delete_room(room_id)
+                self.room_leaders.pop(room_id, None)
+                removed.append(room_id)
+        return removed

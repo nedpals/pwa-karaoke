@@ -27,6 +27,9 @@ class Room(BaseModel):
     settings_version: int = 1
     password_hash: Optional[str] = None
     created_at: float = Field(default_factory=time.time)
+    # None while someone is connected. A new room counts as empty, so one
+    # that is created and never joined is still cleaned up.
+    empty_since: Optional[float] = Field(default_factory=time.time)
 
     _limiter: SlidingWindowLimiter = PrivateAttr(default_factory=SlidingWindowLimiter)
 
@@ -168,6 +171,9 @@ class RoomManager:
 
         self.rooms[room_id] = room
         return room
+
+    def delete_room(self, room_id: str) -> None:
+        self.rooms.pop(room_id, None)
 
     def room_exists(self, room_id: str) -> bool:
         """Check if a room exists"""

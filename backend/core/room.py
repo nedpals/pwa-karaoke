@@ -75,6 +75,12 @@ class Room(BaseModel):
         self.queue_version += 1
         return True
 
+    def move_song(self, item_id: str, position: int) -> bool:
+        changed = self.queue.move_song(item_id, position)
+        if changed:
+            self.queue_version += 1
+        return changed
+
     def play_next(self) -> Optional[KaraokeQueueItem]:
         if self.queue.items:
             next_song = self.queue.items.pop(0)

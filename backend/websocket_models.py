@@ -96,6 +96,11 @@ class JoinRoomPayload(BaseModel):
         nickname = ' '.join(v.split())[:MAX_NICKNAME_LENGTH]
         return nickname or None
 
+class MoveSongPayload(BaseModel):
+    """Move song command payload"""
+    item_id: str
+    position: int = Field(..., ge=0)
+
 # Mapping of commands to their expected payload types
 COMMAND_PAYLOAD_MAP = {
     "handshake": HandshakePayload,
@@ -106,6 +111,7 @@ COMMAND_PAYLOAD_MAP = {
     "queue_song": QueueSongPayload,
     "remove_song": EntryIDPayload,
     "queue_next_song": EntryIDPayload,
+    "move_song": MoveSongPayload,
     "refresh_video_url": EntryIDPayload,
     "set_volume": SetVolumePayload,
     "set_autoplay": SetAutoplayPayload,

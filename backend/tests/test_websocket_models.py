@@ -45,3 +45,13 @@ def test_request_id_is_stripped_before_validation():
 
     assert validated["id"] == "song-1"
     assert "request_id" not in validated
+
+
+def test_move_song_payload_validation():
+    validated = validate_websocket_message("move_song", {"item_id": "song-1", "position": 2})
+    assert validated["item_id"] == "song-1"
+    assert validated["position"] == 2
+
+    with pytest.raises(ValueError, match="Invalid payload for command 'move_song'"):
+        validate_websocket_message("move_song", {"item_id": "song-1", "position": -1})
+

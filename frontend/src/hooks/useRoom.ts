@@ -74,6 +74,7 @@ export interface RoomActions {
   playNext: (options?: { fromItemId?: string | null }) => Promise<unknown>;
   skipSong: () => Promise<{ screens: number }>;
   queueNextSong: (entryId: string) => void;
+  moveSong: (itemId: string, position: number) => void;
   refreshVideoUrl: (entryId: string) => Promise<{ refreshed: boolean }>;
   clearQueue: () => Promise<unknown>;
   setVolume: (volume: number) => Promise<unknown>;
@@ -421,6 +422,23 @@ export function useRoom(clientType: ClientType, nickname?: string | null): UseRo
     // song first or moving straight on
     skipSong: () => screensAck(ws.sendCommandWithAck("skip_song")),
     queueNextSong: (entryId: string) => ws.sendCommand("queue_next_song", { entry_id: entryId }),
+    moveSong: (itemId: string, position: number) => {
+      setQueue((prev) => {
+        if (!prev) return prev;
+        const fromIndex = prev.items.findIndex((item) => item.id === itemId);
+        if (fromIndex === -1 || fromIndex === position) return prev;
+        const newItems = [...prev.items];
+        const [dragged] = newItems.splice(fromIndex, 1);
+        const targetIndex = Math.max(0, Math.min(position, newItems.length));
+        newItems.splice(targetIndex, 0, dragged);
+        return {
+          ...prev,
+          items: newItems,
+          timestamp: Date.now(),
+        };
+      });
+      ws.sendCommand("move_song", { item_id: itemId, position });
+    },
     // The room hands the same URL to every screen and to the next reload, so a
     // link that stopped playing has to be replaced at the source
     refreshVideoUrl: async (entryId: string) => {

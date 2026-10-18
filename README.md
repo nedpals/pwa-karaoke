@@ -1,6 +1,6 @@
 # PWA Karaoke
 
-A web-based karaoke application that transforms any device into a karaoke system.
+A web-based karaoke system. Put the video on a TV or laptop, and let everyone search for and queue songs from their phones.
 
 > [!IMPORTANT]
 > This software is intended for personal, non-commercial use only. Users are responsible for ensuring compliance with applicable copyright laws and terms of service in their jurisdiction.
@@ -9,68 +9,114 @@ A web-based karaoke application that transforms any device into a karaoke system
 
 *My Way, Philippines' most deadly karaoke song, playing in PWA Karaoke.*
 
+## Contents
+
+- [Features](#features)
+- [How it works](#how-it-works)
+- [Getting the code](#getting-the-code)
+- [Running PWA Karaoke](#running-pwa-karaoke)
+  - [Docker Compose (recommended)](#docker-compose-recommended)
+  - [Docker](#docker)
+  - [Without Docker](#without-docker)
+- [Local development](#local-development)
+- [Configuration](#configuration)
+- [Troubleshooting](#troubleshooting)
+- [Using PWA Karaoke](#using-pwa-karaoke)
+- [Contributing](#contributing)
+- [License](#license)
+
 ## Features
-- Use your phone or tablet as a controller and any web-capable device as a display
-- Easy-to-use, slick user interface
-- Search and queue songs from video streaming platforms
-- Supports multiple rooms with password protection
-- Operates entirely within the browser
 
-## Downloads
-### Releases
-Coming soon. In the meantime, you may use the "Clone with Git" or "Download ZIP" methods below.
+- Any device with a browser can be the display, and phones or tablets are the remotes. Nothing to install on either.
+- Songs come from YouTube (through [yt-dlp](https://github.com/yt-dlp/yt-dlp)).
+- Separate rooms, each with an optional password, so several groups can share one server.
+- Several displays can play the same room in sync.
+- Singer nicknames on queued songs, emoji reactions on screen, and a score at the end of every song.
+- Installable as a Progressive Web App.
 
-### Clone with Git
-To download the application via `git`, simply clone it using `git clone https://github.com/nedpals/pwa-karaoke.git`.
+## How it works
 
-### Download ZIP
-You can download the source code as a ZIP file by clicking "Code" → "Download ZIP" on the GitHub repository page.
+PWA Karaoke has a Python backend (FastAPI) and a React frontend. The backend finds songs and resolves their video URLs with yt-dlp, keeps each room's queue, and relays commands over a WebSocket. The browser does the rest.
 
-## System Requirements
-- Minimum 2GB RAM, 1 vCPU
-- Docker (if using Docker or Docker Compose)
+Each device that joins a room is one of two kinds:
 
-See the [manual setup prerequisites](#prerequisites) when running without Docker.
+- **Display**: a TV, projector, or laptop that plays the video and shows the queue.
+- **Controller**: a phone or tablet that searches for songs, reserves them, and controls playback.
 
-## Setup
-### Docker Compose
-The recommended way to run PWA Karaoke is through Docker Compose. This method simplifies the setup process and ensures that all dependencies are correctly configured.
+## Getting the code
+
+There are no packaged releases yet. Clone the repository:
+
+```bash
+git clone https://github.com/nedpals/pwa-karaoke.git
+cd pwa-karaoke
+```
+
+Or download it from GitHub with **Code** → **Download ZIP**.
+
+## Running PWA Karaoke
+
+The server needs at least 2 GB of RAM and 1 vCPU.
+
+### Docker Compose (recommended)
+
+Requires Docker with the Compose plugin. From the repository root:
 
 ```bash
 ./start-docker-app -d
 ```
 
-`start-docker-app` sets `YTDLP_CHANNEL=nightly` and runs `docker compose up`, forwarding any arguments you pass (such as `-d`). It starts the backend and [Caddy](https://caddyserver.com/) web server.
+This builds the image and starts two containers: the app, and a [Caddy](https://caddyserver.com/) web server in front of it on ports 80 and 443. `start-docker-app` runs `docker compose up` with `YTDLP_CHANNEL=nightly` and passes along any arguments you give it, such as `-d` to run in the background.
 
-Visit `http://localhost` or `http://$DOMAIN` (where `$DOMAIN` is your configured domain) to access the application.
+Open `http://localhost`, or `http://$DOMAIN` if you set `DOMAIN`. This and the other settings are read from your shell or a `.env` file next to `docker-compose.yml`, and are listed under [Configuration](#configuration). With nothing set, the server answers on `localhost`.
 
-The container refreshes `yt-dlp` on every start. Because `start-docker-app` uses the nightly channel, it picks up YouTube fixes before a stable release does. To run on stable instead, bypass the script:
+Caddy serves HTTPS automatically. For a real domain name it gets a certificate from Let's Encrypt. For `localhost` it uses its own certificate, which your browser will warn about. Caddy only answers requests for the host name in `DOMAIN`, so phones must reach the server by that name.
+
+The app refreshes yt-dlp every time its container starts, so a restart is enough to pick up the latest version. The nightly channel picks up YouTube fixes before a stable release does. To use stable releases instead, run Compose directly:
 
 ```bash
 YTDLP_CHANNEL=stable docker compose up -d
 ```
 
+To stop everything, run `docker compose down`.
+
 ### Docker
 
-If you have a custom setup that doesn't use Docker Compose, you can run the backend and frontend services separately using Docker.
+To run the app without Caddy, for example behind a reverse proxy you already have:
 
 ```bash
-# Build the application
 docker build -t pwa-karaoke .
-
-# Run the container
 docker run -d -p 8000:8000 --name pwa-karaoke pwa-karaoke
 ```
 
-Visit `http://localhost:8000` to access the application.
+Open `http://localhost:8000`.
 
-### Local development
-Run the backend and the Vite dev server in two terminals. Open the repository root in both.
+Pass settings with `-e NAME=value` (see [Configuration](#configuration)). Unlike Compose, this does not refresh yt-dlp when the container starts. Add `-e YTDLP_AUTO_UPDATE=1` to `docker run` to turn that on. To build the image with a nightly yt-dlp, add `--build-arg YTDLP_CHANNEL=nightly` to `docker build`.
 
-#### Prerequisites
-- [uv](https://docs.astral.sh/uv/), which also downloads the right Python for you
-- Node.js 20+
-- Docker (optional, for containerized deployment)
+### Without Docker
+
+Install the [prerequisites](#prerequisites), then build the frontend into the backend and start the server:
+
+```bash
+cd frontend
+npm ci
+npm run build:prod   # writes the built app to backend/static
+
+cd ../backend
+uv sync --no-dev
+uv run python main.py
+```
+
+Open `http://localhost:8000`.
+
+## Local development
+
+For working on the code, run the backend and the Vite dev server in two terminals, both starting from the repository root. The dev server reloads the frontend as you edit.
+
+### Prerequisites
+
+- [uv](https://docs.astral.sh/uv/), which installs the right Python version (3.12) for you
+- Node.js 20 or newer
 
 Install uv once.
 
@@ -88,17 +134,95 @@ powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | ie
 
 If you already have Python, `pip install uv` works too. Open a new terminal afterwards so `uv` is on your PATH.
 
-#### Terminal 1: backend
+If you cannot get uv or Node working, open the repository in the dev container (`.devcontainer/`) with VS Code or GitHub Codespaces. It installs both for you.
+
+### Terminal 1: backend
+
 ```bash
 cd backend
 uv sync
 uv run python main.py
 ```
 
-`uv sync` creates `backend/.venv` and installs the locked dependencies, including `yt-dlp`, so there is nothing to activate. To update `yt-dlp` later, run `uv lock --upgrade-package yt-dlp && uv sync`.
+`uv sync` creates `backend/.venv` and installs the locked dependencies, including yt-dlp. There is no virtual environment to activate. The backend listens on `http://localhost:8000`. Its settings are environment variables, listed under [Configuration](#configuration).
 
-##### Using a yt-dlp nightly
-If searches work but songs won't play, and the backend logs show "Sign in to confirm you're not a bot" or "Requested format is not available", the stable `yt-dlp` release may be behind YouTube. Install the newest nightly build into the backend's environment and start the server with `--no-sync`:
+To update yt-dlp later, run `uv lock --upgrade-package yt-dlp && uv sync`. If you need a nightly build, see [Songs won't play](#songs-wont-play).
+
+### Terminal 2: frontend
+
+```bash
+cd frontend
+npm ci
+npm run dev
+```
+
+### Open the app
+
+- On your computer: `http://localhost:5173`
+- On a phone on the same Wi-Fi: `http://<your-LAN-IP>:5173`. Vite prints the exact address as `Network:` when it starts.
+
+The dev server forwards API and WebSocket requests to the backend on `http://localhost:8000`, so phones need nothing else. To use a backend running somewhere else, set `VITE_BACKEND_URL`, for example `VITE_BACKEND_URL=http://192.168.1.20:8000 npm run dev`.
+
+Over plain `http://<LAN-IP>:5173` phones cannot use their microphones, so scores are generated instead. See [Microphone scoring doesn't work](#microphone-scoring-doesnt-work).
+
+For the contribution workflow, tests, and a tour of the code, see [CONTRIBUTING.md](CONTRIBUTING.md), [backend/README.md](backend/README.md), and [frontend/README.md](frontend/README.md).
+
+## Configuration
+
+The backend reads these environment variables. With Docker Compose, set them in your shell or in a `.env` file next to `docker-compose.yml`.
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `DOMAIN` | `localhost` | Host name Caddy serves and gets a certificate for. Also added to the backend's allowed CORS origins. |
+| `PORT` | `8000` | Port the backend listens on. |
+| `PROXY_SERVER` | | Proxy for YouTube requests, such as `http://proxy:8080`. |
+| `PROXY_USERNAME`, `PROXY_PASSWORD` | | Credentials for `PROXY_SERVER`. |
+| `KARAOKE_SOURCES` | all | Comma-separated song sources to enable. `youtube` is the only one today. |
+| `SEARCH_TIMEOUT_SECONDS` | `20` | Time limit for one search. |
+| `YTDLP_TIMEOUT_SECONDS` | `45` | Time limit for one yt-dlp call. |
+| `YTDLP_RUNTIME` | `deno` | JavaScript runtime yt-dlp uses for YouTube, as `RUNTIME[:PATH]` (for example `node` or `node:/usr/bin/node`). |
+| `YTDLP_PLAYER_CLIENT` | | Comma-separated YouTube player clients. Empty lets yt-dlp choose. |
+| `YTDLP_EXTRA_ARGS` | | Extra yt-dlp command-line flags, shell quoted. |
+| `YTDLP_BINARY` | `yt-dlp` | Name or path of the yt-dlp executable. |
+
+These apply only to the Docker image:
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `YTDLP_CHANNEL` | `stable` | `stable` or `nightly` yt-dlp builds. `start-docker-app` sets `nightly`. |
+| `YTDLP_AUTO_UPDATE` | `1` with Compose, `0` with `docker run` | Set to `1` to refresh yt-dlp every time the container starts. |
+
+## Troubleshooting
+
+For API and WebSocket problems, see the Troubleshooting section of [backend/README.md](backend/README.md#troubleshooting).
+
+### A phone can't open the app
+
+- The phone must be on the same Wi-Fi network as the computer running the server.
+- Use the address Vite prints as `Network:` (development) or the computer's LAN address (Docker, port 80 or 8000).
+- A firewall on the computer may be blocking the port (5173 for the dev server). Allow it, or temporarily turn the firewall off to test.
+
+### "Room not found" after restarting the server
+
+Rooms are kept in memory, so restarting the server removes them. Create the room again from the home screen.
+
+### Search returns nothing
+
+- The server needs internet access to reach YouTube.
+- YouTube may be blocking requests from your network. Try a [proxy](#configuration) or the nightly yt-dlp in [Songs won't play](#songs-wont-play).
+- Open `/health` on the server (for example `http://localhost:8000/health`) to see whether the song source is working. It returns 503 when no source can play videos.
+
+### `yt-dlp binary not found`
+
+The backend can't find yt-dlp. Run `uv sync` in `backend/`, then start the server with `uv run python main.py` so it uses that environment. If yt-dlp lives elsewhere, set `YTDLP_BINARY` to its path.
+
+### Songs won't play
+
+If searches work but songs won't play, and the backend logs show "Sign in to confirm you're not a bot" or "Requested format is not available", YouTube has probably changed something that the stable yt-dlp release does not handle yet.
+
+With Docker Compose, use `./start-docker-app`, which installs the latest nightly build each time the app starts. Restart it to pick up a newer one.
+
+Without Docker, install the latest nightly into the backend's environment and start the server with `--no-sync`:
 
 ```bash
 cd backend
@@ -106,90 +230,78 @@ uv pip install --upgrade "yt-dlp[default,deno]>=0.0.0.dev0"
 uv run --no-sync python main.py
 ```
 
-Keep `--no-sync` every time you start the server. A plain `uv run` puts the locked stable release back without telling you. Check which one you have with `uv run --no-sync yt-dlp --version`: a nightly ends in a long build number, such as `2026.10.10.233141`. To go back to stable, run `uv sync`.
+Keep using `--no-sync` every time you start the server. Plain `uv run` silently puts the locked stable release back. Check which version you have with `uv run --no-sync yt-dlp --version`: a nightly ends in a long build number, such as `2026.10.10.233141`. To go back to stable, run `uv sync`.
 
-#### Terminal 2: frontend
-```bash
-cd frontend
-npm ci
-npm run dev
-```
+### Microphone scoring doesn't work
 
-#### Open the app
-- On your laptop: `http://localhost:5173`
-- On a phone on the same wifi: `http://<your-LAN-IP>:5173`. Vite prints the exact address as `Network:` when it starts.
+Browsers only allow the microphone on HTTPS pages (and on `localhost`). A phone that opens the app over plain `http://`, such as the dev server's LAN address, falls back to generated scores. This is expected. To score with the microphone, serve the app over HTTPS, for example through Caddy with a real `DOMAIN`.
 
-The dev server proxies API and WebSocket requests to the backend on `http://localhost:8000`, so phones need nothing else. To use a backend running elsewhere, set `VITE_BACKEND_URL` (for example `VITE_BACKEND_URL=http://192.168.1.20:8000 npm run dev`).
+### A display plays no sound
 
-> [!NOTE]
-> Microphone scoring needs HTTPS. Over plain `http://<LAN-IP>:5173` a phone cannot use its microphone, so the score is generated instead. This is expected.
+Browsers block audio until the page has been clicked. A new display shows a **Sound Check** screen. Click **Allow Sound** on it before songs start.
 
-If you cannot get uv or Node working on your machine, the repository includes a dev container (`.devcontainer/`) that you can open with VS Code or GitHub Codespaces.
+## Using PWA Karaoke
 
-### Production build
-```bash
-# Build frontend and bundle into backend
-cd frontend
-npm install
-npm run build:prod
+### Joining a room
 
-# Start the server
-cd ../backend
-uv sync --no-dev
-uv run python main.py
-```
+Rooms let groups run separate karaoke sessions on the same server. The home screen has one room field, filled in with a generated name that you can keep or replace.
 
-Visit `http://localhost:8000` to access the application.
+Press **Join Room**. What happens next depends on the room name:
 
-## Usage
+- **The room does not exist yet.** It is created when you enter, and you can give it a **Room Password**.
+- **The room exists and has no password.** You enter straight away.
+- **The room exists and has a password.** You are asked for it before you can enter.
 
-### Rooms
-Rooms let multiple groups run karaoke sessions independently. The home screen has a single room field, filled with a generated name you can replace with your own.
+In the same dialog, choose what this device becomes:
 
-Pressing **Join Room** opens a dialog whose contents depend on the name you entered:
-- **The room does not exist yet.** It gets created when you enter, and the dialog offers an optional **Room Password**.
-- **The room exists and is open.** You enter straight away.
-- **The room exists and is password protected.** The dialog asks for the password before letting you in.
+- **Enter as Display**: plays the video and shows the queue. You can open several displays in one room and they stay in sync. Not offered on small screens.
+- **Enter as Controller**: searches for songs and controls playback.
 
-### Modes
-
-The same dialog is where you pick what this device becomes:
-- **Enter as Display:** For TVs, projectors, or multiple screens to show the video playback and song queue. It supports playing to multiple displays in near real-time. Not offered on small screens.
-- **Enter as Controller:** For phones or tablets to search for songs and control playback.
-
-The quickest way to add a controller is to scan the QR code the display shows while it is waiting.
+While a display is waiting for songs, it shows a QR code. Scanning it with a phone is the quickest way to join as a controller.
 
 ### Nicknames
 
-A controller asks who is holding it before it joins, and that nickname rides along with every song reserved from it. Reserved songs carry the name in the controller's Reserved tab, and the display shows it beside the song in the banner and on the Up Next card, so a room full of people can tell whose turn is coming.
+A controller asks **Who Is Singing?** before it joins. That nickname is attached to every song reserved from it: it appears in the controller's **Reserved** tab and next to the song on the display, in the now-playing banner and on the Up Next card. Everyone can see whose turn is coming.
 
-The name is remembered on the device, so the prompt comes back filled in the next time that phone joins a room. Change it there whenever the phone changes hands. Names run up to 14 characters, which is what fits beside a song title on a phone.
+The phone remembers the nickname and fills it in the next time it joins a room. Change it when the phone changes hands. Nicknames can be up to 14 characters, which is what fits beside a song title on a phone.
 
-Displays are never asked for a name. Each one generates its own (`Stage 42` and the like) and shows it in the corner status strip, which is handy when several screens share a room.
+Displays are never asked for a name. Each one picks its own, such as `Stage 42`, and shows it in its corner status strip, which helps when several screens share a room.
+
+### Controller tabs
+
+- **Search**: find songs and reserve them.
+- **Player**: play, pause, skip, volume, autoplay, and reactions.
+- **Reserved**: the queue. Move a song to the front or remove it.
+
+Every controller in a room has full control. Any phone can skip, remove, or clear any song, not only the ones it reserved. This is intended.
 
 ### Autoplay
 
-Reserved songs play one after another by default: when the current song ends, the display moves straight on to the next one in the queue.
+By default, reserved songs play one after another: when a song ends, the display starts the next one.
 
-The **Autoplay** toggle in the controller's Player tab turns that off. With it off, a song that ends leaves the queue untouched and the display holds, showing what is up next until someone presses **Next**. If nothing is reserved there is nothing to hold back, so the display returns to its idle screen instead. The setting belongs to the room, so every controller and display in it stays in sync, and the display shows an `Autoplay Off` marker while it is disabled.
+Turning off **Autoplay** in the **Player** tab stops that. When a song ends, the display holds and shows what is up next until someone presses **Next**. If nothing is reserved, the display returns to its idle screen. The setting applies to the whole room, so every controller and display in it agrees, and the display shows an `Autoplay Off` marker while it is off.
 
-Pressing **Next** always skips to the next reserved song, whatever the toggle is set to.
+**Next** always skips to the next reserved song, whatever the Autoplay setting.
+
+### Reactions
+
+The **Player** tab has a row of reactions (👏 🔥 ❤️ 😂 ⭐ 👎). Tapping one floats it across every display in the room.
 
 ### Scoring
 
-Every song is scored when it ends, and skipping one still scores it. The display spins through digits until the score lands, holds it, then moves on. Anything that played for less than five seconds is not scored.
+Every song gets a score when it ends, including songs that are skipped. Songs that played for less than five seconds are not scored. The display spins through digits until the score lands, shows it for a moment, and moves on.
 
-A controller opens with a **Mic Check**, the same way a display opens with a Sound Check. Allowing it scores singing through the phone's microphone, with the audio staying on the device and only the score sent. Only the remote that reserved the song listens.
+A controller starts with a **Mic Check**, much as a display starts with a Sound Check. If you allow it, the phone scores your singing through its microphone. The audio stays on the phone and only the score is sent. Only the phone that reserved the current song listens.
 
-Declining, denying the browser, or reaching the app over plain `http`, where microphones are unavailable, leaves the machine to invent the score instead. Both land in the same range.
+If you decline, the browser refuses, or the app is open over plain `http`, the score is generated instead. Both kinds of score fall in the same range.
 
-### Development
+## Contributing
 
-Want to contribute? See [CONTRIBUTING.md](CONTRIBUTING.md) for the workflow, how to run the checks, and a tour of the code. We follow a [Code of Conduct](CODE_OF_CONDUCT.md) — please read it before participating.
+Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for the workflow, how to run the checks, and a tour of the code. Please read the [Code of Conduct](CODE_OF_CONDUCT.md) before participating.
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
 
 ---
 

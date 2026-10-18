@@ -5,14 +5,14 @@ import { QueueItem } from "../../components/organisms/QueueItem";
 
 interface SortableQueueListProps {
   items: KaraokeQueueItem[];
-  onReorder: (itemIds: string[]) => void;
+  onMoveSong: (itemId: string, position: number) => void;
   entryStatus: (entry: KaraokeEntry) => EntryStatus | null;
   onSelectSong: (entry: KaraokeEntry) => void;
 }
 
 export function SortableQueueList({
   items,
-  onReorder,
+  onMoveSong,
   entryStatus,
   onSelectSong,
 }: SortableQueueListProps) {
@@ -136,12 +136,15 @@ export function SortableQueueList({
       const currentItems = itemsStateRef.current;
 
       if (currentDrag !== null && currentHover !== null && currentDrag !== currentHover) {
+        const movedItem = currentItems[currentDrag];
         const reordered = [...currentItems];
         const [moved] = reordered.splice(currentDrag, 1);
         reordered.splice(currentHover, 0, moved);
 
         setItemsState(reordered);
-        onReorder(reordered.map((item) => item.id));
+        if (movedItem) {
+          onMoveSong(movedItem.id, currentHover);
+        }
       }
 
       setDragIndex(null);

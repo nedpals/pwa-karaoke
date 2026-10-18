@@ -12,7 +12,7 @@ import { useSongDialog } from "./useSongDialog";
 import { SortableQueueList } from "./SortableQueueList";
 
 export function QueueTab() {
-  const { upNextQueue, playerState, autoplay, skipSong, clearQueue, reorderQueue } = useRoomContext();
+  const { upNextQueue, playerState, autoplay, skipSong, clearQueue, moveSong } = useRoomContext();
   const entryStatus = useEntryStatus();
   const dialog = useSongDialog();
   const [isClearingQueue, setIsClearingQueue] = useState(false);
@@ -90,7 +90,7 @@ export function QueueTab() {
       ) : (
         <SortableQueueList
           items={upNextItems}
-          onReorder={reorderQueue}
+          onMoveSong={moveSong}
           entryStatus={entryStatus}
           onSelectSong={dialog.open}
         />

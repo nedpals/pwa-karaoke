@@ -24,15 +24,22 @@ services:
     #   - "8000:8000"
     # Health check for the karaoke app
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      # The image has no curl, so use Python. urlopen raises on a 503.
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=5)"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 30s
+      # Check often while starting so Caddy is not held back for a full interval.
+      start_interval: 2s
 
   caddy:
     image: caddy:2-alpine
     restart: unless-stopped
+    # Wait for the app so early requests don't get a 502 while it starts.
+    depends_on:
+      karaoke-app:
+        condition: service_healthy
     # KARAOKE_HTTP_PORT sets the host port for plain HTTP (default 80). HTTPS stays on 443.
     ports:
       - "${KARAOKE_HTTP_PORT:-80}:80"

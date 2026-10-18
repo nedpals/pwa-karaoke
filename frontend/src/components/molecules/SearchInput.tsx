@@ -3,6 +3,7 @@ import { Input, type BaseInputProps } from "../atoms/Input";
 import { Button } from "../atoms/Button";
 import { Text } from "../atoms/Text";
 import { cn } from "../../lib/utils";
+import { MIN_QUERY_LENGTH } from "../../pages/controller/SongSelectTab";
 
 export interface SearchInputProps extends BaseInputProps {
   onSearch: (value: string) => void;
@@ -62,41 +63,48 @@ export function SearchInput({
   };
 
   return (
-    <div className={cn("flex items-stretch border-2 border-ka-line bg-ka-panel bevel", className)}>
-      <div className="hidden sm:flex items-center px-3 border-r-2 border-ka-line bg-ka-raised">
-        <Text font="display" size="lg" weight="bold" tone="accent">
-          {fieldLabel}
-        </Text>
+    <>
+      <div className={cn("flex items-stretch border-2 border-ka-line bg-ka-panel bevel", className)}>
+        <div className="hidden sm:flex items-center px-3 border-r-2 border-ka-line bg-ka-raised">
+          <Text font="display" size="lg" weight="bold" tone="accent">
+            {fieldLabel}
+          </Text>
+        </div>
+
+        <Input
+          ref={ref}
+          value={value}
+          onChange={handleChange}
+          onKeyDown={handleKeyDown}
+          onKeyUp={onKeyUp}
+          onFocus={onFocus}
+          onClick={onClick}
+          onSelect={onSelect}
+          placeholder={placeholder}
+          className="border-0 bevel-in focus:border-0"
+          inputMode="text"
+          autoComplete="off"
+          autoCapitalize="off"
+          autoCorrect="off"
+          spellCheck={false}
+          {...props}
+        />
+
+        <Button
+          type="button"
+          onClick={handleSearch}
+          disabled={!value.trim() || isSearching}
+          variant="accent"
+          className="border-y-0 border-r-0 border-l-2 border-l-ka-line px-4"
+        >
+          {isSearching ? searchingText : searchButtonText}
+        </Button>
       </div>
-
-      <Input
-        ref={ref}
-        value={value}
-        onChange={handleChange}
-        onKeyDown={handleKeyDown}
-        onKeyUp={onKeyUp}
-        onFocus={onFocus}
-        onClick={onClick}
-        onSelect={onSelect}
-        placeholder={placeholder}
-        className="border-0 bevel-in focus:border-0"
-        inputMode="text"
-        autoComplete="off"
-        autoCapitalize="off"
-        autoCorrect="off"
-        spellCheck={false}
-        {...props}
-      />
-
-      <Button
-        type="button"
-        onClick={handleSearch}
-        disabled={!value.trim() || isSearching}
-        variant="accent"
-        className="border-y-0 border-r-0 border-l-2 border-l-ka-line px-4"
-      >
-        {isSearching ? searchingText : searchButtonText}
-      </Button>
-    </div>
+      {(value.length < MIN_QUERY_LENGTH && value.length > 0) && (
+        <Text size="sm" tone="dim" className="mt-1 ml-1">
+          Type at least {MIN_QUERY_LENGTH} letters to use search
+        </Text>
+      )}
+    </>
   );
 }

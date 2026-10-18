@@ -17,7 +17,7 @@ import { useSongDialog } from "./useSongDialog";
 const SEARCH_DEBOUNCE_MS = 450;
 // One or two letters match most of the catalogue, so searching them costs a
 // round trip to say nothing.
-const MIN_QUERY_LENGTH = 3;
+export const MIN_QUERY_LENGTH = 3;
 
 function SearchResults({
   entries,

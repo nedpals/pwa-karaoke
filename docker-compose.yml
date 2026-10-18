@@ -6,7 +6,7 @@ services:
       - PROXY_SERVER=${PROXY_SERVER}
       - PROXY_USERNAME=${PROXY_USERNAME}
       - PROXY_PASSWORD=${PROXY_PASSWORD}
-      - DOMAIN=${DOMAIN:-localhost}
+      - KARAOKE_DOMAIN=${KARAOKE_DOMAIN:-localhost}
       # Refresh yt-dlp on every start so a restart is enough to pick up a new
       # release. Set to 0 to stay on whatever the image was built with.
       - YTDLP_AUTO_UPDATE=${YTDLP_AUTO_UPDATE:-1}
@@ -33,17 +33,17 @@ services:
   caddy:
     image: caddy:2-alpine
     restart: unless-stopped
-    # HTTP_PORT sets the host port for plain HTTP (default 80). HTTPS stays on 443.
+    # KARAOKE_HTTP_PORT sets the host port for plain HTTP (default 80). HTTPS stays on 443.
     ports:
-      - "${HTTP_PORT:-80}:80"
+      - "${KARAOKE_HTTP_PORT:-80}:80"
       - "443:443"
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile
       - caddy_data:/data
       - caddy_config:/config
     environment:
-      - DOMAIN=${DOMAIN:-localhost}
-      - LAN_IP=${LAN_IP:-127.0.0.1}
+      - KARAOKE_DOMAIN=${KARAOKE_DOMAIN:-localhost}
+      - KARAOKE_LAN_IP=${KARAOKE_LAN_IP:-127.0.0.1}
 
 # Optional: Create a custom network for better isolation
 networks:

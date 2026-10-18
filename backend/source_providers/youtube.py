@@ -43,8 +43,11 @@ RETRYABLE_ERROR_MARKERS = (
     "connection", "timeout", "timed out", "network",
     "dns", "name resolution", "unreachable", "reset by peer", "temporary failure",
     "400", "401", "403", "404", "408",
-    # YouTube's bot check is about the requesting IP, not the video.
+    # YouTube's bot check is about the requesting IP, not the video. A flagged
+    # IP can also get the video with its formats withheld, which yt-dlp reports
+    # as no format matching FORMAT_SELECTOR.
     "not a bot",
+    "requested format is not available",
 )
 
 KILL_GRACE_SECONDS = 5.0

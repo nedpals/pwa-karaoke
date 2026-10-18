@@ -15,6 +15,7 @@ import { ConnectedStateScreen } from "./player/screens/ConnectedStateScreen";
 import { ScoringStateScreen } from "./player/screens/ScoringStateScreen";
 import { ReadyStateScreen } from "./player/screens/ReadyStateScreen";
 import { AwaitingInteractionStateScreen } from "./player/screens/AwaitingInteractionStateScreen";
+import { MiniQRWidget } from "./player/screens/MiniQRWidget";
 
 function PlayerPageContent() {
   const { appState } = usePlayerState();
@@ -97,6 +98,9 @@ export default function PlayerPage() {
           <ReactionLayer />
           <div className="absolute bottom-[3vh] left-[3vw] z-30">
             <StatusStrip />
+          </div>
+          <div className="absolute bottom-[3vh] right-[3vw] z-30">
+            <MiniQRWidget />
           </div>
         </div>
       </PlayerStateProviderInternal>

@@ -93,6 +93,17 @@ uv run python main.py
 
 `uv sync` creates `backend/.venv` and installs the locked dependencies, including `yt-dlp`, so there is nothing to activate. To update `yt-dlp` later, run `uv lock --upgrade-package yt-dlp && uv sync`.
 
+##### Using a yt-dlp nightly
+If searches work but songs won't play, and the backend logs show "Sign in to confirm you're not a bot" or "Requested format is not available", the stable `yt-dlp` release may be behind YouTube. Install the newest nightly build into the backend's environment and start the server with `--no-sync`:
+
+```bash
+cd backend
+uv pip install --upgrade "yt-dlp[default,deno]>=0.0.0.dev0"
+uv run --no-sync python main.py
+```
+
+Keep `--no-sync` every time you start the server. A plain `uv run` puts the locked stable release back without telling you. Check which one you have with `uv run --no-sync yt-dlp --version`: a nightly ends in a long build number, such as `2026.10.10.233141`. To go back to stable, run `uv sync`.
+
 #### Terminal 2: frontend
 ```bash
 cd frontend

@@ -101,10 +101,6 @@ class MoveSongPayload(BaseModel):
     item_id: str
     position: int = Field(..., ge=0)
 
-class ReorderQueuePayload(BaseModel):
-    """Reorder queue command payload"""
-    item_ids: list[str] = Field(..., min_length=1)
-
 # Mapping of commands to their expected payload types
 COMMAND_PAYLOAD_MAP = {
     "handshake": HandshakePayload,
@@ -116,7 +112,6 @@ COMMAND_PAYLOAD_MAP = {
     "remove_song": EntryIDPayload,
     "queue_next_song": EntryIDPayload,
     "move_song": MoveSongPayload,
-    "reorder_queue": ReorderQueuePayload,
     "refresh_video_url": EntryIDPayload,
     "set_volume": SetVolumePayload,
     "set_autoplay": SetAutoplayPayload,

@@ -390,9 +390,6 @@ Commands a client sends. Payloads are validated against the models in `websocket
 // Move a queue item to a specific position (0-indexed)
 ["move_song", {"item_id": string, "position": number}]
 
-// Reorder queue items by list of item IDs
-["reorder_queue", {"item_ids": string[]}]
-
 // Clear entire queue
 ["clear_queue", {}]
 ```

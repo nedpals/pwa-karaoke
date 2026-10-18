@@ -68,7 +68,9 @@ Requires Docker with the Compose plugin. From the repository root:
 
 This builds the image and starts two containers: the app, and a [Caddy](https://caddyserver.com/) web server in front of it on ports 80 (HTTP, set by `HTTP_PORT`) and 443 (HTTPS). `start-docker-app` runs `docker compose up` with `YTDLP_CHANNEL=nightly` and passes along any arguments you give it, such as `-d` to run in the background.
 
-Open `http://localhost`, or `http://$DOMAIN` if you set `DOMAIN`. If you set `HTTP_PORT`, add it to the address, such as `http://localhost:9000`. This and the other settings are read from your shell or a `.env` file next to `docker-compose.yml`, and are listed under [Configuration](#configuration). With nothing set, the server answers on `localhost`.
+Open `http://localhost`, or `http://$DOMAIN` if you set `DOMAIN`. This and the other settings are read from your shell or a `.env` file next to `docker-compose.yml`, and are listed under [Configuration](#configuration). With nothing set, the server answers on `localhost`.
+
+To change the public HTTP port, set `HTTP_PORT` (for example `HTTP_PORT=9000` in `.env`, or `HTTP_PORT=9000 ./start-docker-app -d`) and open `http://localhost:9000`. In `docker-compose.yml` this feeds the Caddy mapping `"${HTTP_PORT:-80}:80"`. The first number is the port on your computer, which is the one that changes. The `:80` after the colon is the port inside the Caddy container and must stay 80, so don't edit it. HTTPS stays on port 443.
 
 Caddy serves HTTPS automatically. For a real domain name it gets a certificate from Let's Encrypt. For `localhost` it uses its own certificate, which your browser will warn about. Caddy only answers requests for the host name in `DOMAIN`, so phones must reach the server by that name, or by its LAN address as described next.
 

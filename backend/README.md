@@ -387,6 +387,9 @@ Commands a client sends. Payloads are validated against the models in `websocket
 // Move a queue item to the front of the queue
 ["queue_next_song", {"entry_id": string}]
 
+// Move a queue item to a specific position (0-indexed)
+["move_song", {"item_id": string, "position": number}]
+
 // Reorder queue items by list of item IDs
 ["reorder_queue", {"item_ids": string[]}]
 
@@ -394,7 +397,7 @@ Commands a client sends. Payloads are validated against the models in `websocket
 ["clear_queue", {}]
 ```
 
-In `remove_song` and `queue_next_song` the field is named `entry_id` but the value is the queue item (reservation) `id` from `KaraokeQueueItem`, not the song's `KaraokeEntry.id`. `reorder_queue` expects an array of queue item `id`s.
+In `remove_song` and `queue_next_song` the field is named `entry_id` but the value is the queue item (reservation) `id` from `KaraokeQueueItem`, not the song's `KaraokeEntry.id`. `move_song` moves an item to the specified 0-indexed position.
 
 **Playback Control**
 ```typescript

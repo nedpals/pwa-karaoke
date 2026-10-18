@@ -33,8 +33,9 @@ services:
   caddy:
     image: caddy:2-alpine
     restart: unless-stopped
+    # HTTP_PORT sets the host port for plain HTTP (default 80). HTTPS stays on 443.
     ports:
-      - "80:80"
+      - "${HTTP_PORT:-80}:80"
       - "443:443"
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile

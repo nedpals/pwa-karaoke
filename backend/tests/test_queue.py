@@ -99,3 +99,45 @@ def test_queue_next_with_unknown_id_changes_nothing():
     queue.queue_next("not-a-real-id")
 
     assert titles_in(queue) == ["Song A", "Song B"]
+
+
+def test_reorder_moves_songs_to_specified_order():
+    queue = make_queue_with_songs("Song A", "Song B", "Song C", "Song D")
+    ids = [item.id for item in queue.items]
+
+    # Reorder to C, A, D, B
+    changed = queue.reorder([ids[2], ids[0], ids[3], ids[1]])
+
+    assert changed is True
+    assert titles_in(queue) == ["Song C", "Song A", "Song D", "Song B"]
+
+
+def test_reorder_preserves_concurrent_items_not_in_reorder_list():
+    queue = make_queue_with_songs("Song A", "Song B", "Song C")
+    ids = [item.id for item in queue.items]
+
+    # Reorder only B and A, omitting C
+    changed = queue.reorder([ids[1], ids[0]])
+
+    assert changed is True
+    assert titles_in(queue) == ["Song B", "Song A", "Song C"]
+
+
+def test_reorder_same_order_returns_false():
+    queue = make_queue_with_songs("Song A", "Song B")
+    ids = [item.id for item in queue.items]
+
+    changed = queue.reorder([ids[0], ids[1]])
+
+    assert changed is False
+    assert titles_in(queue) == ["Song A", "Song B"]
+
+
+def test_reorder_with_unknown_ids_ignores_unknowns():
+    queue = make_queue_with_songs("Song A", "Song B")
+    ids = [item.id for item in queue.items]
+
+    changed = queue.reorder(["unknown-1", ids[1], "unknown-2", ids[0]])
+
+    assert changed is True
+    assert titles_in(queue) == ["Song B", "Song A"]

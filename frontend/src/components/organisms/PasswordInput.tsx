@@ -35,6 +35,7 @@ export function PasswordInput({ roomId, room }: PasswordInputProps) {
 
       <Input
         type="password"
+        aria-label="Room password"
         placeholder="Room password"
         value={password}
         onChange={(e) => setPassword(e.target.value)}

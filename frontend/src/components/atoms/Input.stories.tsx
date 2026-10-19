@@ -36,7 +36,7 @@ export const Large: Story = {
 };
 
 export const Password: Story = {
-  args: { type: 'password', defaultValue: 'secret' },
+  args: { type: 'password', defaultValue: 'secret', 'aria-label': 'Password' },
 };
 
 export const Disabled: Story = {

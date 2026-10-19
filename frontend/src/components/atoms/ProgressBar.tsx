@@ -37,6 +37,7 @@ export function ProgressBar({ value, max, size, tone = "accent", className, ...p
       role="progressbar"
       aria-valuenow={Math.round(value)}
       aria-valuemin={0}
+      aria-label='ProgressBar'
       aria-valuemax={Math.round(max)}
       {...props}
     >

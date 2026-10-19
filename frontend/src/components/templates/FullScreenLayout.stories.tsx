@@ -17,6 +17,13 @@ const meta: Meta<typeof FullScreenLayout> = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
+// axe can't see past the Backdrop image, so nothing drawn over it gets a
+// contrast result. Checked by hand instead, at the scrim's lightest point:
+// stencil titles 11.6:1, amber on the overlay panel 11.8:1.
+const overBackdrop = {
+  a11y: { config: { rules: [{ id: 'color-contrast', enabled: false }] } },
+};
+
 export const Black: Story = {
   args: {
     background: 'black',
@@ -29,6 +36,7 @@ export const Black: Story = {
 };
 
 export const WithBackdrop: Story = {
+  parameters: overBackdrop,
   args: {
     background: 'image',
     backdrop: 'idle',
@@ -44,6 +52,7 @@ export const WithBackdrop: Story = {
 };
 
 export const LobbyBackdrop: Story = {
+  parameters: overBackdrop,
   args: {
     background: 'image',
     backdrop: 'lobby',

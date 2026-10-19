@@ -17,9 +17,31 @@ export function QueueTab() {
   const entryStatus = useEntryStatus();
   const dialog = useSongDialog();
   const [isClearingQueue, setIsClearingQueue] = useState(false);
+  const [isSkipping, setIsSkipping] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const upNextItems = upNextQueue?.items ?? [];
   const [isOpen, setIsOpen] = useState(false);
+
+  const handleSkipSong = async () => {
+    if (isSkipping) return;
+
+    setIsSkipping(true);
+    setErrorMessage(null);
+
+    try {
+      const { screens } = await skipSong();
+      if (screens === 0) {
+        setErrorMessage("No screen is connected to this room.");
+        setTimeout(() => setErrorMessage(null), 3000);
+      }
+    } catch (error) {
+      console.error("Failed to skip:", error);
+      setErrorMessage("Could not skip the song.");
+      setTimeout(() => setErrorMessage(null), 3000);
+    } finally {
+      setIsSkipping(false);
+    }
+  };
 
   const handleClearQueue = async () => {
     if (isClearingQueue) return;
@@ -54,13 +76,7 @@ export function QueueTab() {
               {
                 icon: <MaterialSymbolsFastForwardRounded className="text-2xl" />,
                 label: "Next",
-                onClick: async () => {
-                  try {
-                    await skipSong();
-                  } catch (error) {
-                    console.error("Failed to skip:", error);
-                  }
-                },
+                onClick: handleSkipSong,
               },
             ]}
           />

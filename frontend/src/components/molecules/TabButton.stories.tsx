@@ -13,7 +13,7 @@ const meta: Meta<typeof TabButton> = {
   },
   decorators: [
     (Story) => (
-      <div style={{ width: '360px', display: 'flex' }}>
+      <div style={{ width: '360px', display: 'flex' }} role="tablist">
         <Story />
       </div>
     ),

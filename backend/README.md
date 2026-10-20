@@ -50,6 +50,7 @@ Leadership    Versioning
 - **SessionManager**: Coordinates everything, handles room-scoped operations and display leadership
 - **ClientManager**: WebSocket connections, heartbeat, metrics
 - **RoomManager**: Room state, queue management, player state
+- **RoomStore**: Saves rooms to SQLite (`KARAOKE_DATA_DIR/rooms.db`) on every change and loads them on startup. Player state isn't saved, the leader display sends it again after reconnecting.
 - **Commands**: Type-safe handlers for controller/display actions with leader validation
 
 **Flow:** WebSocket → Handshake → Join Room → Leader Election → Send Commands → Receive Updates

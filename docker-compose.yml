@@ -21,6 +21,9 @@ services:
       - YTDLP_RUNTIME=${YTDLP_RUNTIME:-deno}
       # Empty leaves the choice of YouTube player clients to yt-dlp.
       - YTDLP_PLAYER_CLIENT=${YTDLP_PLAYER_CLIENT:-}
+    # Keeps rooms.db across restarts and rebuilds
+    volumes:
+      - karaoke_data:/app/data
     # Port 8000 is internal only - accessed via Caddy reverse proxy
     # Uncomment the ports section below for development/debugging
     # ports:
@@ -61,5 +64,6 @@ networks:
     name: karaoke-network
 
 volumes:
+  karaoke_data:
   caddy_data:
   caddy_config:

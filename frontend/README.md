@@ -26,8 +26,9 @@ Open `http://localhost:5173` on your laptop. To use a phone as a controller, ope
 | `npm run lint` | Runs ESLint. CI fails on errors, warnings are fine |
 | `npm run storybook` | Starts Storybook on port 6006 |
 | `npm run build-storybook` | Builds a static Storybook |
+| `npm run test:storybook` | Renders every story in headless Chromium. Run `npx playwright install chromium` once first |
 
-CI runs `npm run lint` and `npm run build` on every pull request.
+CI runs `npm run lint`, `npm run build` and `npm run test:storybook` on every pull request.
 
 ## Talking to the backend
 

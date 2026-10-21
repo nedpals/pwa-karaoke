@@ -190,7 +190,7 @@ The backend reads these environment variables. With Docker Compose, set them in 
 | `KARAOKE_LAN_IP` | `127.0.0.1` | The computer's LAN address, which Caddy also serves over HTTPS. The backend reports it on `/heartbeat`. See [Phones on the same network](#phones-on-the-same-network). |
 | `PORT` | `8000` | Port the backend listens on. |
 | `ROOM_IDLE_TTL_SECONDS` | `3600` | How long a room with nobody connected is kept before it is deleted. `0` never deletes rooms. |
-| `KARAOKE_DATA_DIR` | `backend/data` | Where `rooms.db` is stored. Compose mounts the `karaoke_data` volume here. |
+| `KARAOKE_DATA_DIR` | | Folder for `rooms.db`, so rooms survive a restart. Empty keeps rooms in memory only. Compose sets it to `/app/data` on the `karaoke_data` volume. |
 | `KARAOKE_HTTP_PORT` | `80` | Compose only. Host port for plain HTTP access through Caddy. |
 | `PROXY_SERVER` | | Proxy for YouTube requests, such as `http://proxy:8080`. |
 | `PROXY_USERNAME`, `PROXY_PASSWORD` | | Credentials for `PROXY_SERVER`. |
@@ -226,7 +226,7 @@ For API and WebSocket problems, see the Troubleshooting section of [backend/READ
 
 A room is deleted once nobody has been connected to it for an hour (see `ROOM_IDLE_TTL_SECONDS` under [Configuration](#configuration)). Create the room again from the home screen.
 
-Rooms are saved to `KARAOKE_DATA_DIR` and survive a restart. They're gone if you delete that folder or run `docker compose down -v`.
+Without `KARAOKE_DATA_DIR`, rooms are kept in memory and a restart removes them. Docker Compose sets it, so there rooms survive a restart unless you run `docker compose down -v`.
 
 ### Search returns nothing
 

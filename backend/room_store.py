@@ -23,9 +23,10 @@ SAVED_FIELDS = {
 }
 
 class RoomStore:
-    def __init__(self, db_path: Path):
+    def __init__(self, db_path: Path | str = ":memory:"):
         self.db_path = db_path
-        db_path.parent.mkdir(parents=True, exist_ok=True)
+        if db_path != ":memory:":
+            Path(db_path).parent.mkdir(parents=True, exist_ok=True)
         self.connection = sqlite3.connect(str(db_path), check_same_thread=False)
         self.connection.execute("PRAGMA journal_mode=WAL")
         self.connection.execute("PRAGMA synchronous=NORMAL")

@@ -62,7 +62,10 @@ async def lifespan(app: FastAPI):
     set_cache_store(cache)
     print(f"[STARTUP] Cache initialized: {cache.get_stats()}")
 
-    room_store = RoomStore(config.KARAOKE_DATA_DIR / "rooms.db")
+    if config.KARAOKE_DATA_DIR:
+        room_store = RoomStore(Path(config.KARAOKE_DATA_DIR) / "rooms.db")
+    else:
+        room_store = RoomStore()
     loaded = session_manager.room_manager.attach_store(room_store)
     print(f"[STARTUP] Loaded {loaded} room(s) from {room_store.db_path}")
 

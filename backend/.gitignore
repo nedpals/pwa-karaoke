@@ -217,6 +217,3 @@ __marimo__/
 
 # Frontend build artifacts (generated from ../frontend/dist)
 static/
-
-# Local room database
-data/

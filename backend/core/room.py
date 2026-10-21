@@ -2,7 +2,7 @@ import hmac
 import os
 import time
 import hashlib
-from typing import TYPE_CHECKING, Callable, Optional, Dict, Any
+from typing import TYPE_CHECKING, Optional, Dict, Any
 
 from pydantic import BaseModel, Field, PrivateAttr
 
@@ -56,16 +56,6 @@ class Room(BaseModel):
     empty_since: Optional[float] = Field(default_factory=time.time)
 
     _limiter: SlidingWindowLimiter = PrivateAttr(default_factory=SlidingWindowLimiter)
-    _on_change: Optional[Callable[["Room"], None]] = PrivateAttr(default=None)
-
-    def set_on_change(self, callback: Optional[Callable[["Room"], None]]) -> None:
-        self._on_change = callback
-
-    def _save(self) -> None:
-        # Runs before the change is broadcast, so the saved version is never
-        # behind what clients have seen
-        if self._on_change:
-            self._on_change(self)
 
     def allow_action(self, key: str, limit: int, per_seconds: float) -> bool:
         return self._limiter.allow(key, limit, per_seconds)
@@ -96,7 +86,6 @@ class Room(BaseModel):
     ) -> KaraokeQueueItem:
         self.queue.enqueue(entry, singer, singer_device_id)
         self.queue_version += 1
-        self._save()
         return self.queue.items[-1]  # Return the newly added item
 
     def remove_song(self, entry_id: str) -> bool:
@@ -104,21 +93,18 @@ class Room(BaseModel):
         self.queue.dequeue(entry_id)
         if len(self.queue.items) < original_length:
             self.queue_version += 1
-            self._save()
             return True
         return False
 
     def move_to_next(self, entry_id: str) -> bool:
         self.queue.queue_next(entry_id)
         self.queue_version += 1
-        self._save()
         return True
 
     def move_song(self, item_id: str, position: int) -> bool:
         changed = self.queue.move_song(item_id, position)
         if changed:
             self.queue_version += 1
-            self._save()
         return changed
 
     def play_next(self) -> Optional[KaraokeQueueItem]:
@@ -129,19 +115,16 @@ class Room(BaseModel):
             self.current_item_id = next_song.id
             self.current_singer = next_song.singer
             self.current_singer_device_id = next_song.singer_device_id
-            self._save()
             return next_song
 
         self.current_item_id = None
         self.current_singer = None
         self.current_singer_device_id = None
-        self._save()
         return None
 
     def clear_queue(self) -> None:
         self.queue.items.clear()
         self.queue_version += 1
-        self._save()
 
     def record_score(self, item_id: str, score: int, source: str) -> Optional[Dict[str, Any]]:
         """Accept the turn's score, or None if it is not the turn on air or
@@ -169,7 +152,6 @@ class Room(BaseModel):
 
         self.autoplay = enabled
         self.settings_version += 1
-        self._save()
         return True
 
     def update_player_state(self, state: DisplayPlayerState) -> None:
@@ -218,18 +200,21 @@ class RoomManager:
         self.store: Optional["RoomStore"] = None
 
     def attach_store(self, store: "RoomStore") -> int:
-        """Load saved rooms and save every change from now on."""
+        """Load the saved rooms. Returns how many were loaded."""
         self.store = store
         loaded = store.load_all()
         for room in loaded:
-            room.set_on_change(store.save)
             self.rooms[room.id] = room
         return len(loaded)
 
     def detach_store(self) -> None:
-        for room in self.rooms.values():
-            room.set_on_change(None)
         self.store = None
+
+    def save_room(self, room: Room) -> None:
+        """Call before broadcasting a change, so the saved versions are never
+        behind what clients have seen."""
+        if self.store:
+            self.store.save(room)
 
     def get_room(self, room_id: str) -> Room:
         if room_id not in self.rooms:
@@ -246,9 +231,7 @@ class RoomManager:
             room.set_password(password)
 
         self.rooms[room_id] = room
-        if self.store:
-            room.set_on_change(self.store.save)
-            self.store.save(room)
+        self.save_room(room)
         return room
 
     def delete_room(self, room_id: str) -> None:

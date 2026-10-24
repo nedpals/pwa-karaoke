@@ -1,6 +1,8 @@
+import hmac
+import os
 import time
 import hashlib
-from typing import Optional, Dict, Any
+from typing import TYPE_CHECKING, Optional, Dict, Any
 
 from pydantic import BaseModel, Field, PrivateAttr
 
@@ -9,9 +11,28 @@ from core.player import DisplayPlayerState
 from core.queue import KaraokeQueue, KaraokeQueueItem
 from rate_limit import SlidingWindowLimiter
 
+if TYPE_CHECKING:
+    from room_store import RoomStore
+
 # How much of a song has to have played before it is worth a score. Published
 # in room_settings, so the screen and the server enforce the same number.
 MIN_SCORED_SECONDS = 5.0
+
+# Hashes end up in rooms.db, so use salted scrypt instead of plain sha256
+SCRYPT_PARAMS = {"n": 2**14, "r": 8, "p": 1}
+
+def hash_password(password: str) -> str:
+    salt = os.urandom(16)
+    key = hashlib.scrypt(password.encode(), salt=salt, **SCRYPT_PARAMS)
+    return f"{salt.hex()}:{key.hex()}"
+
+def check_password(password: str, stored: str) -> bool:
+    try:
+        salt, key = stored.split(":")
+        attempt = hashlib.scrypt(password.encode(), salt=bytes.fromhex(salt), **SCRYPT_PARAMS)
+    except ValueError:
+        return False
+    return hmac.compare_digest(attempt.hex(), key)
 
 class Room(BaseModel):
     id: str
@@ -41,7 +62,7 @@ class Room(BaseModel):
 
     def set_password(self, password: str) -> None:
         if password:
-            self.password_hash = hashlib.sha256(password.encode()).hexdigest()
+            self.password_hash = hash_password(password)
         else:
             self.password_hash = None
 
@@ -52,8 +73,7 @@ class Room(BaseModel):
         if not password:
             return False
 
-        password_hash = hashlib.sha256(password.encode()).hexdigest()
-        return password_hash == self.password_hash
+        return check_password(password, self.password_hash)
 
     def requires_password(self) -> bool:
         return self.password_hash is not None
@@ -177,6 +197,24 @@ class Room(BaseModel):
 class RoomManager:
     def __init__(self):
         self.rooms: Dict[str, Room] = {}
+        self.store: Optional["RoomStore"] = None
+
+    def attach_store(self, store: "RoomStore") -> int:
+        """Load the saved rooms. Returns how many were loaded."""
+        self.store = store
+        loaded = store.load_all()
+        for room in loaded:
+            self.rooms[room.id] = room
+        return len(loaded)
+
+    def detach_store(self) -> None:
+        self.store = None
+
+    def save_room(self, room: Room) -> None:
+        """Call before broadcasting a change, so the saved versions are never
+        behind what clients have seen."""
+        if self.store:
+            self.store.save(room)
 
     def get_room(self, room_id: str) -> Room:
         if room_id not in self.rooms:
@@ -193,10 +231,13 @@ class RoomManager:
             room.set_password(password)
 
         self.rooms[room_id] = room
+        self.save_room(room)
         return room
 
     def delete_room(self, room_id: str) -> None:
         self.rooms.pop(room_id, None)
+        if self.store:
+            self.store.delete(room_id)
 
     def room_exists(self, room_id: str) -> bool:
         """Check if a room exists"""

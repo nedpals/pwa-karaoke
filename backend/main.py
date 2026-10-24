@@ -30,6 +30,7 @@ from websocket_errors import WebSocketErrorType, create_error_response
 from websocket_models import validate_websocket_message, QUIET_COMMANDS
 from session_manager import SessionManager
 from cache_store import get_cache_store, set_cache_store, clear_cache_store, CacheStore
+from room_store import RoomStore
 
 # Request/Response models
 class CreateRoomRequest(BaseModel):
@@ -61,6 +62,13 @@ async def lifespan(app: FastAPI):
     set_cache_store(cache)
     print(f"[STARTUP] Cache initialized: {cache.get_stats()}")
 
+    if config.KARAOKE_DATA_DIR:
+        room_store = RoomStore(Path(config.KARAOKE_DATA_DIR) / "rooms.db")
+    else:
+        room_store = RoomStore()
+    loaded = session_manager.room_manager.attach_store(room_store)
+    print(f"[STARTUP] Loaded {loaded} room(s) from {room_store.db_path}")
+
     print(f"[STARTUP] Sources enabled: {', '.join(SOURCE_REGISTRY.ids)}")
     sources = await KaraokeService().get_health()
     for provider_id, state in sources["providers"].items():
@@ -86,6 +94,8 @@ async def lifespan(app: FastAPI):
         except asyncio.CancelledError:
             pass
     await SOURCE_REGISTRY.close()
+    session_manager.room_manager.detach_store()
+    room_store.close()
     cache = get_cache_store()
     cache.cleanup()
     clear_cache_store()

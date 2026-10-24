@@ -72,3 +72,28 @@ def test_the_next_turn_can_be_skipped_again():
     room.play_next()
 
     assert report(room, "finished", skipped=True).skipped is True
+
+
+def test_password_hash_is_salted():
+    first, second = Room(id="first"), Room(id="second")
+    first.set_password("secret")
+    second.set_password("secret")
+
+    assert first.password_hash != second.password_hash
+    assert "secret" not in first.password_hash
+    assert first.verify_password("secret")
+    assert second.verify_password("secret")
+
+
+def test_wrong_or_empty_password_is_rejected():
+    room = Room(id="party")
+    room.set_password("secret")
+
+    assert not room.verify_password("Secret")
+    assert not room.verify_password("")
+
+
+def test_unreadable_hash_rejects_everything():
+    room = Room(id="party", password_hash="not-a-hash")
+
+    assert not room.verify_password("not-a-hash")

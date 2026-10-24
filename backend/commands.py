@@ -56,6 +56,9 @@ class ClientCommands:
             is_leader = self.session_manager.is_display_leader(self.client)
             await self.client.send_command("leader_status", {"is_leader": is_leader})
 
+    def _save_room(self):
+        self.session_manager.room_manager.save_room(self.room)
+
     async def pong(self, data):
         """Handle pong response from client"""
         self.client.update_pong()
@@ -153,6 +156,7 @@ class ClientCommands:
     async def _remove_song(self, item_id: str):
         removed = self.room.remove_song(item_id)
         if removed:
+            self._save_room()
             await self._broadcast_room_state()
         return removed
 
@@ -181,6 +185,7 @@ class ClientCommands:
             return {"advanced": False, "stale": True}
 
         next_song = self.room.play_next()
+        self._save_room()
         print(f"[DEBUG] Playing next song: {next_song}")
 
         await self._update_player_state(DisplayPlayerState(
@@ -217,6 +222,7 @@ class ControllerCommands(ClientCommands):
         print(f"[DEBUG] Controller queue_song received: {entry.title} by {entry.artist}")
 
         self.room.add_song(entry, self.client.nickname, self.client.device_id)
+        self._save_room()
         await asyncio.sleep(0.1)  # Small delay to ensure state consistency
 
         # Reserving does not start anything. The leader asks when it sees a
@@ -228,17 +234,20 @@ class ControllerCommands(ClientCommands):
         # Move song to next position in room queue and broadcast update
         moved = self.room.move_to_next(payload["entry_id"])
         if moved:
+            self._save_room()
             await self._broadcast_room_state()
 
     async def move_song(self, payload):
         # Move song to a specific position in room queue and broadcast update
         moved = self.room.move_song(payload["item_id"], payload["position"])
         if moved:
+            self._save_room()
             await self._broadcast_room_state()
 
     async def clear_queue(self, _: None):
         # Clear room queue and broadcast update
         self.room.clear_queue()
+        self._save_room()
         await self._broadcast_room_state()
 
     async def play_song(self, _: None):
@@ -305,6 +314,7 @@ class ControllerCommands(ClientCommands):
     async def set_autoplay(self, payload):
         changed = self.room.set_autoplay(payload["enabled"])
         if changed:
+            self._save_room()
             await self.session_manager.broadcast_to_room(
                 self.client.room_id, "room_settings", self.room.get_settings_payload()
             )

@@ -98,7 +98,7 @@ If you would rather not rebase, `git merge upstream/master` works too. If Git re
 
 ## Running checks locally
 
-CI (`.github/workflows/ci.yml`) runs the backend tests and frontend lint and build on every push and pull request. Run the relevant commands before you push.
+CI (`.github/workflows/ci.yml`) runs the backend tests and the frontend lint, build and Storybook tests on every push and pull request. Run the relevant commands before you push.
 
 **Backend**, from the `backend/` folder:
 
@@ -121,9 +121,12 @@ The tests do not contact YouTube or need a running server. `uv sync` installs th
 npm ci
 npm run lint
 npm run build
+npm run test:storybook
 ```
 
 `npm run build` also type-checks the code (`tsc -b`), so it catches TypeScript errors. ESLint may report warnings; the current CI command fails on lint errors, not warnings.
+
+`npm run test:storybook` renders every story in headless Chromium. It needs Playwright's Chromium, so run `npx playwright install chromium` once before the first run.
 
 **What a red check means:** one of these commands failed on GitHub. Click **Details** next to the failed check on your PR, read the log, and reproduce the failure locally with the same command. Fix it, commit, and push again. The PR updates by itself.
 
